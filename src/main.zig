@@ -10,4 +10,19 @@ pub fn main() !void {
     } });
 
     std.debug.print("{any}\n", .{cpu});
+
+    cpu.follow(Cpu.Instruction{ .not = .{
+        .left = 3,
+        .right = 2,
+    } });
+
+    std.debug.print("{any}\n", .{cpu});
+
+    cpu.follow(Cpu.Instruction{ .@"and" = .{
+        .left = 2,
+        .right = 3,
+    } });
+
+    std.debug.print("{any}\n", .{cpu});
+    
 }

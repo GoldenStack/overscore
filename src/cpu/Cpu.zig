@@ -14,6 +14,9 @@ pub const Registers: Word = 32;
 pub const InstructionTag = enum {
     set,
     mov,
+    not,
+    @"and",
+    @"or",
 };
 
 /// A binary operation that reads from the left and the right register,
@@ -30,6 +33,9 @@ pub const Instruction = union(InstructionTag) {
         word: Word
     },
     mov: BinOp,
+    not: BinOp,
+    @"and": BinOp,
+    @"or": BinOp,
 };
 
 registers: [Registers]Word,
@@ -46,5 +52,8 @@ pub fn follow(self: *@This(), instruction: Instruction) void {
     switch (instruction) {
         .set => |instr| self.registers[instr.reg] = instr.word,
         .mov => |instr| self.registers[instr.left] = instr.right,
+        .not => |instr| self.registers[instr.left] = ~self.registers[instr.right],
+        .@"and" => |instr| self.registers[instr.left] &= self.registers[instr.right],
+        .@"or" => |instr| self.registers[instr.left] |= self.registers[instr.right],
     }
 }
