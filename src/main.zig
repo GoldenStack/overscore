@@ -5,22 +5,23 @@ pub fn main() !void {
     var cpu = Cpu.init();
 
     cpu.follow(Cpu.Instruction{ .set = .{
-        .reg = 2,
-        .word = 500,
+        .addr = 0,
+        .word = 0b10101010,
     } });
 
     std.debug.print("{any}\n", .{cpu});
 
     cpu.follow(Cpu.Instruction{ .not = .{
-        .left = 3,
-        .right = 2,
+        .read = 0,
+        .write = 4,
     } });
 
     std.debug.print("{any}\n", .{cpu});
 
     cpu.follow(Cpu.Instruction{ .@"and" = .{
-        .left = 2,
-        .right = 3,
+        .read1 = 0,
+        .read2 = 4,
+        .write = 0,
     } });
 
     std.debug.print("{any}\n", .{cpu});
