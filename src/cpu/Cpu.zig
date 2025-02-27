@@ -92,7 +92,7 @@ fn check_addr(comptime T: type, addr: Addr) void {
 fn word_read(self: *const @This(), addr: Addr) Word {
     check_addr(Word, addr);
 
-    const buffer = self.memory[addr..addr+4][0..4];
+    const buffer = self.memory[addr..][0..4];
 
     return std.mem.readInt(Word, buffer, .little);
 }
@@ -100,7 +100,7 @@ fn word_read(self: *const @This(), addr: Addr) Word {
 fn word_write(self: *@This(), addr: Addr, word: Word) void {
     check_addr(Word, addr);
 
-    const buffer = self.memory[addr..addr+4][0..4];
+    const buffer = self.memory[addr..][0..4];
 
     std.mem.writeInt(Word, buffer, word, .little);
 }
