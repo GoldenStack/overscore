@@ -40,8 +40,7 @@ extensively configurable; a more general equation is
 |-------|--------------------|------|--------------------|------------------|
 | `set` | 9                  | 0001 | `address` (1 word) | `value` (1 word) |
 
-Sets the value at `address` to the immediate (i.e., specified in assembly)
-opcode.
+Sets the value at `address` to the immediate (i.e., specified inline) opcode.
 
 ### Move
 
