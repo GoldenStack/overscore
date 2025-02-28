@@ -1,7 +1,5 @@
 const std = @import("std");
 
-const This = @This();
-
 /// The word size of this CPU. This denotes the standard size (number of bits)
 /// of data that is moved around the CPU.
 pub const Word = u32;
@@ -28,43 +26,12 @@ pub const BinOp = struct {
     read1: Addr,
     read2: Addr,
     write: Addr,
-
-    fn apply(comptime operation: fn(Word, Word) Word, cpu: *This, addrs: BinOp) void {
-        const read1 = cpu.word_read(addrs.read1);
-        const read2 = cpu.word_read(addrs.read2);
-
-        cpu.word_write(addrs.write, operation(read1, read2));
-    }
-
-    fn @"and"(x: Word, y: Word) Word {
-        return x & y;
-    }
-
-    fn add(x: Word, y: Word) Word {
-        return x +% y;
-    }
-
 };
 
 /// A unary operation that reads from one address and writes to another one.
 pub const UnaryOp = struct {
     read: Addr,
     write: Addr,
-
-    fn apply(comptime operation: fn(Word) Word, cpu: *This, addrs: UnaryOp) void {
-        const read = cpu.word_read(addrs.read);
-
-        cpu.word_write(addrs.write, operation(read));
-    }
-
-    fn mov(x: Word) Word {
-        return x;
-    }
-
-    fn @"not"(x: Word) Word {
-        return ~x;
-    }
-
 };
 
 /// A CPU instruction.
@@ -113,12 +80,25 @@ fn word_write(self: *@This(), addr: Addr, word: Word) void {
 /// Follows the provided CPU instruction.
 pub fn follow(self: *@This(), instruction: Instruction) void {
     switch (instruction) {
+
         .set => |instr| self.word_write(instr.addr, instr.word),
-        .mov => |instr| UnaryOp.apply(UnaryOp.mov, self, instr),
-        .not => |instr| UnaryOp.apply(UnaryOp.@"not", self, instr),
-        .@"and" => |instr| BinOp.apply(BinOp.@"and", self, instr),
-        .add => |instr| BinOp.apply(BinOp.add, self, instr),
+
+        .mov => |instr| self.word_write(instr.write, self.word_read(instr.read)),
+
+        .not => |instr| self.word_write(instr.write, ~self.word_read(instr.read)),
+
+        .@"and" => |instr| self.word_write(
+            instr.write,
+            self.word_read(instr.read1) & self.word_read(instr.read1)
+        ),
+
+        .add => |instr| self.word_write(
+            instr.write,
+            self.word_read(instr.read1) +% self.word_read(instr.read1)
+        ),
+
         .mvr => |instr| self.word_write(instr.write, self.word_read(self.word_read(instr.read))),
+
         .mvw => |instr| self.word_write(self.word_read(instr.write), instr.read)
     }
 }
