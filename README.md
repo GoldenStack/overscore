@@ -5,9 +5,12 @@ assembler, and (in the future) high-level (C, Zig, etc.) language.
 
 ## CPU
 
-32-bit CPU with 8 bit minimum addressable size. This is extensively configurable and should not break any hardware to change.
+32-bit CPU with 8 bit minimum addressable size. This is extensively configurable
+and modifying the values in-code should not break any "hardware".
 
-All address space/memory is in one rwx (read-write-execute) block, including registers and the instruction counter (address 0). This allows jumps to be implemented by adding to the instruction counter at address 0.
+All address space/memory is in one rwx (read-write-execute) block, including
+registers and the instruction counter (address 0). This allows jumps to be
+implemented by adding to the instruction counter at address 0.
 
 ### Instruction Set
 
