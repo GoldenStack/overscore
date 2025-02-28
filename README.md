@@ -36,7 +36,7 @@ extensively configurable; a more general equation is
 `(UnitSize + WordSize * words) / 8`.
 
 ### Set immediate
-| Name  | Total size (bytes) | Data |                    |                  |
+| Name  | Total size (bytes) | Data | ...                |                  |
 |-------|--------------------|------|--------------------|------------------|
 | `set` | 9                  | 0001 | `address` (1 word) | `value` (1 word) |
 
@@ -45,7 +45,7 @@ opcode.
 
 ### Move
 
-| Name  | Total size (bytes) | Data |                 |                  |
+| Name  | Total size (bytes) | Data | ...             |                  |
 |-------|--------------------|------|-----------------|------------------|
 | `mov` | 9                  | 0010 | `read` (1 word) | `write` (1 word) |
 
@@ -53,7 +53,7 @@ Sets the value of `write` to the value of `read`.
 
 ### Not
 
-| Name  | Total size (bytes) | Data |                 |                  |
+| Name  | Total size (bytes) | Data | ...             |                  |
 |-------|--------------------|------|-----------------|------------------|
 | `not` | 9                  | 0011 | `read` (1 word) | `write` (1 word) |
 
@@ -61,7 +61,7 @@ Sets the value of `write` to the binary complement of the value of `read`.
 
 ### And
 
-| Name  | Total size (bytes) | Data |                  |                  |                  |
+| Name  | Total size (bytes) | Data | ...              |                  |                  |
 |-------|--------------------|------|------------------|------------------|------------------|
 | `and` | 13                 | 0100 | `read1` (1 word) | `read2` (1 word) | `write` (1 word) |
 
@@ -69,7 +69,7 @@ Sets the value of `write` to the binary AND of the values of `read1` and `read2`
 
 ### Add
 
-| Name  | Total size (bytes) | Data |                  |                  |                  |
+| Name  | Total size (bytes) | Data | ...              |                  |                  |
 |-------|--------------------|------|------------------|------------------|------------------|
 | `and` | 13                 | 0101 | `read1` (1 word) | `read2` (1 word) | `write` (1 word) |
 
@@ -77,7 +77,7 @@ Sets the value of `write` to the wrapping addition of the values of `read1` and 
 
 ### Indirect reading move
 
-| Name  | Total size (bytes) | Data |                 |                  |
+| Name  | Total size (bytes) | Data | ...             |                  |
 |-------|--------------------|------|-----------------|------------------|
 | `irm` | 9                  | 0110 | `read` (1 word) | `write` (1 word) |
 
@@ -85,7 +85,7 @@ Sets the value of `write` to the value of the value of `read`. This is equivalen
 
 ### Indirect writing move
 
-| Name  | Total size (bytes) | Data |                 |                  |
+| Name  | Total size (bytes) | Data | ...             |                  |
 |-------|--------------------|------|-----------------|------------------|
 | `iwm` | 9                  | 0111 | `read` (1 word) | `write` (1 word) |
 
@@ -93,7 +93,7 @@ Sets the value of the value of `write` to the value of `read`. This is equivalen
 
 ### System instruction
 
-| Name  | Total size (bytes) | Data |                 |                  |
+| Name  | Total size (bytes) | Data | ...             |                  |
 |-------|--------------------|------|-----------------|------------------|
 | `sys` | 9                  | 0111 | `read` (1 word) | `write` (1 word) |
 
