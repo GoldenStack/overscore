@@ -6,7 +6,7 @@ pub fn main() !void {
 
     cpu.follow(Cpu.Instruction{ .set = .{
         .addr = 0,
-        .word = 0b10101010,
+        .value = 0b10101010,
     } });
 
     std.debug.print("{any}\n", .{cpu});
