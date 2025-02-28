@@ -14,16 +14,16 @@ implemented with arithmetic on the instruction counter at address 0.
 
 ### Instruction Set
 
-| Name  | Opcode | Description        | Raw size (words) | C-like equivalent|
-|-------|--------|--------------------|------------------|------------------|
-| `set` | 000001 | Set immediate      | 2                | `a = <constant>` |
-| `mov` | 000010 | Move               | 2                | `a = b`          |
-| `not` | 000011 | Not                | 2                | `a = ~b`         |
-| `and` | 000100 | And                | 3                | `a = b & c`      |
-| `add` | 000101 | Add                | 3                | `a = b + c`      |
-| `mvr` | 000111 | Reading move       | 2                | `a = *b`         |
-| `mvw` | 001000 | Writing move       | 2                | `*a = b`         |
-| `sys` | 001001 | System instruction | 2                | `a = sys(b)`*    |
+| Name  | Opcode | Description           | Raw size (words) | C-like equivalent|
+|-------|--------|-----------------------|------------------|------------------|
+| `set` | 000001 | Set immediate         | 2                | `a = <constant>` |
+| `mov` | 000010 | Move                  | 2                | `a = b`          |
+| `not` | 000011 | Not                   | 2                | `a = ~b`         |
+| `and` | 000100 | And                   | 3                | `a = b & c`      |
+| `add` | 000101 | Add                   | 3                | `a = b + c`      |
+| `irm` | 000111 | Indirect reading move | 2                | `a = *b`         |
+| `iwm` | 001000 | Indirect writing move | 2                | `*a = b`         |
+| `sys` | 001001 | System instruction    | 2                | `a = sys(b)`*    |
 > _*where sys is a standard IO function_
 
 > _Note: C-like equivalents address with variables for simplicity; a more

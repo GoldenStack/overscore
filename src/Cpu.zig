@@ -33,8 +33,8 @@ pub const InstructionTag = enum {
     not,
     @"and",
     add,
-    mvr,
-    mvw,
+    irm,
+    iwm,
     sys,
 };
 
@@ -61,8 +61,8 @@ pub const Instruction = union(InstructionTag) {
     not: UnaryOp,
     @"and": BinOp,
     add: BinOp,
-    mvr: UnaryOp,
-    mvw: UnaryOp,
+    irm: UnaryOp,
+    iwm: UnaryOp,
     sys: UnaryOp,
 };
 
@@ -111,9 +111,9 @@ pub fn follow(self: *@This(), instruction: Instruction) void {
             self.word_read(instr.read1) +% self.word_read(instr.read2)
         ),
 
-        .mvr => |instr| self.word_write(instr.write, self.word_read(self.word_read(instr.read))),
+        .irm => |instr| self.word_write(instr.write, self.word_read(self.word_read(instr.read))),
 
-        .mvw => |instr| self.word_write(self.word_read(instr.write), instr.read),
+        .iwm => |instr| self.word_write(self.word_read(instr.write), instr.read),
 
         // TODO: Implement system (hardware/os/etc) IO
         .sys => |instr| self.word_write(instr.write, 0),
