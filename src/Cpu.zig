@@ -1,8 +1,24 @@
 const std = @import("std");
 
-/// The word size of this CPU. This denotes the standard size (number of bits)
-/// of data that is moved around the CPU.
-pub const Word = u32;
+/// The minimum addressable size of this CPU, in bits.
+/// 
+/// A dependency on standard library functions requires this to be divisible by
+/// 8.
+pub const UnitSize = 8;
+
+/// The number of units (minimum addressable size) per word (the natural data
+/// size for the CPU).
+pub const UnitsPerWord = 4;
+
+/// The standard size (number of bits) of data that is moved around the CPU.
+/// This is always a multiple of the unit size.
+pub const WordSize = UnitsPerWord * UnitSize;
+
+/// The minimum addressable size of this CPU, as an unsigned integer.
+pub const Unit = std.meta.Int(.unsigned, UnitSize);
+
+/// The standard size for CPU operations, as an unsigned integer.
+pub const Word = std.meta.Int(.unsigned, WordSize);
 
 /// The address type for this CPU. This is equivalent to the word size.
 pub const Addr = Word;
@@ -50,33 +66,29 @@ pub const Instruction = union(InstructionTag) {
     sys: UnaryOp,
 };
 
-memory: [Memory]u8,
+memory: [Memory]Unit,
 
 /// Creates a new CPU. This initializes all registers to zero.
 pub fn init() @This() {
     return .{
-        .memory = [_]u8{0} ** Memory,
+        .memory = [_]Unit{0} ** Memory,
     };
 }
 
-fn check_addr(comptime T: type, addr: Addr) void {
-    if (addr > Memory - @divExact(@typeInfo(T).int.bits, 8)) @panic("Tried to read address outside of working memory");
+fn word_ptr(self: *@This(), addr: Addr) *[UnitsPerWord]Unit {
+    if (addr > Memory - UnitsPerWord) {
+        @panic("Tried to read address outside of working memory");
+    }
+    
+    return self.memory[addr..][0..UnitsPerWord];
 }
 
-fn word_read(self: *const @This(), addr: Addr) Word {
-    check_addr(Word, addr);
-
-    const buffer = self.memory[addr..][0..@divExact(@typeInfo(Word).int.bits, 8)];
-
-    return std.mem.readInt(Word, buffer, .little);
+fn word_read(self: *@This(), addr: Addr) Word {
+    return std.mem.readInt(Word, self.word_ptr(addr), .little);
 }
 
 fn word_write(self: *@This(), addr: Addr, word: Word) void {
-    check_addr(Word, addr);
-
-    const buffer = self.memory[addr..][0..@divExact(@typeInfo(Word).int.bits, 8)];
-
-    std.mem.writeInt(Word, buffer, word, .little);
+    std.mem.writeInt(Word, self.word_ptr(addr), word, .little);
 }
 
 /// Follows the provided CPU instruction.
