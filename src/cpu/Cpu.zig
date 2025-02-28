@@ -19,6 +19,7 @@ pub const InstructionTag = enum {
     add,
     mvr,
     mvw,
+    sys,
 };
 
 /// A binary operation that reads from two addresses and writes to a third one.
@@ -46,6 +47,7 @@ pub const Instruction = union(InstructionTag) {
     add: BinOp,
     mvr: UnaryOp,
     mvw: UnaryOp,
+    sys: UnaryOp,
 };
 
 memory: [Memory]u8,
@@ -99,6 +101,9 @@ pub fn follow(self: *@This(), instruction: Instruction) void {
 
         .mvr => |instr| self.word_write(instr.write, self.word_read(self.word_read(instr.read))),
 
-        .mvw => |instr| self.word_write(self.word_read(instr.write), instr.read)
+        .mvw => |instr| self.word_write(self.word_read(instr.write), instr.read),
+
+        // TODO: Implement system (hardware/os/etc) IO
+        .sys => |instr| self.word_write(instr.write, 0),
     }
 }
