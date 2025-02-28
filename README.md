@@ -10,7 +10,7 @@ and modifying the values in-code should not break any "hardware".
 
 All address space/memory is in one rwx (read-write-execute) block, including
 registers and the instruction counter (address 0). This allows jumps to be
-implemented by adding to the instruction counter at address 0.
+implemented with arithmetic on the instruction counter at address 0.
 
 ### Instruction Set
 
