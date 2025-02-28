@@ -9,7 +9,8 @@ pub const Word = u32;
 /// The address type for this CPU. This is equivalent to the word size.
 pub const Addr = Word;
 
-pub const Memory = 50;
+/// The size of the CPU's memory.
+pub const Memory = 512;
 
 /// The tag for the instruction type.
 pub const InstructionTag = enum {
@@ -17,7 +18,9 @@ pub const InstructionTag = enum {
     mov,
     not,
     @"and",
-    @"or",
+    add,
+    mvr,
+    mvw,
 };
 
 /// A binary operation that reads from two addresses and writes to a third one.
@@ -37,8 +40,8 @@ pub const BinOp = struct {
         return x & y;
     }
 
-    fn @"or"(x: Word, y: Word) Word {
-        return x | y;
+    fn add(x: Word, y: Word) Word {
+        return x +% y;
     }
 
 };
@@ -73,7 +76,9 @@ pub const Instruction = union(InstructionTag) {
     mov: UnaryOp,
     not: UnaryOp,
     @"and": BinOp,
-    @"or": BinOp,
+    add: BinOp,
+    mvr: UnaryOp,
+    mvw: UnaryOp,
 };
 
 memory: [Memory]u8,
@@ -112,6 +117,8 @@ pub fn follow(self: *@This(), instruction: Instruction) void {
         .mov => |instr| UnaryOp.apply(UnaryOp.mov, self, instr),
         .not => |instr| UnaryOp.apply(UnaryOp.@"not", self, instr),
         .@"and" => |instr| BinOp.apply(BinOp.@"and", self, instr),
-        .@"or" => |instr| BinOp.apply(BinOp.@"or", self, instr),
+        .add => |instr| BinOp.apply(BinOp.add, self, instr),
+        .mvr => |instr| self.word_write(instr.write, self.word_read(self.word_read(instr.read))),
+        .mvw => |instr| self.word_write(self.word_read(instr.write), instr.read)
     }
 }
