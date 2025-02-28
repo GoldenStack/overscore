@@ -89,12 +89,12 @@ pub fn follow(self: *@This(), instruction: Instruction) void {
 
         .@"and" => |instr| self.word_write(
             instr.write,
-            self.word_read(instr.read1) & self.word_read(instr.read1)
+            self.word_read(instr.read1) & self.word_read(instr.read2)
         ),
 
         .add => |instr| self.word_write(
             instr.write,
-            self.word_read(instr.read1) +% self.word_read(instr.read1)
+            self.word_read(instr.read1) +% self.word_read(instr.read2)
         ),
 
         .mvr => |instr| self.word_write(instr.write, self.word_read(self.word_read(instr.read))),
