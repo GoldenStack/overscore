@@ -21,9 +21,9 @@ implemented with arithmetic on the instruction counter at address 0.
 | `not` | 0011   | Not                   | 9                  | `a = ~b`         |
 | `and` | 0100   | And                   | 13                 | `a = b & c`      |
 | `add` | 0101   | Add                   | 13                 | `a = b + c`      |
-| `irm` | 0111   | Indirect reading move | 9                  | `a = *b`         |
-| `iwm` | 1000   | Indirect writing move | 9                  | `*a = b`         |
-| `sys` | 1001   | System instruction    | 9                  | `a = sys(b)`*    |
+| `irm` | 0110   | Indirect reading move | 9                  | `a = *b`         |
+| `iwm` | 0111   | Indirect writing move | 9                  | `*a = b`         |
+| `sys` | 1000   | System instruction    | 9                  | `a = sys(b)`*    |
 > _*where sys is a standard IO function_
 
 > _Note: C-like equivalents address with variables for simplicity; a more
@@ -95,7 +95,7 @@ Sets the value of the value of `write` to the value of `read`. This is equivalen
 
 | Name  | Total size (bytes) | Data | ...             |                  |
 |-------|--------------------|------|-----------------|------------------|
-| `sys` | 9                  | 0111 | `read` (1 word) | `write` (1 word) |
+| `sys` | 9                  | 1000 | `read` (1 word) | `write` (1 word) |
 
 Performs some arbitrary syscall. This is essentially a hardware/operating system defined call, and is the only standard way of communicating with the environment. Typically it might not be optimal to bottleneck all communication through a single limited operation, but this is not the typical CPU.
 
