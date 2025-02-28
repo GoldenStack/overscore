@@ -55,7 +55,7 @@ pub const UnaryOp = struct {
 pub const Instruction = union(InstructionTag) {
     set: struct {
         addr: Addr,
-        word: Word
+        value: Word
     },
     mov: UnaryOp,
     not: UnaryOp,
@@ -95,7 +95,7 @@ fn word_write(self: *@This(), addr: Addr, word: Word) void {
 pub fn follow(self: *@This(), instruction: Instruction) void {
     switch (instruction) {
 
-        .set => |instr| self.word_write(instr.addr, instr.word),
+        .set => |instr| self.word_write(instr.addr, instr.value),
 
         .mov => |instr| self.word_write(instr.write, self.word_read(instr.read)),
 
