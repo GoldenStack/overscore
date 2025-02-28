@@ -1,5 +1,5 @@
 const std = @import("std");
-const Cpu = @import("cpu/Cpu.zig");
+const Cpu = @import("Cpu.zig");
 
 pub fn main() !void {
     var cpu = Cpu.init();
