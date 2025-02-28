@@ -91,6 +91,59 @@ fn word_write(self: *@This(), addr: Addr, word: Word) void {
     std.mem.writeInt(Word, self.word_ptr(addr), word, .little);
 }
 
+fn opcode_size(opcode: Unit) ?Word {
+    return switch (opcode) {
+        0b0001, 0b0010, 0b0011 => 9,
+        0b0100, 0b0101 => 13,
+        0b0110, 0b0111, 0b1001 => 9,
+        else => null,
+    };
+}
+
+fn read_unary_instruction(self: *@This(), addr: Addr) UnaryOp {
+    return .{
+        .read = self.word_read(addr),
+        .write = self.word_read(addr + UnitsPerWord),
+    };
+}
+
+fn read_binary_instruction(self: *@This(), addr: Addr) BinOp {
+    return .{
+        .read1 = self.word_read(addr),
+        .read2 = self.word_read(addr + UnitsPerWord),
+        .write = self.word_read(addr + UnitsPerWord),
+    };
+}
+
+pub fn instruction_read(self: *@This()) ?Instruction {
+    const addr = self.word_read(0);
+    
+    // Verify and read the first byte
+    if (addr >= Memory) return null;
+    const opcode = self.memory[addr];
+
+    // Advance the instruction pointer
+    const size = opcode_size(opcode) orelse return null;
+    if (addr + size >= Memory) return null;
+    self.word_write(0, addr + size);
+
+    // Actually read the instruction
+    return switch (opcode) {
+        0b0001 => .{ .set = .{
+            .addr = self.word_read(addr + 1),
+            .value = self.word_read(addr + 1 + UnitsPerWord),
+        } },
+        0b0010 => .{ .mov = self.read_unary_instruction(addr + 1) },
+        0b0011 => .{ .not = self.read_unary_instruction(addr + 1) },
+        0b0100 => .{ .@"and" = self.read_binary_instruction(addr + 1) },
+        0b0101 => .{ .add = self.read_binary_instruction(addr + 1) },
+        0b0110 => .{ .irm = self.read_unary_instruction(addr + 1) },
+        0b0111 => .{ .iwm = self.read_unary_instruction(addr + 1) },
+        0b1000 => .{ .sys = self.read_unary_instruction(addr + 1) },
+        else => return null,
+    };
+}
+
 /// Follows the provided CPU instruction.
 pub fn follow(self: *@This(), instruction: Instruction) void {
     switch (instruction) {
@@ -118,4 +171,8 @@ pub fn follow(self: *@This(), instruction: Instruction) void {
         // TODO: Implement system (hardware/os/etc) IO
         .sys => |instr| self.word_write(instr.write, 0),
     }
+}
+
+pub fn loop(self: *@This()) void {
+    while (self.instruction_read()) |instruction| self.follow(instruction);
 }
