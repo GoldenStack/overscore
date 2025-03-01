@@ -35,12 +35,18 @@ Instruction size (in bytes) is calculated as `1 + 4 * words`. Again, this is
 extensively configurable; a more general equation is
 `(UnitSize + WordSize * words) / 8`.
 
-### Set immediate
-| Name  | Total size (bytes) | Data | ...                |                  |
-|-------|--------------------|------|--------------------|------------------|
-| `set` | 9                  | 0001 | `address` (1 word) | `value` (1 word) |
+All instructions are currently either unary operations (`read` and `write`
+fields, 9 byte size) or binary operations (`read1`, `read2`, and `write` fields,
+13 byte size).
 
-Sets the value at `address` to the immediate (i.e., specified inline) opcode.
+### Set immediate
+| Name  | Total size (bytes) | Data | ...              |                 |
+|-------|--------------------|------|------------------|-----------------|
+| `set` | 9                  | 0001 | `write` (1 word) | `read` (1 word) |
+
+Sets the value at `write` to the immediate (i.e., specified inline) `read`. As
+this is immediate the possibility of `read` being a valid address is not
+considered; it simply sets `write` to the constant `read`.
 
 ### Move
 

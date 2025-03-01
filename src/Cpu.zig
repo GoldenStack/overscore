@@ -53,10 +53,7 @@ pub const UnaryOp = struct {
 
 /// A CPU instruction.
 pub const Instruction = union(InstructionTag) {
-    set: struct {
-        addr: Addr,
-        value: Word
-    },
+    set: UnaryOp,
     mov: UnaryOp,
     not: UnaryOp,
     @"and": BinOp,
@@ -129,10 +126,7 @@ pub fn instruction_read(self: *@This()) ?Instruction {
 
     // Actually read the instruction
     return switch (opcode) {
-        0b0001 => .{ .set = .{
-            .addr = self.word_read(addr + 1),
-            .value = self.word_read(addr + 1 + UnitsPerWord),
-        } },
+        0b0001 => .{ .set = self.read_unary_instruction(addr + 1) },
         0b0010 => .{ .mov = self.read_unary_instruction(addr + 1) },
         0b0011 => .{ .not = self.read_unary_instruction(addr + 1) },
         0b0100 => .{ .@"and" = self.read_binary_instruction(addr + 1) },
@@ -148,7 +142,7 @@ pub fn instruction_read(self: *@This()) ?Instruction {
 pub fn follow(self: *@This(), instruction: Instruction) void {
     switch (instruction) {
 
-        .set => |instr| self.word_write(instr.addr, instr.value),
+        .set => |instr| self.word_write(instr.write, instr.read),
 
         .mov => |instr| self.word_write(instr.write, self.word_read(instr.read)),
 
