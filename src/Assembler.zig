@@ -9,10 +9,12 @@ pub const Whitespace = " \t";
 
 /// Assembles a string of Overscore assembly language into a binary file for
 /// input into the CPU.
-pub fn assemble(allocator: std.mem.Allocator, buffer: []const u8) ![]u8 {
+pub fn assemble(allocator: std.mem.Allocator, buffer: []const u8) !std.ArrayList(u8) {
     var iter = AssemblyIterator.init(buffer);
 
-    const memory = std.ArrayList(u8).init(allocator);
+    var start: ?[]const u8 = null;
+
+    var memory = std.ArrayList(u8).init(allocator);
 
     var sections = std.StringHashMap(Cpu.Addr).init(allocator);
     defer sections.deinit();
@@ -20,25 +22,25 @@ pub fn assemble(allocator: std.mem.Allocator, buffer: []const u8) ![]u8 {
     while (iter.next_line()) {
         if (iter.next_token()) |token| {
             if (std.mem.eql(u8, "start", token)) {
-                std.debug.print("start: {s}\n", .{try extract_start_label(&iter)});
+                if (start == null) start = try extract_start_label(&iter)
+                else return error.MultipleStartDefinitions;
             } else if (std.mem.eql(u8, "block", token)) {
-                sections.put(token, memory.items.len);
+                try sections.put(try extract_block_label(&iter), @truncate(memory.items.len));
             } else if (std.meta.stringToEnum(Cpu.InstructionTag, token)) |tag| {
                 const instruction = try extract_instruction(&iter, tag);
-                _ = instruction;
+
+                try instruction.write(memory.writer());
             } else if (std.mem.eql(u8, "end", token)) {
-                memory.append(0);
+                try memory.append(0);
             } else {
                 return error.ExpectedBlockOrInstruction;
             }
         } else return error.ExpectedToken;
 
-        if (empty(&iter)) continue else return error.UnexpectedToken;
         if (!empty(&iter)) return error.UnexpectedToken;
     }
 
-    // TODO format and return proper binary
-    unreachable;
+    return memory;
 }
 
 fn empty(line: *AssemblyIterator) bool {
