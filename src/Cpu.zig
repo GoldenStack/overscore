@@ -172,7 +172,7 @@ fn opcode_size(opcode: Unit) ?Word {
     };
 }
 
-pub fn instruction_read(self: *@This()) !?Instruction {
+pub fn prepare_instruction(self: *@This()) !?Instruction {
     const addr = self.word_read(0);
     
     // Verify and read the first byte
@@ -221,8 +221,4 @@ pub fn follow(self: *@This(), instruction: Instruction) void {
         // TODO: Implement system (hardware/os/etc) IO
         .sys => |instr| self.word_write(instr.write, 0),
     }
-}
-
-pub fn loop(self: *@This()) !void {
-    while (try self.instruction_read()) |instruction| self.follow(instruction);
 }

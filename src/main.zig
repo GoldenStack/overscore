@@ -27,7 +27,10 @@ pub fn main() !void {
 
     std.debug.print("Before: {any}\n", .{cpu.memory});
 
-    try cpu.loop();
+    while (try cpu.prepare_instruction()) |instr| {
+        std.debug.print("{any}\n", .{instr});
+        cpu.follow(instr);
+    }
 
     std.debug.print("After:  {any}\n", .{cpu.memory});
     
