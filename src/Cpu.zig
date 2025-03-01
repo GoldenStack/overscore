@@ -21,6 +21,8 @@ pub const Unit = std.meta.Int(.unsigned, UnitSize);
 pub const Word = std.meta.Int(.unsigned, WordSize);
 
 /// The address type for this CPU. This is equivalent to the word size.
+/// Due to the structure of the CPU and various usages (such as in Set
+/// immediate) this is essentially locked as being equivalent to Word.
 pub const Addr = Word;
 
 /// The size of the CPU's memory.
