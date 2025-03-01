@@ -19,7 +19,7 @@ pub fn main() !void {
 
     std.debug.print("{any}\n", .{cpu});
 
-    cpu.loop();
+    try cpu.loop();
 
     std.debug.print("{any}\n", .{cpu});
     

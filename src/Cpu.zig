@@ -38,6 +38,21 @@ pub const InstructionTag = enum {
     irm,
     iwm,
     sys,
+
+    pub fn write(self: @This(), writer: anytype) !void {
+        const opcode: Unit = switch (self) {
+            .set => 0b0001,
+            .mov => 0b0010,
+            .not => 0b0011,
+            .@"and" => 0b0100,
+            .add => 0b0101,
+            .irm => 0b0110,
+            .iwm => 0b0111,
+            .sys => 0b1000,
+        };
+
+        try writer.writeByte(opcode);
+    }
 };
 
 /// A binary operation that reads from two addresses and writes to a third one.
@@ -45,12 +60,38 @@ pub const BinOp = struct {
     read1: Addr,
     read2: Addr,
     write: Addr,
+
+    pub fn read_from(reader: anytype) !BinOp {
+        return .{
+            .read1 = try reader.readInt(Addr, .little),
+            .read2 = try reader.readInt(Addr, .little),
+            .write = try reader.readInt(Addr, .little),
+        };
+    }
+
+    pub fn write_to(self: @This(), writer: anytype) !void {
+        try writer.writeInt(Addr, self.read1, .little);
+        try writer.writeInt(Addr, self.read2, .little);
+        try writer.writeInt(Addr, self.write, .little);
+    }
 };
 
 /// A unary operation that reads from one address and writes to another one.
 pub const UnaryOp = struct {
     read: Addr,
     write: Addr,
+
+    pub fn read_from(reader: anytype) !UnaryOp {
+        return .{
+            .read = try reader.readInt(Addr, .little),
+            .write = try reader.readInt(Addr, .little),
+        };
+    }
+
+    pub fn write_to(self: @This(), writer: anytype) !void {
+        try writer.writeInt(Addr, self.read, .little);
+        try writer.writeInt(Addr, self.write, .little);
+    }
 };
 
 /// A CPU instruction.
@@ -63,6 +104,38 @@ pub const Instruction = union(InstructionTag) {
     irm: UnaryOp,
     iwm: UnaryOp,
     sys: UnaryOp,
+
+    pub fn write(instruction: @This(), writer: anytype) !void {
+        try InstructionTag.write(instruction, writer);
+
+        switch (instruction) {
+            .set => |instr| try instr.write_to(writer),
+            .mov => |instr| try instr.write_to(writer),
+            .not => |instr| try instr.write_to(writer),
+            .@"and" => |instr| try instr.write_to(writer),
+            .add => |instr| try instr.write_to(writer),
+            .irm => |instr| try instr.write_to(writer),
+            .iwm => |instr| try instr.write_to(writer),
+            .sys => |instr| try instr.write_to(writer),
+        }
+    }
+
+    pub fn read(reader: anytype) !Instruction {
+        const opcode = try reader.readByte();
+
+        return switch (opcode) {
+            0b0001 => .{ .set = try UnaryOp.read_from(reader) },
+            0b0010 => .{ .mov = try UnaryOp.read_from(reader) },
+            0b0011 => .{ .not = try UnaryOp.read_from(reader) },
+            0b0100 => .{ .@"and" = try BinOp.read_from(reader) },
+            0b0101 => .{ .add = try BinOp.read_from(reader) },
+            0b0110 => .{ .irm = try UnaryOp.read_from(reader) },
+            0b0111 => .{ .iwm = try UnaryOp.read_from(reader) },
+            0b1000 => .{ .sys = try UnaryOp.read_from(reader) },
+            else => return error.InvalidOpcode,
+        };
+    }
+
 };
 
 memory: [Memory]Unit,
@@ -99,45 +172,26 @@ fn opcode_size(opcode: Unit) ?Word {
     };
 }
 
-fn read_unary_instruction(self: *@This(), addr: Addr) UnaryOp {
-    return .{
-        .read = self.word_read(addr),
-        .write = self.word_read(addr + UnitsPerWord),
-    };
-}
-
-fn read_binary_instruction(self: *@This(), addr: Addr) BinOp {
-    return .{
-        .read1 = self.word_read(addr),
-        .read2 = self.word_read(addr + UnitsPerWord),
-        .write = self.word_read(addr + UnitsPerWord),
-    };
-}
-
-pub fn instruction_read(self: *@This()) ?Instruction {
+pub fn instruction_read(self: *@This()) !?Instruction {
     const addr = self.word_read(0);
     
     // Verify and read the first byte
-    if (addr >= Memory) return null;
-    const opcode = self.memory[addr];
+    if (addr >= Memory) return error.InstructionPointerOutsideMemory;
 
-    // Advance the instruction pointer
-    const size = opcode_size(opcode) orelse return null;
-    if (addr + size >= Memory) return null;
-    self.word_write(0, addr + size);
+    // Handle opcode of 0
+    if (self.memory[addr] == 0) return null;
+    
+    // Create a buffer stream of memory
+    var stream = std.io.fixedBufferStream(self.memory[0..]);
+    stream.pos = addr;
 
-    // Actually read the instruction
-    return switch (opcode) {
-        0b0001 => .{ .set = self.read_unary_instruction(addr + 1) },
-        0b0010 => .{ .mov = self.read_unary_instruction(addr + 1) },
-        0b0011 => .{ .not = self.read_unary_instruction(addr + 1) },
-        0b0100 => .{ .@"and" = self.read_binary_instruction(addr + 1) },
-        0b0101 => .{ .add = self.read_binary_instruction(addr + 1) },
-        0b0110 => .{ .irm = self.read_unary_instruction(addr + 1) },
-        0b0111 => .{ .iwm = self.read_unary_instruction(addr + 1) },
-        0b1000 => .{ .sys = self.read_unary_instruction(addr + 1) },
-        else => return null,
-    };
+    // Read an instruction
+    const instruction = try Instruction.read(&stream.reader());
+    
+    // Update the instruction pointer
+    self.word_write(0, @truncate(stream.pos));
+
+    return instruction;
 }
 
 /// Follows the provided CPU instruction.
@@ -169,6 +223,6 @@ pub fn follow(self: *@This(), instruction: Instruction) void {
     }
 }
 
-pub fn loop(self: *@This()) void {
-    while (self.instruction_read()) |instruction| self.follow(instruction);
+pub fn loop(self: *@This()) !void {
+    while (try self.instruction_read()) |instruction| self.follow(instruction);
 }
