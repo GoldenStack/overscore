@@ -44,9 +44,8 @@ fields, 9 byte size) or binary operations (`read1`, `read2`, and `write` fields,
 |-------|--------------------|------|------------------|-----------------|
 | `set` | 9                  | 0001 | `write` (1 word) | `read` (1 word) |
 
-Sets the value at `write` to the immediate (i.e., specified inline) `read`. As
-this is immediate the possibility of `read` being a valid address is not
-considered; it simply sets `write` to the constant `read`.
+Sets the value at `write` to the immediate (i.e., specified inline) `read`.
+This treats `read` as a value and not a register.
 
 ### Move
 
