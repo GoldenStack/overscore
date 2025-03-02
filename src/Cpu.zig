@@ -26,7 +26,7 @@ pub const Word = std.meta.Int(.unsigned, WordSize);
 pub const Addr = Word;
 
 /// The size of the CPU's memory.
-pub const Memory = 512;
+pub const Memory = 2048;
 
 /// The tag for the instruction type.
 pub const InstructionTag = enum {

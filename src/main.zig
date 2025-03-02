@@ -11,9 +11,12 @@ pub fn main() !void {
     const assembly = @embedFile("example.asm");
     const asm_slice: []const u8 = assembly[0..assembly.len];
 
+    // Initialize the assembler
+    var assembler = Assembler.init(gpa.allocator(), asm_slice);
+    defer assembler.deinit();
+    
     // Assemble the assembly into binary
-    const binary = try Assembler.assemble(gpa.allocator(), asm_slice);
-    defer binary.deinit();
+    const binary = try assembler.assemble();
 
     // Display the assembled binary
     std.debug.print("Assembled binary: {any}\n", .{binary.items});
