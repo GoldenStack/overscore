@@ -15,6 +15,7 @@ pub fn assemble(allocator: std.mem.Allocator, buffer: []const u8) !std.ArrayList
     var start: ?[]const u8 = null;
 
     var memory = std.ArrayList(u8).init(allocator);
+    try memory.appendNTimes(0, Cpu.UnitsPerWord); // Space for start
 
     var sections = std.StringHashMap(Cpu.Addr).init(allocator);
     defer sections.deinit();
@@ -39,6 +40,12 @@ pub fn assemble(allocator: std.mem.Allocator, buffer: []const u8) !std.ArrayList
 
         if (!empty(&iter)) return error.UnexpectedToken;
     }
+
+    if (start) |name| {
+        if (sections.get(name)) |addr| {
+            std.mem.writeInt(Cpu.Addr, memory.items[0..Cpu.UnitsPerWord], addr, .little);
+        } else return error.InvalidStartSection;
+    } else return error.ExpectedStartDefinition;
 
     return memory;
 }

@@ -12,18 +12,14 @@ pub fn main() !void {
     const assembly = @embedFile("example.asm");
     const asm2: []const u8 = assembly[0..assembly.len];
 
-    const code = try Assembler.assemble(gpa.allocator(), asm2);
-    defer code.deinit();
+    const binary = try Assembler.assemble(gpa.allocator(), asm2);
+    defer binary.deinit();
 
-    std.debug.print("Assembled code: {any}\n", .{code.items});
+    std.debug.print("Assembled binary: {any}\n", .{binary.items});
     
     var cpu = Cpu.init();
 
-    var working_memory = [_]Cpu.Unit{0} ** 20;
-    working_memory[0] = 20;
-
-    @memcpy(cpu.memory[0..working_memory.len], &working_memory);
-    @memcpy(cpu.memory[working_memory.len..working_memory.len+code.items.len], code.items);
+    @memcpy(cpu.memory[0..binary.items.len], binary.items);
 
     std.debug.print("Before: {any}\n", .{cpu.memory});
 
