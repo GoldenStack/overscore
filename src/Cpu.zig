@@ -139,11 +139,13 @@ pub const Instruction = union(InstructionTag) {
 };
 
 memory: [Memory]Unit,
+sys: *const fn(Word) Word,
 
 /// Creates a new CPU. This initializes all registers to zero.
-pub fn init() @This() {
+pub fn init(sys: *const fn(Word) Word) @This() {
     return .{
         .memory = [_]Unit{0} ** Memory,
+        .sys = sys,
     };
 }
 
@@ -218,7 +220,6 @@ pub fn follow(self: *@This(), instruction: Instruction) void {
 
         .iwm => |instr| self.word_write(self.word_read(instr.write), instr.read),
 
-        // TODO: Implement system (hardware/os/etc) IO
-        .sys => |instr| self.word_write(instr.write, 0),
+        .sys => |instr| self.word_write(instr.write, self.sys(self.word_read(instr.read))),
     }
 }
