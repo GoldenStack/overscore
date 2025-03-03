@@ -29,8 +29,8 @@ pub const Addr = Word;
 pub const Memory = 2048;
 
 /// The tag for the instruction type.
-pub const InstructionTag = enum {
-    set,
+pub const InstructionTag = enum(Unit) {
+    set = 1,
     mov,
     not,
     @"and",
@@ -39,17 +39,14 @@ pub const InstructionTag = enum {
     iwm,
     sys,
 
+    pub fn read(reader: anytype) !InstructionTag {
+        const opcode = try reader.readByte();
+
+        return std.meta.intToEnum(InstructionTag, opcode) catch error.UnknownOpcode;
+    }
+
     pub fn write(self: @This(), writer: anytype) !void {
-        const opcode: Unit = switch (self) {
-            .set => 0b0001,
-            .mov => 0b0010,
-            .not => 0b0011,
-            .@"and" => 0b0100,
-            .add => 0b0101,
-            .irm => 0b0110,
-            .iwm => 0b0111,
-            .sys => 0b1000,
-        };
+        const opcode = @intFromEnum(self);
 
         try writer.writeByte(opcode);
     }
@@ -105,6 +102,20 @@ pub const Instruction = union(InstructionTag) {
     iwm: UnaryOp,
     sys: UnaryOp,
 
+    pub fn read(reader: anytype) !Instruction {
+        return switch (try InstructionTag.read(reader)) {
+            .set => .{ .set = try UnaryOp.read_from(reader) },
+            .mov => .{ .mov = try UnaryOp.read_from(reader) },
+            .not => .{ .not = try UnaryOp.read_from(reader) },
+            .@"and" => .{ .@"and" = try BinOp.read_from(reader) },
+            .add => .{ .add = try BinOp.read_from(reader) },
+            .irm => .{ .irm = try UnaryOp.read_from(reader) },
+            .iwm => .{ .iwm = try UnaryOp.read_from(reader) },
+            .sys => .{ .sys = try UnaryOp.read_from(reader) },
+        };
+    }
+
+
     pub fn write(instruction: @This(), writer: anytype) !void {
         try InstructionTag.write(instruction, writer);
 
@@ -118,22 +129,6 @@ pub const Instruction = union(InstructionTag) {
             .iwm => |instr| try instr.write_to(writer),
             .sys => |instr| try instr.write_to(writer),
         }
-    }
-
-    pub fn read(reader: anytype) !Instruction {
-        const opcode = try reader.readByte();
-
-        return switch (opcode) {
-            0b0001 => .{ .set = try UnaryOp.read_from(reader) },
-            0b0010 => .{ .mov = try UnaryOp.read_from(reader) },
-            0b0011 => .{ .not = try UnaryOp.read_from(reader) },
-            0b0100 => .{ .@"and" = try BinOp.read_from(reader) },
-            0b0101 => .{ .add = try BinOp.read_from(reader) },
-            0b0110 => .{ .irm = try UnaryOp.read_from(reader) },
-            0b0111 => .{ .iwm = try UnaryOp.read_from(reader) },
-            0b1000 => .{ .sys = try UnaryOp.read_from(reader) },
-            else => return error.InvalidOpcode,
-        };
     }
 
 };
