@@ -1,39 +1,37 @@
 start Main
 
+block Message
+    raw Hello, world!
+    end
+
 block Main
 //    set b10101010 100 // Can replace b10101010 with AA or xAA or d170
 //    not 100 104
 //    and 100 104 100
+    
+    // Set the iteration index to start at Message
+    set Message 400
 
-    set b00000001000000000000000001001000 400 // H
-    sys 400 400
-    set b00000001000000000000000001100101 400 // e
-    sys 400 400
-    set b00000001000000000000000001101100 400 // l
-    sys 400 400
-    set b00000001000000000000000001101100 400 // l
-    sys 400 400
-    set b00000001000000000000000001101111 400 // o
-    sys 400 400
-    set b00000001000000000000000000101100 400 // ,
-    sys 400 400
-    set b00000001000000000000000000100000 400 // 
-    sys 400 400
-    set b00000001000000000000000001110111 400 // w
-    sys 400 400
-    set b00000001000000000000000001101111 400 // o
-    sys 400 400
-    set b00000001000000000000000001110010 400 // r
-    sys 400 400
-    set b00000001000000000000000001101100 400 // l
-    sys 400 400
-    set b00000001000000000000000001100100 400 // d
-    sys 400 400
-    set b00000001000000000000000000100001 400 // !
-    sys 400 400
-    set b00000001000000000000000000001010 400 // \n
-    sys 400 400
+block Loop
+    // Clear bytes
+    set 0 500
+    set 0 501
 
-    set Main 0
+    // Chop out the extra bytes
+    irm 400 500 // DE AD BE EF 00
+    set 0 501   // DE 00 00 00 00
+
+    // TODO: Exit if equals zero
+
+    // Print characters
+    set 1   503  // DE 00 00 01 00
+    sys 500 500
+
+    // Go to the next byte
+    set 1   500
+    add 400 500 400
+
+    // Loop back to the start
+    set Loop 0
 
     end
