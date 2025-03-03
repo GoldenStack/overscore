@@ -40,15 +40,20 @@ pub fn assemble(self: *@This()) !std.ArrayList(u8) {
     while (self.iter.next_line()) {
         if (self.iter.next_token()) |token| {
             if (std.mem.eql(u8, "start", token)) {
-                if (start == null) start = try self.expect_token() else return error.MultipleStartDefinitions;
+                if (start == null) start = try self.read_token()
+                else return error.MultipleStartDefinitions;
             } else if (std.mem.eql(u8, "block", token)) {
-                try self.labels.put(try self.expect_token(), @truncate(self.memory.items.len));
+                try self.labels.put(try self.read_token(), @truncate(self.memory.items.len));
             } else if (std.meta.stringToEnum(Cpu.InstructionTag, token)) |tag| {
                 const instruction = try self.read_instruction(tag);
 
                 try instruction.write(self.memory.writer());
             } else if (std.mem.eql(u8, "end", token)) {
                 try self.memory.append(0);
+            } else if (std.mem.eql(u8, "raw", token)) {
+                const tokens = &self.iter.token_iterator.?;
+                try self.memory.appendSlice(tokens.rest());
+                tokens.index = tokens.buffer.len;
             } else {
                 return error.ExpectedBlockOrInstruction;
             }
@@ -66,14 +71,14 @@ pub fn assemble(self: *@This()) !std.ArrayList(u8) {
     return self.memory;
 }
 
-fn expect_token(self: *@This()) ![]const u8 {
+fn read_token(self: *@This()) ![]const u8 {
     const token = self.iter.next_token() orelse return error.ExpectedToken;
 
     if (token.len == 0) return error.ExpectedToken else return token;
 }
 
 fn read_literal(self: *@This()) !Cpu.Word {
-    const token = try self.expect_token();
+    const token = try self.read_token();
 
     if (self.labels.get(token)) |value| {
         return value;
