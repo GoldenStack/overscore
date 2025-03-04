@@ -1,7 +1,8 @@
 # Overscore
 
-Overscore is a custom CPU emulator, instruction set architecture, machine code,
-assembler, and (in the future) high-level (C, Zig, etc.) language.
+Overscore is a from-scratch CPU emulator, instruction set, assembler, and (in
+the future) high-level (C, Zig, etc) language. It's an entirely separate
+computer ecosystem, starting from the ground up.
 
 # CPU
 
