@@ -126,6 +126,18 @@ higher-level features.
 Comments are written with `//`. Semicolons are not supported as comments and
 will cause an assembler error.
 
+Here's an example program:
+```asm
+start Main
+
+block Main
+    set AA  100
+    not 100 104
+    and 104 100
+    end
+```
+
+
 ## Blocks
 The directive `block Main` (where `Main` is the name of the block) allows
 referring to the address of the next instruction by the name of the block. This
