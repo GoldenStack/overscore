@@ -177,7 +177,7 @@ By default, they're parsed as hexadecimal.
     set AA        0 // Set address 0 to AA (hexadecimal)
     set d170      0 // Set address 0 to 170 (decimal)
     set b10101010 0 // Set address 0 to 10101010 (binary)
-    set x100      0 // Set address 0 to AA (hexadecimal)
+    set xAA       0 // Set address 0 to AA (hexadecimal)
 ```
 
 ## End
