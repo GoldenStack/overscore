@@ -5,8 +5,9 @@ assembler, and (in the future) high-level (C, Zig, etc.) language.
 
 # CPU
 
-32-bit CPU with 8 bit minimum addressable size. This is extensively configurable
-and modifying the values in-code should not break any "hardware".
+The CPU is a simple 32-bit CPU with 8 bit minimum addressable size and 8
+instructions. The architecture size and minimum addressable size are extensively
+configurable and modifying the values in-code should not break any "hardware".
 
 All address space/memory is in one rwx (read-write-execute) block, including
 registers and the instruction counter (address 0). This allows jumps to be
@@ -28,6 +29,11 @@ implemented with arithmetic on the instruction counter at address 0.
 
 > _Note: C-like equivalents address with variables for simplicity; a more
 > accurate representation for e.g. `mov` might be `mem[a] = mem[b]`._
+
+The instruction set is intentionally relatively limited to maintain overall
+simplicity. It [could be simpler](https://en.wikipedia.org/wiki/One-instruction_set_computer), 
+but this has been intentionally avoided as to prevent the CPU from becoming a
+[Turing tarpit](https://en.wikipedia.org/wiki/Turing_tarpit).
 
 A null byte (opcode zero) exits. Otherwise, invalid opcodes always error.
 Addressing invalid memory always errors (errors are defined as emulator exits).
@@ -65,7 +71,7 @@ Sets the value of `write` to the binary complement of the value of `read`.
 ### And
 
 | Name  | Total size (bytes) | Data | ...             |                  |
-|-------|--------------------|------|-----------------|---------- -------|
+|-------|--------------------|------|-----------------|------------------|
 | `and` | 9                  | 0100 | `read` (1 word) | `write` (1 word) |
 
 Sets the value of `write` to the binary AND of the values of `read` and `write`.
@@ -112,6 +118,75 @@ defined call, and is the only standard way of communicating with the
 environment. Typically it might not be optimal to bottleneck all communication
 through a single limited operation, but this is not the typical CPU.
 
+# Assembly
 
+The assembler is a simple text-based way to write machine code, with a few
+higher-level features.
 
+Comments are written with `//`. Semicolons are not supported as comments and
+will cause an assembler error.
 
+## Blocks
+The directive `block Main` (where `Main` is the name of the block) allows
+referring to the address of the next instruction by the name of the block. This
+is useful for jumping to or reading from certain blocks, because their spot in
+memory is not necessarily known.
+
+Current assembler limitations prevent blocks from being referred to before they
+are declared, making it only possible to jump backwards to blocks.
+
+## Start
+
+As the assembled binary is loaded at address `0`, the first word size of
+the binary are used for storing the start address. This is done with
+`start Main`, where `Main` is the name of the block.
+
+The `start` directive is not subject to the limitation of blocks only being
+referred to after their declaration.
+
+## Instructions
+
+Instructions can be referred to using their shortened name. The destination
+address is placed second. For example:
+```asm
+    set AA  100 // Set address 100 (in hexadecimal) to AA
+    not 100 104 // Flip all of the bits of 100, writing to 104 
+    and 104 100 // Binary AND on 100 and 104, writing to 100
+```
+
+## Literals
+
+Number literals can be formatted in hexadecimal, binary, or decimal.
+
+By default, they're parsed as hexadecimal.
+
+```asm
+    set AA        0 // Set address 0 to AA (hexadecimal)
+    set d170      0 // Set address 0 to 170 (decimal)
+    set b10101010 0 // Set address 0 to 10101010 (binary)
+    set x100      0 // Set address 0 to AA (hexadecimal)
+```
+
+## End
+
+You can place a null byte in the binary with the `end` directive.
+
+This is typically useful for ending the program, or for padding.
+
+## Raw
+
+Use `raw <BYTES>` to insert the bytes directly in the binary. This is useful for
+embedding strings into the binary.
+
+Printing strings can be implemented this way by writing, for example:
+```asm
+block Message
+    raw Hello, world!
+    end
+```
+
+The `block` is included to make it possible to refer to where the string is
+placed.
+
+Since there's no way to get the length of the embedded bytes, the `end`
+directive was added to make the string null-terminated.
