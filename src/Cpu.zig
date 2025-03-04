@@ -52,27 +52,6 @@ pub const InstructionTag = enum(Unit) {
     }
 };
 
-/// A binary operation that reads from two addresses and writes to a third one.
-pub const BinOp = struct {
-    read1: Addr,
-    read2: Addr,
-    write: Addr,
-
-    pub fn read_from(reader: anytype) !BinOp {
-        return .{
-            .read1 = try reader.readInt(Addr, .little),
-            .read2 = try reader.readInt(Addr, .little),
-            .write = try reader.readInt(Addr, .little),
-        };
-    }
-
-    pub fn write_to(self: @This(), writer: anytype) !void {
-        try writer.writeInt(Addr, self.read1, .little);
-        try writer.writeInt(Addr, self.read2, .little);
-        try writer.writeInt(Addr, self.write, .little);
-    }
-};
-
 /// A unary operation that reads from one address and writes to another one.
 pub const UnaryOp = struct {
     read: Addr,
@@ -96,8 +75,8 @@ pub const Instruction = union(InstructionTag) {
     set: UnaryOp,
     mov: UnaryOp,
     not: UnaryOp,
-    @"and": BinOp,
-    add: BinOp,
+    @"and": UnaryOp,
+    add: UnaryOp,
     irm: UnaryOp,
     iwm: UnaryOp,
     sys: UnaryOp,
@@ -107,8 +86,8 @@ pub const Instruction = union(InstructionTag) {
             .set => .{ .set = try UnaryOp.read_from(reader) },
             .mov => .{ .mov = try UnaryOp.read_from(reader) },
             .not => .{ .not = try UnaryOp.read_from(reader) },
-            .@"and" => .{ .@"and" = try BinOp.read_from(reader) },
-            .add => .{ .add = try BinOp.read_from(reader) },
+            .@"and" => .{ .@"and" = try UnaryOp.read_from(reader) },
+            .add => .{ .add = try UnaryOp.read_from(reader) },
             .irm => .{ .irm = try UnaryOp.read_from(reader) },
             .iwm => .{ .iwm = try UnaryOp.read_from(reader) },
             .sys => .{ .sys = try UnaryOp.read_from(reader) },
@@ -203,12 +182,12 @@ pub fn follow(self: *@This(), instruction: Instruction) void {
 
         .@"and" => |instr| self.word_write(
             instr.write,
-            self.word_read(instr.read1) & self.word_read(instr.read2)
+            self.word_read(instr.write) & self.word_read(instr.read)
         ),
 
         .add => |instr| self.word_write(
             instr.write,
-            self.word_read(instr.read1) +% self.word_read(instr.read2)
+            self.word_read(instr.write) +% self.word_read(instr.read)
         ),
 
         .irm => |instr| self.word_write(instr.write, self.word_read(self.word_read(instr.read))),

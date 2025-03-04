@@ -19,8 +19,8 @@ implemented with arithmetic on the instruction counter at address 0.
 | `set` | 0001   | Set immediate         | 9                  | `a = <constant>` |
 | `mov` | 0010   | Move                  | 9                  | `a = b`          |
 | `not` | 0011   | Not                   | 9                  | `a = ~b`         |
-| `and` | 0100   | And                   | 13                 | `a = b & c`      |
-| `add` | 0101   | Add                   | 13                 | `a = b + c`      |
+| `and` | 0100   | And                   | 9                  | `a = a & b`      |
+| `add` | 0101   | Add                   | 9                  | `a = a + b`      |
 | `irm` | 0110   | Indirect reading move | 9                  | `a = *b`         |
 | `iwm` | 0111   | Indirect writing move | 9                  | `*a = b`         |
 | `sys` | 1000   | System instruction    | 9                  | `a = sys(b)`*    |
@@ -29,15 +29,14 @@ implemented with arithmetic on the instruction counter at address 0.
 > _Note: C-like equivalents address with variables for simplicity; a more
 > accurate representation for e.g. `mov` might be `mem[a] = mem[b]`._
 
-Invalid opcodes always error. Addressing invalid memory always errors (errors are defined as emulator exits).
+Invalid opcodes always error. Addressing invalid memory always errors (errors
+are defined as emulator exits).
 
 Instruction size (in bytes) is calculated as `1 + 4 * words`. Again, this is 
 extensively configurable; a more general equation is
 `(UnitSize + WordSize * words) / 8`.
 
-All instructions are currently either unary operations (`read` and `write`
-fields, 9 byte size) or binary operations (`read1`, `read2`, and `write` fields,
-13 byte size).
+All instructions currently accept two arguments and are thus all the same size.
 
 ### Set immediate
 | Name  | Total size (bytes) | Data | ...              |                 |
@@ -65,19 +64,20 @@ Sets the value of `write` to the binary complement of the value of `read`.
 
 ### And
 
-| Name  | Total size (bytes) | Data | ...              |                  |                  |
-|-------|--------------------|------|------------------|------------------|------------------|
-| `and` | 13                 | 0100 | `read1` (1 word) | `read2` (1 word) | `write` (1 word) |
+| Name  | Total size (bytes) | Data | ...             |                  |
+|-------|--------------------|------|-----------------|---------- -------|
+| `and` | 9                  | 0100 | `read` (1 word) | `write` (1 word) |
 
-Sets the value of `write` to the binary AND of the values of `read1` and `read2`.
+Sets the value of `write` to the binary AND of the values of `read` and `write`.
 
 ### Add
 
-| Name  | Total size (bytes) | Data | ...              |                  |                  |
-|-------|--------------------|------|------------------|------------------|------------------|
-| `and` | 13                 | 0101 | `read1` (1 word) | `read2` (1 word) | `write` (1 word) |
+| Name  | Total size (bytes) | Data | ...             |                  |
+|-------|--------------------|------|-----------------|------------------|
+| `and` | 9                  | 0101 | `read` (1 word) | `write` (1 word) |
 
-Sets the value of `write` to the wrapping addition of the values of `read1` and `read2`.
+Sets the value of `write` to the wrapping unsigned sum of the values of `read`
+and `write`.
 
 ### Indirect reading move
 
@@ -85,7 +85,10 @@ Sets the value of `write` to the wrapping addition of the values of `read1` and 
 |-------|--------------------|------|-----------------|------------------|
 | `irm` | 9                  | 0110 | `read` (1 word) | `write` (1 word) |
 
-Sets the value of `write` to the value of the value of `read`. This is equivalent to `mov` except instead of the value of `read` being interpreted as a word, the value of `read` is treated as an address and the value of this address is treated as a word.
+Sets the value of `write` to the value of the value of `read`. This is
+equivalent to `mov` except instead of the value of `read` being interpreted as a
+word, the value of `read` is treated as an address and the value of this address
+is treated as a word.
 
 ### Indirect writing move
 
@@ -93,7 +96,10 @@ Sets the value of `write` to the value of the value of `read`. This is equivalen
 |-------|--------------------|------|-----------------|------------------|
 | `iwm` | 9                  | 0111 | `read` (1 word) | `write` (1 word) |
 
-Sets the value of the value of `write` to the value of `read`. This is equivalent to `mov` except instead of the value of `write` being set, the value of `write` is interpreted as an address and the value of this address is written to instead.
+Sets the value of the value of `write` to the value of `read`. This is
+equivalent to `mov` except instead of the value of `write` being set, the value
+of `write` is interpreted as an address and the value of this address is written
+to instead.
 
 ### System instruction
 
@@ -101,7 +107,10 @@ Sets the value of the value of `write` to the value of `read`. This is equivalen
 |-------|--------------------|------|-----------------|------------------|
 | `sys` | 9                  | 1000 | `read` (1 word) | `write` (1 word) |
 
-Performs some arbitrary syscall. This is essentially a hardware/operating system defined call, and is the only standard way of communicating with the environment. Typically it might not be optimal to bottleneck all communication through a single limited operation, but this is not the typical CPU.
+Performs some arbitrary syscall. This is essentially a hardware/operating system
+defined call, and is the only standard way of communicating with the
+environment. Typically it might not be optimal to bottleneck all communication
+through a single limited operation, but this is not the typical CPU.
 
 
 

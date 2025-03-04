@@ -99,21 +99,13 @@ fn read_unaryop(self: *@This()) !Cpu.UnaryOp {
     };
 }
 
-fn read_binop(self: *@This()) !Cpu.BinOp {
-    return .{
-        .read1 = try self.read_literal(),
-        .read2 = try self.read_literal(),
-        .write = try self.read_literal(),
-    };
-}
-
 fn read_instruction(self: *@This(), tag: Cpu.InstructionTag) !Cpu.Instruction {
     return switch (tag) {
         .set => .{ .set = try self.read_unaryop() },
         .mov => .{ .mov = try self.read_unaryop() },
         .not => .{ .not = try self.read_unaryop() },
-        .@"and" => .{ .@"and" = try self.read_binop() },
-        .add => .{ .add = try self.read_binop() },
+        .@"and" => .{ .@"and" = try self.read_unaryop() },
+        .add => .{ .add = try self.read_unaryop() },
         .irm => .{ .irm = try self.read_unaryop() },
         .iwm => .{ .iwm = try self.read_unaryop() },
         .sys => .{ .sys = try self.read_unaryop() },

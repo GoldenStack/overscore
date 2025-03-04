@@ -26,11 +26,11 @@ block Loop
     // In total, we want to skip 9c, so we do that.
 
     mov f10 f14 // Copy the value once (1c)
-    add f14 f14 f14 // Double it (2c)
-    add f14 f14 f14 // Double it (4c)
-    add f14 f14 f14 // Double it (8c)
-    add f10 f14 f14 // Add c (9c)
-    add f14 0 0 // Skip ahead!
+    add f14 f14 // Double it (2c)
+    add f14 f14 // Double it (4c)
+    add f14 f14 // Double it (8c)
+    add f10 f14 // Add c (9c)
+    add f14 0  // Skip ahead!
     end
     end
     end
@@ -302,7 +302,7 @@ block Loop
 
     // Go to the next byte
     set 1   f10
-    add f00 f10 f00
+    add f10 f00
 
     // Loop back to the start
     set Loop 0
