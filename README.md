@@ -29,8 +29,8 @@ implemented with arithmetic on the instruction counter at address 0.
 > _Note: C-like equivalents address with variables for simplicity; a more
 > accurate representation for e.g. `mov` might be `mem[a] = mem[b]`._
 
-Invalid opcodes always error. Addressing invalid memory always errors (errors
-are defined as emulator exits).
+A null byte (opcode zero) exits. Otherwise, invalid opcodes always error.
+Addressing invalid memory always errors (errors are defined as emulator exits).
 
 Instruction size (in bytes) is calculated as `1 + 4 * words`. Again, this is 
 extensively configurable; a more general equation is
