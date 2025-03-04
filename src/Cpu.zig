@@ -139,15 +139,6 @@ fn word_write(self: *@This(), addr: Addr, word: Word) void {
     std.mem.writeInt(Word, self.word_ptr(addr), word, .little);
 }
 
-fn opcode_size(opcode: Unit) ?Word {
-    return switch (opcode) {
-        0b0001, 0b0010, 0b0011 => 9,
-        0b0100, 0b0101 => 13,
-        0b0110, 0b0111, 0b1001 => 9,
-        else => null,
-    };
-}
-
 pub fn prepare_instruction(self: *@This()) !?Instruction {
     const addr = self.word_read(0);
     
