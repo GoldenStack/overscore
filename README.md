@@ -124,48 +124,38 @@ through a single limited operation, but this is not the typical CPU.
 The assembler is a simple text-based way to write machine code, with a few
 higher-level features.
 
+Lines are processed and written to the output binary in the order they were
+written in the file.
+
 Comments are written with `//`. Semicolons are not supported as comments and
 will cause an assembler error.
 
-Here's an example program:
+Here's an example program. The next few sections will help with understanding
+it.
 ```asm
-start Main
+raw Main
 
-block Main
+label Main
     set AA  100
     not 100 104
     and 104 100
     end
 ```
 
-
-## Blocks
-The directive `block Main` (where `Main` is the name of the block) allows
-referring to the address of the next instruction by the name of the block. This
-is useful for jumping to or reading from certain blocks, because their spot in
-memory is not necessarily known.
-
-Current assembler limitations prevent blocks from being referred to before they
-are declared, making it only possible to jump backwards to blocks.
-
-## Start
-
-As the assembled binary is loaded at address `0`, the first word size of
-the binary are used for storing the start address. This is done with
-`start Main`, where `Main` is the name of the block.
-
-The `start` directive is not subject to the limitation of blocks only being
-referred to after their declaration.
-
 ## Instructions
 
-Instructions can be referred to using their shortened name. The destination
-address is placed second. For example:
+Instructions are referred to using their shortened name. The destination address
+is placed second. For example:
 ```asm
     set AA  100 // Set address 100 (in hexadecimal) to AA
     not 100 104 // Flip all of the bits of 100, writing to 104 
     and 104 100 // Binary AND on 100 and 104, writing to 100
 ```
+
+This works the same for every instruction, so it should make sense from here.
+
+Instructions always have a size equivalent to their size as indicated in the
+[instruction set](#instruction-set).
 
 ## Literals
 
@@ -180,26 +170,58 @@ By default, they're parsed as hexadecimal.
     set xAA       0 // Set address 0 to AA (hexadecimal)
 ```
 
-## End
+## Labels
 
-You can place a null byte in the binary with the `end` directive.
+The line `label Main` (putting the name of the label where `Main` is) allows
+referring to the address of the next instruction after the label by the name of
+the label. This is useful for jumping to or reading from certain areas, because
+there's no way to guarantee where in memory the code is.
 
-This is typically useful for ending the program, or for padding.
+Writing a label (e.g. `Main`) instead of an address will have the label replaced
+with the address when assembling.
+
+Labels always have a size of zero, because they're an assembler construct.
 
 ## Raw
 
-Use `raw <BYTES>` to insert the bytes directly in the binary. This is useful for
-embedding strings into the binary.
+You can embed 4 bytes (the size of a CPU word) directly in the binary with the
+`raw` line.
+
+This is useful for embedding data that doesn't fit nicely into ASCII, or for
+setting the instruction pointer. Since binaries always start at address `0`,
+embedding the address of a block (e.g. `raw Main`) will end up setting the
+instruction pointer to the given address when the binary is assembled.
+
+This doesn't allow writing smaller amounts of data directly in the binary (e.g.
+1 byte), at least for now.
+
+`raw` always has a size of 4 bytes (the word size).
+
+## Bytes
+
+Write `bytes <BYTES>` to insert the bytes provided directly in the binary. This
+is typically useful for embedding strings into the binary, because including
+non-ACSII characters directly
+
+`bytes` has a size of however many bytes you provide to it.
 
 Printing strings can be implemented this way by writing, for example:
 ```asm
-block Message
-    raw Hello, world!
+label Message
+    bytes Hello, world!
     end
 ```
 
-The `block` is included to make it possible to refer to where the string is
+The `label` is included to make it possible to refer to where the string is
 placed.
 
-Since there's no way to get the length of the embedded bytes, the `end`
-directive was added to make the string null-terminated.
+Since there's no way to get the length of the embedded bytes, `end` was added to
+make the string null-terminated.
+
+## End
+
+You can place a null byte in the binary with the `end` line.
+
+This is typically useful for ending the program or for padding.
+
+`end` has a size of one byte.
