@@ -203,8 +203,6 @@ Write `bytes <BYTES>` to insert the bytes provided directly in the binary. This
 is typically useful for embedding strings into the binary, because including
 non-ACSII characters directly
 
-`bytes` has a size of however many bytes you provide to it.
-
 Printing strings can be implemented this way by writing, for example:
 ```
 label Message
@@ -217,6 +215,8 @@ placed.
 
 Since there's no way to get the length of the embedded bytes, `end` was added to
 make the string null-terminated.
+
+`bytes` has a size of however many bytes you provide to it.
 
 ## End
 
