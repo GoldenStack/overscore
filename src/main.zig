@@ -6,17 +6,16 @@ pub fn main() !void {
     // Create an allocator and error if it leaks
     var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
     defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
 
     // Load the assembly and convert it to a slice
     const assembly = @embedFile("example.asm");
     const asm_slice: []const u8 = assembly[0..assembly.len];
 
-    // Initialize the assembler
-    var assembler = Assembler.init(gpa.allocator(), asm_slice);
-    defer assembler.deinit();
-    
     // Assemble the assembly into binary
-    const binary = try assembler.assemble();
+    var binary = std.ArrayList(Cpu.Unit).init(allocator);
+    try Assembler.assemble(asm_slice, allocator, binary.writer());
+    defer binary.deinit();
 
     // Display the assembled binary
     std.debug.print("Assembled binary: {any}\n", .{binary.items});
@@ -24,9 +23,6 @@ pub fn main() !void {
     // Create a CPU and load the binary into memory
     var cpu = Cpu.init(sys);
     @memcpy(cpu.memory[0..binary.items.len], binary.items);
-
-    // Show memory before
-    std.debug.print("Before: {any}\n", .{cpu.memory});
 
     // Keep running instructions while they can be read
     while (try cpu.prepare_instruction()) |instr| {

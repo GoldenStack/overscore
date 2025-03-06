@@ -7,109 +7,211 @@ pub const Comment = "//";
 
 pub const Whitespace = " \t";
 
-allocator: std.mem.Allocator,
-buffer: []const u8,
+pub const AddrTag = enum { literal, label };
 
-iter: AssemblyIterator,
-memory: std.ArrayList(u8),
-labels: std.StringHashMap(Cpu.Addr),
+pub const Addr = union(AddrTag) {
+    const Literal = struct { base: u8, value: Cpu.Word };
 
-pub fn init(allocator: std.mem.Allocator, buffer: []const u8) @This() {
-    return .{
-        .allocator = allocator,
-        .buffer = buffer,
+    literal: Literal,
+    label: []const u8,
 
-        .iter = AssemblyIterator.init(buffer),
-        .memory = std.ArrayList(u8).init(allocator),
-        .labels = std.StringHashMap(Cpu.Addr).init(allocator),
-    };
-}
+    pub fn read(reader: anytype) !Addr {
+        const token = try reader.readToken();
 
-pub fn deinit(self: *@This()) void {
-    self.memory.deinit();
-    self.labels.deinit();
-}
+        const literal: ?Literal = switch (token[0]) {
+            'x' => Literal{
+                .base = 16,
+                .value = try std.fmt.parseUnsigned(Cpu.Word, token[1..], 16),
+            },
+            'd' => Literal{
+                .base = 10,
+                .value = try std.fmt.parseUnsigned(Cpu.Word, token[1..], 10),
+            },
+            'b' => Literal{
+                .base = 2,
+                .value = try std.fmt.parseUnsigned(Cpu.Word, token[1..], 2),
+            },
+            else => otherwise: {
+                const result = std.fmt.parseUnsigned(Cpu.Word, token, 16);
+
+                break :otherwise if (result) |value| Literal{
+                    .base = 2,
+                    .value = value,
+                } else |_| null;
+            },
+        };
+
+        return if (literal) |lit| .{ .literal = lit } else .{
+            .label = token,
+        };
+    }
+
+    pub fn write(self: *const @This(), writer: anytype, labels: *const std.StringHashMap(Cpu.Word)) !void {
+        try switch (self.*) {
+            .literal => |literal| writer.writeInt(Cpu.Word, literal.value, .little),
+            .label => |label| writer.writeInt(Cpu.Word, labels.get(label) orelse return error.UnknownLabel, .little),
+        };
+    }
+};
+
+pub const UnaryOp = struct {
+    left: Addr,
+    right: Addr,
+
+    pub fn read(reader: anytype) !UnaryOp {
+        return .{
+            .left = try Addr.read(reader),
+            .right = try Addr.read(reader),
+        };
+    }
+
+    pub fn write(self: *const @This(), writer: anytype, labels: *const std.StringHashMap(Cpu.Addr)) !void {
+        try self.left.write(writer, labels);
+        try self.right.write(writer, labels);
+    }
+};
+
+pub const LineTag = enum {
+    set,
+    mov,
+    not,
+    @"and",
+    add,
+    irm,
+    iwm,
+    sys,
+
+    raw,
+    label,
+    bytes,
+    end,
+
+    pub fn read(reader: anytype) !LineTag {
+        const token = try reader.readToken();
+
+        return std.meta.stringToEnum(LineTag, token) orelse error.UnknownLineType;
+    }
+};
+
+pub const Line = union(LineTag) {
+    set: UnaryOp,
+    mov: UnaryOp,
+    not: UnaryOp,
+    @"and": UnaryOp,
+    add: UnaryOp,
+    irm: UnaryOp,
+    iwm: UnaryOp,
+    sys: UnaryOp,
+
+    raw: Addr,
+    label: []const u8,
+    bytes: []const u8,
+    end,
+
+    pub fn read(reader: anytype) !Line {
+        const tag = try LineTag.read(reader);
+
+        return switch (tag) {
+            .set => .{ .set = try UnaryOp.read(reader) },
+            .mov => .{ .mov = try UnaryOp.read(reader) },
+            .not => .{ .not = try UnaryOp.read(reader) },
+            .@"and" => .{ .@"and" = try UnaryOp.read(reader) },
+            .add => .{ .add = try UnaryOp.read(reader) },
+            .irm => .{ .irm = try UnaryOp.read(reader) },
+            .iwm => .{ .iwm = try UnaryOp.read(reader) },
+            .sys => .{ .sys = try UnaryOp.read(reader) },
+
+            .raw => .{ .raw = try Addr.read(reader) },
+            .label => .{ .label = try reader.readToken() },
+            .bytes => .{ .bytes = try reader.readRemaining() },
+            .end => .end,
+        };
+    }
+
+    pub fn write(self: *const @This(), writer: anytype, labels: *const std.StringHashMap(Cpu.Addr)) !void {
+        switch (self.*) {
+            .set => |line| {
+                try writer.writeByte(@intFromEnum(Cpu.InstructionTag.set));
+                try line.write(writer, labels);
+            },
+            .mov => |line| {
+                try writer.writeByte(@intFromEnum(Cpu.InstructionTag.mov));
+                try line.write(writer, labels);
+            },
+            .not => |line| {
+                try writer.writeByte(@intFromEnum(Cpu.InstructionTag.not));
+                try line.write(writer, labels);
+            },
+            .@"and" => |line| {
+                try writer.writeByte(@intFromEnum(Cpu.InstructionTag.@"and"));
+                try line.write(writer, labels);
+            },
+            .add => |line| {
+                try writer.writeByte(@intFromEnum(Cpu.InstructionTag.add));
+                try line.write(writer, labels);
+            },
+            .irm => |line| {
+                try writer.writeByte(@intFromEnum(Cpu.InstructionTag.irm));
+                try line.write(writer, labels);
+            },
+            .iwm => |line| {
+                try writer.writeByte(@intFromEnum(Cpu.InstructionTag.iwm));
+                try line.write(writer, labels);
+            },
+            .sys => |line| {
+                try writer.writeByte(@intFromEnum(Cpu.InstructionTag.sys));
+                try line.write(writer, labels);
+            },
+
+            .raw => |line| try line.write(writer, labels),
+            .label => {},
+            .bytes => |line| try writer.writeAll(line),
+            .end => try writer.writeByte(0),
+        }
+    }
+
+    pub fn size(self: *const @This()) Cpu.Word {
+        return switch (self.*) {
+            .set, .mov, .not, .@"and", .add, .irm, .iwm, .sys => 9,
+            .raw => 4,
+            .label => 0,
+            .bytes => |line| @truncate(line.len),
+            .end => 1,
+        };
+    }
+};
 
 /// Assembles a string of Overscore assembly language into a binary file for
 /// input into the CPU.
-pub fn assemble(self: *@This()) !std.ArrayList(u8) {
-    var start: ?[]const u8 = null;
+pub fn assemble(buffer: []const u8, allocator: std.mem.Allocator, writer: anytype) !void {
+    var iter = AssemblyIterator.init(buffer);
 
-    try self.memory.appendNTimes(0, Cpu.UnitsPerWord); // Space for start
+    var lines = std.ArrayList(Line).init(allocator);
+    var labels = std.StringHashMap(Cpu.Addr).init(allocator);
+    defer lines.deinit();
+    defer labels.deinit();
 
-    while (self.iter.next_line()) {
-        if (self.iter.next_token()) |token| {
-            if (std.mem.eql(u8, "start", token)) {
-                if (start == null) start = try self.read_token()
-                else return error.MultipleStartDefinitions;
-            } else if (std.mem.eql(u8, "block", token)) {
-                try self.labels.put(try self.read_token(), @truncate(self.memory.items.len));
-            } else if (std.meta.stringToEnum(Cpu.InstructionTag, token)) |tag| {
-                const instruction = try self.read_instruction(tag);
+    try parseLines(&iter, &lines, &labels);
 
-                try instruction.write(self.memory.writer());
-            } else if (std.mem.eql(u8, "end", token)) {
-                try self.memory.append(0);
-            } else if (std.mem.eql(u8, "raw", token)) {
-                const tokens = &self.iter.token_iterator.?;
-                try self.memory.appendSlice(tokens.rest());
-                tokens.index = tokens.buffer.len;
-            } else {
-                return error.ExpectedBlockOrInstruction;
-            }
-        } else return error.ExpectedToken;
+    for (lines.items) |line| try line.write(writer, &labels);
+}
 
-        if (self.iter.peek_token() != null) return error.UnexpectedToken;
+fn parseLines(reader: anytype, lines: *std.ArrayList(Line), labels: *std.StringHashMap(Cpu.Addr)) !void {
+    var total_size: Cpu.Word = 0;
+
+    while (reader.nextLine()) {
+        const line = try Line.read(reader);
+
+        if ((try reader.readRemaining()).len != 0) return error.ExpectedNewline;
+
+        switch (line) {
+            .label => |label| try labels.put(label, total_size),
+            else => {},
+        }
+        total_size += line.size();
+
+        try lines.append(line);
     }
-
-    if (start) |name| {
-        if (self.labels.get(name)) |addr| {
-            std.mem.writeInt(Cpu.Addr, self.memory.items[0..Cpu.UnitsPerWord], addr, .little);
-        } else return error.InvalidStartSection;
-    } else return error.ExpectedStartDefinition;
-
-    return self.memory;
-}
-
-fn read_token(self: *@This()) ![]const u8 {
-    const token = self.iter.next_token() orelse return error.ExpectedToken;
-
-    if (token.len == 0) return error.ExpectedToken else return token;
-}
-
-fn read_literal(self: *@This()) !Cpu.Word {
-    const token = try self.read_token();
-
-    if (self.labels.get(token)) |value| {
-        return value;
-    }
-
-    return switch (token[0]) {
-        'x' => std.fmt.parseUnsigned(Cpu.Word, token[1..], 16),
-        'b' => std.fmt.parseUnsigned(Cpu.Word, token[1..], 2),
-        'd' => std.fmt.parseUnsigned(Cpu.Word, token[1..], 10),
-        else => std.fmt.parseUnsigned(Cpu.Word, token, 16),
-    };
-}
-
-fn read_unaryop(self: *@This()) !Cpu.UnaryOp {
-    return .{
-        .read = try self.read_literal(),
-        .write = try self.read_literal(),
-    };
-}
-
-fn read_instruction(self: *@This(), tag: Cpu.InstructionTag) !Cpu.Instruction {
-    return switch (tag) {
-        .set => .{ .set = try self.read_unaryop() },
-        .mov => .{ .mov = try self.read_unaryop() },
-        .not => .{ .not = try self.read_unaryop() },
-        .@"and" => .{ .@"and" = try self.read_unaryop() },
-        .add => .{ .add = try self.read_unaryop() },
-        .irm => .{ .irm = try self.read_unaryop() },
-        .iwm => .{ .iwm = try self.read_unaryop() },
-        .sys => .{ .sys = try self.read_unaryop() },
-    };
 }
 
 const AssemblyIterator = struct {
@@ -123,25 +225,25 @@ const AssemblyIterator = struct {
         };
     }
 
-    fn remove_comments(line: []const u8) []const u8 {
+    fn removeComments(line: []const u8) []const u8 {
         return if (std.mem.indexOf(u8, line, Comment)) |comment|
             line[0..comment]
         else
             line;
     }
 
-    fn next_unprocessed(self: *@This()) ?[]const u8 {
+    fn nextUnprocessed(self: *@This()) ?[]const u8 {
         const line = self.line_iterator.next() orelse return null;
 
-        const uncommented_line = remove_comments(line);
+        const uncommented_line = removeComments(line);
 
         const trimmed_line = std.mem.trim(u8, uncommented_line, Whitespace);
 
         return trimmed_line;
     }
 
-    pub fn next_line(self: *@This()) bool {
-        while (self.next_unprocessed()) |line| {
+    pub fn nextLine(self: *@This()) bool {
+        while (self.nextUnprocessed()) |line| {
             if (line.len == 0) continue;
 
             self.token_iterator = std.mem.tokenizeAny(u8, line, Whitespace);
@@ -149,11 +251,17 @@ const AssemblyIterator = struct {
         } else return false;
     }
 
-    pub fn next_token(self: *@This()) ?[]const u8 {
-        if (self.token_iterator) |*tokens| return tokens.next() else return null;
+    pub fn readToken(self: *@This()) ![]const u8 {
+        const token = if (self.token_iterator) |*tokens| tokens.next() else null;
+
+        return token orelse error.ExpectedToken;
     }
 
-    pub fn peek_token(self: *@This()) ?[]const u8 {
-        if (self.token_iterator) |*tokens| return tokens.peek() else return null;
+    fn readRemaining(self: *@This()) ![]const u8 {
+        const tokens = &self.token_iterator.?;
+        const slice = tokens.rest();
+        tokens.index = tokens.buffer.len;
+
+        return slice;
     }
 };
