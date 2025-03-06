@@ -1,7 +1,7 @@
 const std = @import("std");
 
 /// The minimum addressable size of this CPU, in bits.
-/// 
+///
 /// A dependency on standard library functions requires this to be divisible by
 /// 8.
 pub const UnitSize = 8;
@@ -94,7 +94,6 @@ pub const Instruction = union(InstructionTag) {
         };
     }
 
-
     pub fn write(instruction: @This(), writer: anytype) !void {
         try InstructionTag.write(instruction, writer);
 
@@ -109,14 +108,13 @@ pub const Instruction = union(InstructionTag) {
             .sys => |instr| try instr.write_to(writer),
         }
     }
-
 };
 
 memory: [Memory]Unit,
-sys: *const fn(Word) Word,
+sys: *const fn (Word) Word,
 
 /// Creates a new CPU. This initializes all registers to zero.
-pub fn init(sys: *const fn(Word) Word) @This() {
+pub fn init(sys: *const fn (Word) Word) @This() {
     return .{
         .memory = [_]Unit{0} ** Memory,
         .sys = sys,
@@ -127,7 +125,7 @@ fn word_ptr(self: *@This(), addr: Addr) *[UnitsPerWord]Unit {
     if (addr > Memory - UnitsPerWord) {
         @panic("Tried to read address outside of working memory");
     }
-    
+
     return self.memory[addr..][0..UnitsPerWord];
 }
 
@@ -141,20 +139,20 @@ fn word_write(self: *@This(), addr: Addr, word: Word) void {
 
 pub fn prepare_instruction(self: *@This()) !?Instruction {
     const addr = self.word_read(0);
-    
+
     // Verify and read the first byte
     if (addr >= Memory) return error.InstructionPointerOutsideMemory;
 
     // Handle opcode of 0
     if (self.memory[addr] == 0) return null;
-    
+
     // Create a buffer stream of memory
     var stream = std.io.fixedBufferStream(self.memory[0..]);
     stream.pos = addr;
 
     // Read an instruction
     const instruction = try Instruction.read(&stream.reader());
-    
+
     // Update the instruction pointer
     self.word_write(0, @truncate(stream.pos));
 
@@ -164,22 +162,15 @@ pub fn prepare_instruction(self: *@This()) !?Instruction {
 /// Follows the provided CPU instruction.
 pub fn follow(self: *@This(), instruction: Instruction) void {
     switch (instruction) {
-
         .set => |instr| self.word_write(instr.write, instr.read),
 
         .mov => |instr| self.word_write(instr.write, self.word_read(instr.read)),
 
         .not => |instr| self.word_write(instr.write, ~self.word_read(instr.read)),
 
-        .@"and" => |instr| self.word_write(
-            instr.write,
-            self.word_read(instr.write) & self.word_read(instr.read)
-        ),
+        .@"and" => |instr| self.word_write(instr.write, self.word_read(instr.write) & self.word_read(instr.read)),
 
-        .add => |instr| self.word_write(
-            instr.write,
-            self.word_read(instr.write) +% self.word_read(instr.read)
-        ),
+        .add => |instr| self.word_write(instr.write, self.word_read(instr.write) +% self.word_read(instr.read)),
 
         .irm => |instr| self.word_write(instr.write, self.word_read(self.word_read(instr.read))),
 

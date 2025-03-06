@@ -19,7 +19,7 @@ pub fn main() !void {
 
     // Display the assembled binary
     std.debug.print("Assembled binary: {any}\n", .{binary.items});
-    
+
     // Create a CPU and load the binary into memory
     var cpu = Cpu.init(sys);
     @memcpy(cpu.memory[0..binary.items.len], binary.items);
@@ -32,7 +32,6 @@ pub fn main() !void {
 
     // Show memory after
     std.debug.print("After:  {any}\n", .{cpu.memory});
-    
 }
 
 fn sys(in: Cpu.Word) Cpu.Word {
