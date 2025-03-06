@@ -35,7 +35,7 @@ pub const Addr = union(AddrTag) {
                 const result = std.fmt.parseUnsigned(Cpu.Word, token, 16);
 
                 break :otherwise if (result) |value| Literal{
-                    .base = 2,
+                    .base = 16,
                     .value = value,
                 } else |_| null;
             },
