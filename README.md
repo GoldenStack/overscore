@@ -132,7 +132,7 @@ will cause an assembler error.
 
 Here's an example program. The next few sections will help with understanding
 it.
-```asm
+```
 raw Main
 
 label Main
@@ -146,7 +146,7 @@ label Main
 
 Instructions are referred to using their shortened name. The destination address
 is placed second. For example:
-```asm
+```
     set AA  100 // Set address 100 (in hexadecimal) to AA
     not 100 104 // Flip all of the bits of 100, writing to 104 
     and 104 100 // Binary AND on 100 and 104, writing to 100
@@ -163,7 +163,7 @@ Number literals can be formatted in hexadecimal, binary, or decimal.
 
 By default, they're parsed as hexadecimal.
 
-```asm
+```
     set AA        0 // Set address 0 to AA (hexadecimal)
     set d170      0 // Set address 0 to 170 (decimal)
     set b10101010 0 // Set address 0 to 10101010 (binary)
@@ -206,7 +206,7 @@ non-ACSII characters directly
 `bytes` has a size of however many bytes you provide to it.
 
 Printing strings can be implemented this way by writing, for example:
-```asm
+```
 label Message
     bytes Hello, world!
     end
