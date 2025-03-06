@@ -128,40 +128,23 @@ pub const Line = union(LineTag) {
         };
     }
 
+    fn write_instruction(comptime variant: Cpu.InstructionTag, value: UnaryOp, writer: anytype, labels: *const std.StringHashMap(Cpu.Addr)) !void {
+        const opcode = @intFromEnum(variant);
+        try writer.writeByte(opcode);
+
+        try value.write(writer, labels);
+    }
+
     pub fn write(self: *const @This(), writer: anytype, labels: *const std.StringHashMap(Cpu.Addr)) !void {
         switch (self.*) {
-            .set => |line| {
-                try writer.writeByte(@intFromEnum(Cpu.InstructionTag.set));
-                try line.write(writer, labels);
-            },
-            .mov => |line| {
-                try writer.writeByte(@intFromEnum(Cpu.InstructionTag.mov));
-                try line.write(writer, labels);
-            },
-            .not => |line| {
-                try writer.writeByte(@intFromEnum(Cpu.InstructionTag.not));
-                try line.write(writer, labels);
-            },
-            .@"and" => |line| {
-                try writer.writeByte(@intFromEnum(Cpu.InstructionTag.@"and"));
-                try line.write(writer, labels);
-            },
-            .add => |line| {
-                try writer.writeByte(@intFromEnum(Cpu.InstructionTag.add));
-                try line.write(writer, labels);
-            },
-            .irm => |line| {
-                try writer.writeByte(@intFromEnum(Cpu.InstructionTag.irm));
-                try line.write(writer, labels);
-            },
-            .iwm => |line| {
-                try writer.writeByte(@intFromEnum(Cpu.InstructionTag.iwm));
-                try line.write(writer, labels);
-            },
-            .sys => |line| {
-                try writer.writeByte(@intFromEnum(Cpu.InstructionTag.sys));
-                try line.write(writer, labels);
-            },
+            .set => |line| write_instruction(.set, line, writer, labels),
+            .mov => |line| write_instruction(.mov, line, writer, labels),
+            .not => |line| write_instruction(.not, line, writer, labels),
+            .@"and" => |line| write_instruction(.@"and", line, writer, labels),
+            .add => |line| write_instruction(.add, line, writer, labels),
+            .irm => |line| write_instruction(.irm, line, writer, labels),
+            .iwm => |line| write_instruction(.iwm, line, writer, labels),
+            .sys => |line| write_instruction(.sys, line, writer, labels),
 
             .raw => |line| try line.write(writer, labels),
             .label => {},
