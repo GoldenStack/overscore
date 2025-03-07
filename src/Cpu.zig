@@ -44,12 +44,6 @@ pub const InstructionTag = enum(Unit) {
 
         return std.meta.intToEnum(InstructionTag, opcode) catch error.UnknownOpcode;
     }
-
-    pub fn write(self: @This(), writer: anytype) !void {
-        const opcode = @intFromEnum(self);
-
-        try writer.writeByte(opcode);
-    }
 };
 
 /// A unary operation that reads from one address and writes to another one.
@@ -62,11 +56,6 @@ pub const UnaryOp = struct {
             .read = try reader.readInt(Addr, .little),
             .write = try reader.readInt(Addr, .little),
         };
-    }
-
-    pub fn write_to(self: @This(), writer: anytype) !void {
-        try writer.writeInt(Addr, self.read, .little);
-        try writer.writeInt(Addr, self.write, .little);
     }
 };
 
@@ -92,21 +81,6 @@ pub const Instruction = union(InstructionTag) {
             .iwm => .{ .iwm = try UnaryOp.read_from(reader) },
             .sys => .{ .sys = try UnaryOp.read_from(reader) },
         };
-    }
-
-    pub fn write(instruction: @This(), writer: anytype) !void {
-        try InstructionTag.write(instruction, writer);
-
-        switch (instruction) {
-            .set => |instr| try instr.write_to(writer),
-            .mov => |instr| try instr.write_to(writer),
-            .not => |instr| try instr.write_to(writer),
-            .@"and" => |instr| try instr.write_to(writer),
-            .add => |instr| try instr.write_to(writer),
-            .irm => |instr| try instr.write_to(writer),
-            .iwm => |instr| try instr.write_to(writer),
-            .sys => |instr| try instr.write_to(writer),
-        }
     }
 };
 
