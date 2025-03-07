@@ -209,7 +209,7 @@ fn parseLines(reader: anytype, lines: *std.ArrayList(Line), labels: *std.StringH
 }
 
 /// Iterates over assembly code, one line at a time.
-/// 
+///
 /// This allows iterating over whitespace-separated tokens via `nextToken` until
 /// a newline, at which point you have to call `nextLine` to continue to the
 /// next line.
@@ -236,7 +236,7 @@ const AssemblyIterator = struct {
 
         const uncommented_line = removeComments(line);
 
-        const trimmed_line = std.mem.trim(u8, uncommented_line, std.ascii.whitespace);
+        const trimmed_line = std.mem.trim(u8, uncommented_line, &std.ascii.whitespace);
 
         return trimmed_line;
     }
@@ -246,7 +246,7 @@ const AssemblyIterator = struct {
         while (self.nextUnprocessed()) |line| {
             if (line.len == 0) continue;
 
-            self.token_iterator = std.mem.tokenizeAny(u8, line, std.ascii.whitespace);
+            self.token_iterator = std.mem.tokenizeAny(u8, line, &std.ascii.whitespace);
             return true;
         } else return false;
     }
