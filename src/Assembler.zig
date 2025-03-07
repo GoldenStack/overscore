@@ -1,14 +1,16 @@
 const std = @import("std");
 const Cpu = @import("Cpu.zig");
 
+/// The line break character.
 pub const LineBreak = '\n';
 
+/// The comment string, commenting text until the end of the line.
 pub const Comment = "//";
 
-pub const Whitespace = " \t";
-
+/// The tag for addresses in assembly.
 pub const AddrTag = enum { literal, label };
 
+/// The type for an address literal.
 pub const Addr = union(AddrTag) {
     const Literal = struct { base: u8, value: Cpu.Word };
 
@@ -54,11 +56,12 @@ pub const Addr = union(AddrTag) {
     }
 };
 
-pub const UnaryOp = struct {
+/// A binary operation, with a left and right address.
+pub const BinOp = struct {
     left: Addr,
     right: Addr,
 
-    pub fn read(reader: anytype) !UnaryOp {
+    pub fn read(reader: anytype) !BinOp {
         return .{
             .left = try Addr.read(reader),
             .right = try Addr.read(reader),
@@ -71,6 +74,7 @@ pub const UnaryOp = struct {
     }
 };
 
+/// The tag for the line type.
 pub const LineTag = enum {
     set,
     mov,
@@ -93,15 +97,17 @@ pub const LineTag = enum {
     }
 };
 
+/// A line in assembly. This can be an instruction or one of many Assembler
+/// constructs.
 pub const Line = union(LineTag) {
-    set: UnaryOp,
-    mov: UnaryOp,
-    not: UnaryOp,
-    @"and": UnaryOp,
-    add: UnaryOp,
-    irm: UnaryOp,
-    iwm: UnaryOp,
-    sys: UnaryOp,
+    set: BinOp,
+    mov: BinOp,
+    not: BinOp,
+    @"and": BinOp,
+    add: BinOp,
+    irm: BinOp,
+    iwm: BinOp,
+    sys: BinOp,
 
     raw: Addr,
     label: []const u8,
@@ -112,14 +118,14 @@ pub const Line = union(LineTag) {
         const tag = try LineTag.read(reader);
 
         return switch (tag) {
-            .set => .{ .set = try UnaryOp.read(reader) },
-            .mov => .{ .mov = try UnaryOp.read(reader) },
-            .not => .{ .not = try UnaryOp.read(reader) },
-            .@"and" => .{ .@"and" = try UnaryOp.read(reader) },
-            .add => .{ .add = try UnaryOp.read(reader) },
-            .irm => .{ .irm = try UnaryOp.read(reader) },
-            .iwm => .{ .iwm = try UnaryOp.read(reader) },
-            .sys => .{ .sys = try UnaryOp.read(reader) },
+            .set => .{ .set = try BinOp.read(reader) },
+            .mov => .{ .mov = try BinOp.read(reader) },
+            .not => .{ .not = try BinOp.read(reader) },
+            .@"and" => .{ .@"and" = try BinOp.read(reader) },
+            .add => .{ .add = try BinOp.read(reader) },
+            .irm => .{ .irm = try BinOp.read(reader) },
+            .iwm => .{ .iwm = try BinOp.read(reader) },
+            .sys => .{ .sys = try BinOp.read(reader) },
 
             .raw => .{ .raw = try Addr.read(reader) },
             .label => .{ .label = try reader.readToken() },
@@ -128,7 +134,7 @@ pub const Line = union(LineTag) {
         };
     }
 
-    fn write_instruction(comptime variant: Cpu.InstructionTag, value: UnaryOp, writer: anytype, labels: *const std.StringHashMap(Cpu.Addr)) !void {
+    fn write_instruction(comptime variant: Cpu.InstructionTag, value: BinOp, writer: anytype, labels: *const std.StringHashMap(Cpu.Addr)) !void {
         const opcode = @intFromEnum(variant);
         try writer.writeByte(opcode);
 
@@ -179,24 +185,34 @@ pub fn assemble(buffer: []const u8, allocator: std.mem.Allocator, writer: anytyp
     for (lines.items) |line| try line.write(writer, &labels);
 }
 
+/// Parses lines from the given reader, writing the lines to the lines parameter
+/// and writing any parsed labels to the labels map.
 fn parseLines(reader: anytype, lines: *std.ArrayList(Line), labels: *std.StringHashMap(Cpu.Addr)) !void {
     var total_size: Cpu.Word = 0;
 
     while (reader.nextLine()) {
         const line = try Line.read(reader);
 
+        // Make sure exactly one instruction per line
         if ((try reader.readRemaining()).len != 0) return error.ExpectedNewline;
 
+        // Write a label if possible
         switch (line) {
             .label => |label| try labels.put(label, total_size),
             else => {},
         }
+
         total_size += line.size();
 
         try lines.append(line);
     }
 }
 
+/// Iterates over assembly code, one line at a time.
+/// 
+/// This allows iterating over whitespace-separated tokens via `nextToken` until
+/// a newline, at which point you have to call `nextLine` to continue to the
+/// next line.
 const AssemblyIterator = struct {
     line_iterator: std.mem.TokenIterator(u8, .scalar),
     token_iterator: ?std.mem.TokenIterator(u8, .any),
@@ -220,27 +236,31 @@ const AssemblyIterator = struct {
 
         const uncommented_line = removeComments(line);
 
-        const trimmed_line = std.mem.trim(u8, uncommented_line, Whitespace);
+        const trimmed_line = std.mem.trim(u8, uncommented_line, std.ascii.whitespace);
 
         return trimmed_line;
     }
 
+    /// Tries to move to the next line, returning whether or not it succeeded.
     pub fn nextLine(self: *@This()) bool {
         while (self.nextUnprocessed()) |line| {
             if (line.len == 0) continue;
 
-            self.token_iterator = std.mem.tokenizeAny(u8, line, Whitespace);
+            self.token_iterator = std.mem.tokenizeAny(u8, line, std.ascii.whitespace);
             return true;
         } else return false;
     }
 
+    /// Reads the next token from this iterator.
     pub fn readToken(self: *@This()) ![]const u8 {
         const token = if (self.token_iterator) |*tokens| tokens.next() else null;
 
         return token orelse error.ExpectedToken;
     }
 
-    fn readRemaining(self: *@This()) ![]const u8 {
+    /// Reads all of the remaining tokens (ignoring whitespace) from this
+    /// iterator until a newline. You will have to call `nextLine` after this.
+    pub fn readRemaining(self: *@This()) ![]const u8 {
         const tokens = &self.token_iterator.?;
         const slice = tokens.rest();
         tokens.index = tokens.buffer.len;
