@@ -73,7 +73,7 @@ Sets the value of `write` to the binary complement of the value of `read`.
 
 | Name  | Total size (bytes) | Data | ...              |                 |
 |-------|--------------------|------|------------------|-----------------|
-| `and` | 9                  | 0100 | `write` (1 word) | `red` (1 word) |
+| `and` | 9                  | 0100 | `write` (1 word) | `read` (1 word) |
 
 Sets the value of `write` to the binary AND of the values of `read` and `write`.
 
