@@ -12,35 +12,17 @@ pub const AddrTag = enum { literal, label };
 
 /// The type for an address literal.
 pub const Addr = union(AddrTag) {
-    const Literal = struct { base: u8, value: Cpu.Word };
-
-    literal: Literal,
+    literal: Cpu.Word,
     label: []const u8,
 
     pub fn read(reader: anytype) !Addr {
         const token = try reader.readToken();
 
-        const literal: ?Literal = switch (token[0]) {
-            'x' => Literal{
-                .base = 16,
-                .value = try std.fmt.parseUnsigned(Cpu.Word, token[1..], 16),
-            },
-            'd' => Literal{
-                .base = 10,
-                .value = try std.fmt.parseUnsigned(Cpu.Word, token[1..], 10),
-            },
-            'b' => Literal{
-                .base = 2,
-                .value = try std.fmt.parseUnsigned(Cpu.Word, token[1..], 2),
-            },
-            else => otherwise: {
-                const result = std.fmt.parseUnsigned(Cpu.Word, token, 16);
-
-                break :otherwise if (result) |value| Literal{
-                    .base = 16,
-                    .value = value,
-                } else |_| null;
-            },
+        const literal: ?Cpu.Word = switch (token[0]) {
+            'x' => try std.fmt.parseUnsigned(Cpu.Word, token[1..], 16),
+            'd' => try std.fmt.parseUnsigned(Cpu.Word, token[1..], 10),
+            'b' => try std.fmt.parseUnsigned(Cpu.Word, token[1..], 2),
+            else => std.fmt.parseUnsigned(Cpu.Word, token, 16) catch null,
         };
 
         return if (literal) |lit| .{ .literal = lit } else .{
@@ -50,7 +32,7 @@ pub const Addr = union(AddrTag) {
 
     pub fn write(self: *const @This(), writer: anytype, labels: *const std.StringHashMap(Cpu.Word)) !void {
         try switch (self.*) {
-            .literal => |literal| writer.writeInt(Cpu.Word, literal.value, .little),
+            .literal => |value| writer.writeInt(Cpu.Word, value, .little),
             .label => |label| writer.writeInt(Cpu.Word, labels.get(label) orelse return error.UnknownLabel, .little),
         };
     }
