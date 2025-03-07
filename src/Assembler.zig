@@ -136,7 +136,7 @@ pub const Line = union(LineTag) {
     }
 
     pub fn write(self: *const @This(), writer: anytype, labels: *const std.StringHashMap(Cpu.Addr)) !void {
-        switch (self.*) {
+        try switch (self.*) {
             .set => |line| write_instruction(.set, line, writer, labels),
             .mov => |line| write_instruction(.mov, line, writer, labels),
             .not => |line| write_instruction(.not, line, writer, labels),
@@ -146,11 +146,11 @@ pub const Line = union(LineTag) {
             .iwm => |line| write_instruction(.iwm, line, writer, labels),
             .sys => |line| write_instruction(.sys, line, writer, labels),
 
-            .raw => |line| try line.write(writer, labels),
+            .raw => |line| line.write(writer, labels),
             .label => {},
-            .bytes => |line| try writer.writeAll(line),
-            .end => try writer.writeByte(0),
-        }
+            .bytes => |line| writer.writeAll(line),
+            .end => writer.writeByte(0),
+        };
     }
 
     pub fn size(self: *const @This()) Cpu.Word {
