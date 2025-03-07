@@ -27,7 +27,7 @@ pub fn main() !void {
     // Keep running instructions while they can be read
     while (try cpu.prepare_instruction()) |instr| {
         // std.debug.print("{any}\n", .{instr});
-        cpu.follow(instr);
+        try cpu.follow(instr);
     }
 
     // Show memory after

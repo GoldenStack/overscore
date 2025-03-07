@@ -28,6 +28,12 @@ pub const Addr = Word;
 /// The size of the CPU's memory.
 pub const Memory = 4096;
 
+pub const Error = error{
+    AddressOutOfBounds, // Called when reading a word from an address not fully in memory
+    InstructionOutOfBounds, // Called when reading an instruction fails because memory ends before it is fully read
+    UnknownOpcode, // Called when trying to read an instruction but the opcode is unrecognized
+};
+
 /// The tag for the instruction type.
 pub const InstructionTag = enum(Unit) {
     set = 1,
@@ -39,8 +45,8 @@ pub const InstructionTag = enum(Unit) {
     iwm,
     sys,
 
-    pub fn read(reader: anytype) !InstructionTag {
-        const opcode = try reader.readByte();
+    pub fn read(reader: anytype) Error!InstructionTag {
+        const opcode = reader.readByte() catch return error.InstructionOutOfBounds;
 
         return std.meta.intToEnum(InstructionTag, opcode) catch error.UnknownOpcode;
     }
@@ -51,10 +57,10 @@ pub const UnaryOp = struct {
     read: Addr,
     write: Addr,
 
-    pub fn read_from(reader: anytype) !UnaryOp {
+    pub fn read_from(reader: anytype) Error!UnaryOp {
         return .{
-            .read = try reader.readInt(Addr, .little),
-            .write = try reader.readInt(Addr, .little),
+            .read = reader.readInt(Addr, .little) catch return error.InstructionOutOfBounds,
+            .write = reader.readInt(Addr, .little) catch return error.InstructionOutOfBounds,
         };
     }
 };
@@ -70,7 +76,7 @@ pub const Instruction = union(InstructionTag) {
     iwm: UnaryOp,
     sys: UnaryOp,
 
-    pub fn read(reader: anytype) !Instruction {
+    pub fn read(reader: anytype) Error!Instruction {
         return switch (try InstructionTag.read(reader)) {
             .set => .{ .set = try UnaryOp.read_from(reader) },
             .mov => .{ .mov = try UnaryOp.read_from(reader) },
@@ -95,27 +101,27 @@ pub fn init(sys: *const fn (Word) Word) @This() {
     };
 }
 
-fn word_ptr(self: *@This(), addr: Addr) *[UnitsPerWord]Unit {
-    if (addr > Memory - UnitsPerWord) {
-        @panic("Tried to read address outside of working memory");
-    }
+fn word_ptr(self: *@This(), addr: Addr) Error!*[UnitsPerWord]Unit {
+    if (addr > Memory - UnitsPerWord) return error.AddressOutOfBounds;
 
     return self.memory[addr..][0..UnitsPerWord];
 }
 
-fn word_read(self: *@This(), addr: Addr) Word {
-    return std.mem.readInt(Word, self.word_ptr(addr), .little);
+fn word_read(self: *@This(), addr: Addr) Error!Word {
+    return std.mem.readInt(Word, try self.word_ptr(addr), .little);
 }
 
-fn word_write(self: *@This(), addr: Addr, word: Word) void {
-    std.mem.writeInt(Word, self.word_ptr(addr), word, .little);
+fn word_write(self: *@This(), addr: Addr, word: Word) Error!void {
+    std.mem.writeInt(Word, try self.word_ptr(addr), word, .little);
 }
 
-pub fn prepare_instruction(self: *@This()) !?Instruction {
-    const addr = self.word_read(0);
+/// Reads an instruction from the CPU, advancing the instruction pointer as
+/// necessary.
+pub fn prepare_instruction(self: *@This()) Error!?Instruction {
+    const addr = try self.word_read(0);
 
-    // Verify and read the first byte
-    if (addr >= Memory) return error.InstructionPointerOutsideMemory;
+    // Cannot read instructions outside of memory
+    if (addr >= Memory) return error.AddressOutOfBounds;
 
     // Handle opcode of 0
     if (self.memory[addr] == 0) return null;
@@ -128,28 +134,28 @@ pub fn prepare_instruction(self: *@This()) !?Instruction {
     const instruction = try Instruction.read(&stream.reader());
 
     // Update the instruction pointer
-    self.word_write(0, @truncate(stream.pos));
+    try self.word_write(0, @truncate(stream.pos));
 
     return instruction;
 }
 
 /// Follows the provided CPU instruction.
-pub fn follow(self: *@This(), instruction: Instruction) void {
-    switch (instruction) {
+pub fn follow(self: *@This(), instruction: Instruction) Error!void {
+    try switch (instruction) {
         .set => |instr| self.word_write(instr.write, instr.read),
 
-        .mov => |instr| self.word_write(instr.write, self.word_read(instr.read)),
+        .mov => |instr| self.word_write(instr.write, try self.word_read(instr.read)),
 
-        .not => |instr| self.word_write(instr.write, ~self.word_read(instr.read)),
+        .not => |instr| self.word_write(instr.write, ~try self.word_read(instr.read)),
 
-        .@"and" => |instr| self.word_write(instr.write, self.word_read(instr.write) & self.word_read(instr.read)),
+        .@"and" => |instr| self.word_write(instr.write, try self.word_read(instr.write) & try self.word_read(instr.read)),
 
-        .add => |instr| self.word_write(instr.write, self.word_read(instr.write) +% self.word_read(instr.read)),
+        .add => |instr| self.word_write(instr.write, try self.word_read(instr.write) +% try self.word_read(instr.read)),
 
-        .irm => |instr| self.word_write(instr.write, self.word_read(self.word_read(instr.read))),
+        .irm => |instr| self.word_write(instr.write, try self.word_read(try self.word_read(instr.read))),
 
-        .iwm => |instr| self.word_write(self.word_read(instr.write), instr.read),
+        .iwm => |instr| self.word_write(try self.word_read(instr.write), instr.read),
 
-        .sys => |instr| self.word_write(instr.write, self.sys(self.word_read(instr.read))),
-    }
+        .sys => |instr| self.word_write(instr.write, self.sys(try self.word_read(instr.read))),
+    };
 }
