@@ -143,20 +143,20 @@ pub fn prepare_instruction(self: *@This()) Error!?Instruction {
 /// Follows the provided CPU instruction.
 pub fn follow(self: *@This(), instruction: Instruction) Error!void {
     try switch (instruction) {
-        .set => |op| self.word_write(op.right, op.left),
+        .set => |op| self.word_write(op.left, op.right),
 
-        .mov => |op| self.word_write(op.right, try self.word_read(op.left)),
+        .mov => |op| self.word_write(op.left, try self.word_read(op.right)),
 
-        .not => |op| self.word_write(op.right, ~try self.word_read(op.left)),
+        .not => |op| self.word_write(op.left, ~try self.word_read(op.right)),
 
-        .@"and" => |op| self.word_write(op.right, try self.word_read(op.right) & try self.word_read(op.left)),
+        .@"and" => |op| self.word_write(op.left, try self.word_read(op.left) & try self.word_read(op.right)),
 
-        .add => |op| self.word_write(op.right, try self.word_read(op.right) +% try self.word_read(op.left)),
+        .add => |op| self.word_write(op.left, try self.word_read(op.left) +% try self.word_read(op.right)),
 
-        .irm => |op| self.word_write(op.right, try self.word_read(try self.word_read(op.left))),
+        .irm => |op| self.word_write(op.left, try self.word_read(try self.word_read(op.right))),
 
-        .iwm => |op| self.word_write(try self.word_read(op.right), op.left),
+        .iwm => |op| self.word_write(try self.word_read(op.left), op.right),
 
-        .sys => |op| self.word_write(op.right, self.sys(try self.word_read(op.left))),
+        .sys => |op| self.word_write(op.left, self.sys(try self.word_read(op.right))),
     };
 }

@@ -55,42 +55,42 @@ This treats `read` as a value and not a register.
 
 ### Move
 
-| Name  | Total size (bytes) | Data | ...             |                  |
-|-------|--------------------|------|-----------------|------------------|
-| `mov` | 9                  | 0010 | `read` (1 word) | `write` (1 word) |
+| Name  | Total size (bytes) | Data | ...              |                 |
+|-------|--------------------|------|------------------|-----------------|
+| `mov` | 9                  | 0010 | `write` (1 word) | `read` (1 word) |
 
 Sets the value of `write` to the value of `read`.
 
 ### Not
 
-| Name  | Total size (bytes) | Data | ...             |                  |
-|-------|--------------------|------|-----------------|------------------|
-| `not` | 9                  | 0011 | `read` (1 word) | `write` (1 word) |
+| Name  | Total size (bytes) | Data | ...              |                  |
+|-------|--------------------|------|------------------|------------------|
+| `not` | 9                  | 0011 | `write` (1 word) | `read` (1 word) |
 
 Sets the value of `write` to the binary complement of the value of `read`.
 
 ### And
 
-| Name  | Total size (bytes) | Data | ...             |                  |
-|-------|--------------------|------|-----------------|------------------|
-| `and` | 9                  | 0100 | `read` (1 word) | `write` (1 word) |
+| Name  | Total size (bytes) | Data | ...              |                 |
+|-------|--------------------|------|------------------|-----------------|
+| `and` | 9                  | 0100 | `write` (1 word) | `red` (1 word) |
 
 Sets the value of `write` to the binary AND of the values of `read` and `write`.
 
 ### Add
 
-| Name  | Total size (bytes) | Data | ...             |                  |
-|-------|--------------------|------|-----------------|------------------|
-| `and` | 9                  | 0101 | `read` (1 word) | `write` (1 word) |
+| Name  | Total size (bytes) | Data | ...              |                 |
+|-------|--------------------|------|------------------|-----------------|
+| `and` | 9                  | 0101 | `write` (1 word) | `read` (1 word) |
 
 Sets the value of `write` to the wrapping unsigned sum of the values of `read`
 and `write`.
 
 ### Indirect reading move
 
-| Name  | Total size (bytes) | Data | ...             |                  |
-|-------|--------------------|------|-----------------|------------------|
-| `irm` | 9                  | 0110 | `read` (1 word) | `write` (1 word) |
+| Name  | Total size (bytes) | Data | ...              |                 |
+|-------|--------------------|------|------------------|-----------------|
+| `irm` | 9                  | 0110 | `write` (1 word) | `read` (1 word) |
 
 Sets the value of `write` to the value of the value of `read`. This is
 equivalent to `mov` except instead of the value of `read` being interpreted as a
@@ -99,9 +99,9 @@ is treated as a word.
 
 ### Indirect writing move
 
-| Name  | Total size (bytes) | Data | ...             |                  |
-|-------|--------------------|------|-----------------|------------------|
-| `iwm` | 9                  | 0111 | `read` (1 word) | `write` (1 word) |
+| Name  | Total size (bytes) | Data | ...              |                  |
+|-------|--------------------|------|------------------|------------------|
+| `iwm` | 9                  | 0111 | `write` (1 word) | `read` (1 word) |
 
 Sets the value of the value of `write` to the value of `read`. This is
 equivalent to `mov` except instead of the value of `write` being set, the value
@@ -110,9 +110,9 @@ to instead.
 
 ### System instruction
 
-| Name  | Total size (bytes) | Data | ...             |                  |
-|-------|--------------------|------|-----------------|------------------|
-| `sys` | 9                  | 1000 | `read` (1 word) | `write` (1 word) |
+| Name  | Total size (bytes) | Data | ...              |                 |
+|-------|--------------------|------|------------------|-----------------|
+| `sys` | 9                  | 1000 | `write` (1 word) | `read` (1 word) |
 
 Performs some arbitrary syscall. This is essentially a hardware/operating system
 defined call, and is the only standard way of communicating with the
@@ -136,20 +136,20 @@ it.
 raw Main
 
 label Main
-    set AA  100
-    not 100 104
-    and 104 100
+    set 100 AA
+    not 104 100
+    and 100 104
     end
 ```
 
 ## Instructions
 
 Instructions are referred to using their shortened name. The destination address
-is placed second. For example:
+is placed on the left. For example:
 ```
-    set AA  100 // Set address 100 (in hexadecimal) to AA
-    not 100 104 // Flip all of the bits of 100, writing to 104 
-    and 104 100 // Binary AND on 100 and 104, writing to 100
+    set 100 AA  // Set address 100 (in hexadecimal) to AA
+    not 104 100 // Flip all of the bits of 100, writing to 104 
+    and 100 104 // Binary AND on 100 and 104, writing to 100
 ```
 
 This works the same for every instruction, so it should make sense from here.
@@ -164,10 +164,10 @@ Number literals can be formatted in hexadecimal, binary, or decimal.
 By default, they're parsed as hexadecimal.
 
 ```
-    set AA        0 // Set address 0 to AA (hexadecimal)
-    set d170      0 // Set address 0 to 170 (decimal)
-    set b10101010 0 // Set address 0 to 10101010 (binary)
-    set xAA       0 // Set address 0 to AA (hexadecimal)
+    set 0 AA        // Set address 0 to AA (hexadecimal)
+    set 0 d170      // Set address 0 to 170 (decimal)
+    set 0 b10101010 // Set address 0 to 10101010 (binary)
+    set 0 xAA       // Set address 0 to AA (hexadecimal)
 ```
 
 ## Labels
