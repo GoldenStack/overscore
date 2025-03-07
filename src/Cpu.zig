@@ -14,10 +14,10 @@ pub const UnitsPerWord = 4;
 /// This is always a multiple of the unit size.
 pub const WordSize = UnitsPerWord * UnitSize;
 
-/// The minimum addressable size of this CPU, as an unsigned integer.
+/// The minimum addressable size of this CPU, as an unsigned integer type.
 pub const Unit = std.meta.Int(.unsigned, UnitSize);
 
-/// The standard size for CPU operations, as an unsigned integer.
+/// The standard size for CPU operations, as an unsigned integer type.
 pub const Word = std.meta.Int(.unsigned, WordSize);
 
 /// The address type for this CPU. This is equivalent to the word size.
@@ -28,10 +28,34 @@ pub const Addr = Word;
 /// The size of the CPU's memory.
 pub const Memory = 4096;
 
+/// The type for errors that can occur while the CPU is following an
+/// instruction.
 pub const Error = error{
-    AddressOutOfBounds, // Called when reading a word from an address not fully in memory
-    InstructionOutOfBounds, // Called when reading an instruction fails because memory ends before it is fully read
-    UnknownOpcode, // Called when trying to read an instruction but the opcode is unrecognized
+    /// Indicates that it was not possible to read a word because the address
+    /// was either fully or partially outside of memory.
+    AddressOutOfBounds,
+
+    /// Indicates that an instruction could not be read because there was no
+    /// memory left to read from.
+    InstructionOutOfBounds,
+
+    /// Indicates that an instruction could not be parsed because the first unit
+    /// (the opcode) was unrecognized.
+    UnknownOpcode,
+};
+
+/// A binary operation that takes two arguments. Typically, the left argument is
+/// written to.
+pub const BinOp = struct {
+    left: Addr,
+    right: Addr,
+
+    pub fn read(reader: anytype) Error!BinOp {
+        return .{
+            .left = reader.readInt(Addr, .little) catch return error.InstructionOutOfBounds,
+            .right = reader.readInt(Addr, .little) catch return error.InstructionOutOfBounds,
+        };
+    }
 };
 
 /// The tag for the instruction type.
@@ -49,20 +73,6 @@ pub const InstructionTag = enum(Unit) {
         const opcode = reader.readByte() catch return error.InstructionOutOfBounds;
 
         return std.meta.intToEnum(InstructionTag, opcode) catch error.UnknownOpcode;
-    }
-};
-
-/// A binary operation that takes two arguments. Typically, the left argument is
-/// written to.
-pub const BinOp = struct {
-    left: Addr,
-    right: Addr,
-
-    pub fn read(reader: anytype) Error!BinOp {
-        return .{
-            .left = reader.readInt(Addr, .little) catch return error.InstructionOutOfBounds,
-            .right = reader.readInt(Addr, .little) catch return error.InstructionOutOfBounds,
-        };
     }
 };
 
@@ -94,7 +104,8 @@ pub const Instruction = union(InstructionTag) {
 memory: [Memory]Unit,
 sys: *const fn (Word) Word,
 
-/// Creates a new CPU. This initializes all registers to zero.
+/// Creates a new CPU from the given system instruction handler. This
+/// initializes all memory to zero.
 pub fn init(sys: *const fn (Word) Word) @This() {
     return .{
         .memory = [_]Unit{0} ** Memory,
@@ -102,24 +113,24 @@ pub fn init(sys: *const fn (Word) Word) @This() {
     };
 }
 
-fn word_ptr(self: *@This(), addr: Addr) Error!*[UnitsPerWord]Unit {
+fn wordSliceAt(self: *@This(), addr: Addr) Error!*[UnitsPerWord]Unit {
     if (addr > Memory - UnitsPerWord) return error.AddressOutOfBounds;
 
     return self.memory[addr..][0..UnitsPerWord];
 }
 
-fn word_read(self: *@This(), addr: Addr) Error!Word {
-    return std.mem.readInt(Word, try self.word_ptr(addr), .little);
+fn getWordAt(self: *@This(), addr: Addr) Error!Word {
+    return std.mem.readInt(Word, try self.wordSliceAt(addr), .little);
 }
 
-fn word_write(self: *@This(), addr: Addr, word: Word) Error!void {
-    std.mem.writeInt(Word, try self.word_ptr(addr), word, .little);
+fn setWordAt(self: *@This(), addr: Addr, word: Word) Error!void {
+    std.mem.writeInt(Word, try self.wordSliceAt(addr), word, .little);
 }
 
 /// Reads an instruction from the CPU, advancing the instruction pointer as
 /// necessary.
 pub fn prepare_instruction(self: *@This()) Error!?Instruction {
-    const addr = try self.word_read(0);
+    const addr = try self.getWordAt(0);
 
     // Cannot read instructions outside of memory
     if (addr >= Memory) return error.AddressOutOfBounds;
@@ -135,7 +146,7 @@ pub fn prepare_instruction(self: *@This()) Error!?Instruction {
     const instruction = try Instruction.read(&stream.reader());
 
     // Update the instruction pointer
-    try self.word_write(0, @truncate(stream.pos));
+    try self.setWordAt(0, @truncate(stream.pos));
 
     return instruction;
 }
@@ -143,20 +154,20 @@ pub fn prepare_instruction(self: *@This()) Error!?Instruction {
 /// Follows the provided CPU instruction.
 pub fn follow(self: *@This(), instruction: Instruction) Error!void {
     try switch (instruction) {
-        .set => |op| self.word_write(op.left, op.right),
+        .set => |op| self.setWordAt(op.left, op.right),
 
-        .mov => |op| self.word_write(op.left, try self.word_read(op.right)),
+        .mov => |op| self.setWordAt(op.left, try self.getWordAt(op.right)),
 
-        .not => |op| self.word_write(op.left, ~try self.word_read(op.right)),
+        .not => |op| self.setWordAt(op.left, ~try self.getWordAt(op.right)),
 
-        .@"and" => |op| self.word_write(op.left, try self.word_read(op.left) & try self.word_read(op.right)),
+        .@"and" => |op| self.setWordAt(op.left, try self.getWordAt(op.left) & try self.getWordAt(op.right)),
 
-        .add => |op| self.word_write(op.left, try self.word_read(op.left) +% try self.word_read(op.right)),
+        .add => |op| self.setWordAt(op.left, try self.getWordAt(op.left) +% try self.getWordAt(op.right)),
 
-        .irm => |op| self.word_write(op.left, try self.word_read(try self.word_read(op.right))),
+        .irm => |op| self.setWordAt(op.left, try self.getWordAt(try self.getWordAt(op.right))),
 
-        .iwm => |op| self.word_write(try self.word_read(op.left), op.right),
+        .iwm => |op| self.setWordAt(try self.getWordAt(op.left), op.right),
 
-        .sys => |op| self.word_write(op.left, self.sys(try self.word_read(op.right))),
+        .sys => |op| self.setWordAt(op.left, self.sys(try self.getWordAt(op.right))),
     };
 }
