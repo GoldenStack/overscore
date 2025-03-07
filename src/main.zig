@@ -29,9 +29,6 @@ pub fn main() !void {
         // std.debug.print("{any}\n", .{instr});
         try cpu.follow(instr);
     }
-
-    // Show memory after
-    std.debug.print("After:  {any}\n", .{cpu.memory});
 }
 
 fn sys(in: Cpu.Word) Cpu.Word {
