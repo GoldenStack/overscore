@@ -52,40 +52,41 @@ pub const InstructionTag = enum(Unit) {
     }
 };
 
-/// A unary operation that reads from one address and writes to another one.
-pub const UnaryOp = struct {
-    read: Addr,
-    write: Addr,
+/// A binary operation that takes two arguments. Typically, the left argument is
+/// written to.
+pub const BinOp = struct {
+    left: Addr,
+    right: Addr,
 
-    pub fn read_from(reader: anytype) Error!UnaryOp {
+    pub fn read(reader: anytype) Error!BinOp {
         return .{
-            .read = reader.readInt(Addr, .little) catch return error.InstructionOutOfBounds,
-            .write = reader.readInt(Addr, .little) catch return error.InstructionOutOfBounds,
+            .left = reader.readInt(Addr, .little) catch return error.InstructionOutOfBounds,
+            .right = reader.readInt(Addr, .little) catch return error.InstructionOutOfBounds,
         };
     }
 };
 
 /// A CPU instruction.
 pub const Instruction = union(InstructionTag) {
-    set: UnaryOp,
-    mov: UnaryOp,
-    not: UnaryOp,
-    @"and": UnaryOp,
-    add: UnaryOp,
-    irm: UnaryOp,
-    iwm: UnaryOp,
-    sys: UnaryOp,
+    set: BinOp,
+    mov: BinOp,
+    not: BinOp,
+    @"and": BinOp,
+    add: BinOp,
+    irm: BinOp,
+    iwm: BinOp,
+    sys: BinOp,
 
     pub fn read(reader: anytype) Error!Instruction {
         return switch (try InstructionTag.read(reader)) {
-            .set => .{ .set = try UnaryOp.read_from(reader) },
-            .mov => .{ .mov = try UnaryOp.read_from(reader) },
-            .not => .{ .not = try UnaryOp.read_from(reader) },
-            .@"and" => .{ .@"and" = try UnaryOp.read_from(reader) },
-            .add => .{ .add = try UnaryOp.read_from(reader) },
-            .irm => .{ .irm = try UnaryOp.read_from(reader) },
-            .iwm => .{ .iwm = try UnaryOp.read_from(reader) },
-            .sys => .{ .sys = try UnaryOp.read_from(reader) },
+            .set => .{ .set = try BinOp.read(reader) },
+            .mov => .{ .mov = try BinOp.read(reader) },
+            .not => .{ .not = try BinOp.read(reader) },
+            .@"and" => .{ .@"and" = try BinOp.read(reader) },
+            .add => .{ .add = try BinOp.read(reader) },
+            .irm => .{ .irm = try BinOp.read(reader) },
+            .iwm => .{ .iwm = try BinOp.read(reader) },
+            .sys => .{ .sys = try BinOp.read(reader) },
         };
     }
 };
@@ -142,20 +143,20 @@ pub fn prepare_instruction(self: *@This()) Error!?Instruction {
 /// Follows the provided CPU instruction.
 pub fn follow(self: *@This(), instruction: Instruction) Error!void {
     try switch (instruction) {
-        .set => |instr| self.word_write(instr.write, instr.read),
+        .set => |op| self.word_write(op.right, op.left),
 
-        .mov => |instr| self.word_write(instr.write, try self.word_read(instr.read)),
+        .mov => |op| self.word_write(op.right, try self.word_read(op.left)),
 
-        .not => |instr| self.word_write(instr.write, ~try self.word_read(instr.read)),
+        .not => |op| self.word_write(op.right, ~try self.word_read(op.left)),
 
-        .@"and" => |instr| self.word_write(instr.write, try self.word_read(instr.write) & try self.word_read(instr.read)),
+        .@"and" => |op| self.word_write(op.right, try self.word_read(op.right) & try self.word_read(op.left)),
 
-        .add => |instr| self.word_write(instr.write, try self.word_read(instr.write) +% try self.word_read(instr.read)),
+        .add => |op| self.word_write(op.right, try self.word_read(op.right) +% try self.word_read(op.left)),
 
-        .irm => |instr| self.word_write(instr.write, try self.word_read(try self.word_read(instr.read))),
+        .irm => |op| self.word_write(op.right, try self.word_read(try self.word_read(op.left))),
 
-        .iwm => |instr| self.word_write(try self.word_read(instr.write), instr.read),
+        .iwm => |op| self.word_write(try self.word_read(op.right), op.left),
 
-        .sys => |instr| self.word_write(instr.write, self.sys(try self.word_read(instr.read))),
+        .sys => |op| self.word_write(op.right, self.sys(try self.word_read(op.left))),
     };
 }
