@@ -25,7 +25,7 @@ pub fn main() !void {
     @memcpy(cpu.memory[0..binary.items.len], binary.items);
 
     // Keep running instructions while they can be read
-    while (try cpu.prepare_instruction()) |instr| {
+    while (try cpu.prepareInstruction()) |instr| {
         // std.debug.print("{any}\n", .{instr});
         try cpu.follow(instr);
     }

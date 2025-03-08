@@ -129,7 +129,7 @@ fn setWordAt(self: *@This(), addr: Addr, word: Word) Error!void {
 
 /// Reads an instruction from the CPU, advancing the instruction pointer as
 /// necessary.
-pub fn prepare_instruction(self: *@This()) Error!?Instruction {
+pub fn prepareInstruction(self: *@This()) Error!?Instruction {
     const addr = try self.getWordAt(0);
 
     // Cannot read instructions outside of memory
