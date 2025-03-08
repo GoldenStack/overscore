@@ -145,6 +145,7 @@ label Main
 ## Line Syntax
 
 ### Statements
+
 | Name             | Syntax          | Output size |
 |------------------|-----------------|-------------|
 | [Raw](#raw)      | `raw <WORD>`    | 4 bytes     |
@@ -153,6 +154,7 @@ label Main
 | [End](#end)      | `end`           | 1 byte      |
 
 ### Instructions
+
 | Name  | Syntax              | Output size |
 |-------|---------------------|-------------|
 | `set` | `set <ADDR> <WORD>` | 9 bytes     |
@@ -184,6 +186,9 @@ Instructions always have a size equivalent to their size as indicated in the
 Number literals can be formatted in hexadecimal, binary, or decimal.
 
 By default, they're parsed as hexadecimal.
+
+When the documentations refers to an address or a word, it's referring to a
+literal.
 
 ```
     set 0 AA        // Set address 0 to AA (hexadecimal)
