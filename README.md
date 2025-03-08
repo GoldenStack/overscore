@@ -16,16 +16,16 @@ implemented with arithmetic on the instruction counter at address 0.
 
 ## Instruction Set
 
-| Name  | Opcode | Description           | Total size (bytes) | C-like equivalent|
-|-------|--------|-----------------------|--------------------|------------------|
-| `set` | 0001   | Set immediate         | 9                  | `a = <constant>` |
-| `mov` | 0010   | Move                  | 9                  | `a = b`          |
-| `not` | 0011   | Not                   | 9                  | `a = ~b`         |
-| `and` | 0100   | And                   | 9                  | `a = a & b`      |
-| `add` | 0101   | Add                   | 9                  | `a = a + b`      |
-| `irm` | 0110   | Indirect reading move | 9                  | `a = *b`         |
-| `iwm` | 0111   | Indirect writing move | 9                  | `*a = b`         |
-| `sys` | 1000   | System instruction    | 9                  | `a = sys(b)`*    |
+| Name                            | Opcode | Description           | Total size (bytes) | C-like equivalent|
+|---------------------------------|--------|-----------------------|--------------------|------------------|
+| [`set`](#set-immediate)         | 0001   | Set immediate         | 9                  | `a = <constant>` |
+| [`mov`](#move)                  | 0010   | Move                  | 9                  | `a = b`          |
+| [`not`](#not)                   | 0011   | Not                   | 9                  | `a = ~b`         |
+| [`and`](#and)                   | 0100   | And                   | 9                  | `a = a & b`      |
+| [`add`](#add)                   | 0101   | Add                   | 9                  | `a = a + b`      |
+| [`irm`](#indirect-reading-move) | 0110   | Indirect reading move | 9                  | `a = *b`         |
+| [`iwm`](#indirect-writing-move) | 0111   | Indirect writing move | 9                  | `*a = b`         |
+| [`sys`](#system-instruction)    | 1000   | System instruction    | 9                  | `a = sys(b)`*    |
 > _*where sys is a standard IO function_
 
 > _Note: C-like equivalents address with variables for simplicity; a more
@@ -145,12 +145,12 @@ label Main
 ## Line Syntax
 
 ### Statements
-| Name  | Syntax          | Output size |
-|-------|-----------------|-------------|
-| Raw   | `raw <WORD>`    | 4 bytes     |
-| Label | `label <NAME>`  | 0 bytes     |
-| Bytes | `bytes <BYTES>` | variable    |
-| End   | `end`           | 1 byte      |
+| Name             | Syntax          | Output size |
+|------------------|-----------------|-------------|
+| [Raw](#raw)      | `raw <WORD>`    | 4 bytes     |
+| [Label](#labels) | `label <NAME>`  | 0 bytes     |
+| [Bytes](#bytes)  | `bytes <BYTES>` | variable    |
+| [End](#end)      | `end`           | 1 byte      |
 
 ### Instructions
 | Name  | Syntax              | Output size |
