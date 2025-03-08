@@ -142,6 +142,28 @@ label Main
     end
 ```
 
+## Line Syntax
+
+### Statements
+| Name  | Syntax          | Output size |
+|-------|-----------------|-------------|
+| Raw   | `raw <WORD>`    | 4 bytes     |
+| Label | `label <NAME>`  | 0 bytes     |
+| Bytes | `bytes <BYTES>` | variable    |
+| End   | `end`           | 1 byte      |
+
+### Instructions
+| Name  | Syntax              | Output size |
+|-------|---------------------|-------------|
+| `set` | `set <ADDR> <WORD>` | 9 bytes     |
+| `mov` | `mov <ADDR> <ADDR>` | 9 bytes     |
+| `not` | `not <ADDR> <ADDR>` | 9 bytes     |
+| `and` | `and <ADDR> <ADDR>` | 9 bytes     |
+| `add` | `add <ADDR> <ADDR>` | 9 bytes     |
+| `irm` | `irm <ADDR> <ADDR>` | 9 bytes     |
+| `iwm` | `iwm <ADDR> <ADDR>` | 9 bytes     |
+| `sys` | `sys <ADDR> <ADDR>` | 9 bytes     |
+
 ## Instructions
 
 Instructions are referred to using their shortened name. The destination address
