@@ -95,7 +95,7 @@ and `write`.
 Sets the value of `write` to the value of the value of `read`. This is
 equivalent to `mov` except instead of the value of `read` being interpreted as a
 word, the value of `read` is treated as an address and the value of this address
-is treated as a word.
+is treated as a word. This is similar to having dereferenced the right argument.
 
 ### Indirect writing move
 
@@ -106,7 +106,7 @@ is treated as a word.
 Sets the value of the value of `write` to the value of `read`. This is
 equivalent to `mov` except instead of the value of `write` being set, the value
 of `write` is interpreted as an address and the value of this address is written
-to instead.
+to instead. This is similar to having dereferenced the left argument.
 
 ### System instruction
 
