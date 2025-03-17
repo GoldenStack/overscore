@@ -19,7 +19,7 @@ be removed.
 
 This proposal focuses on two central ideas:
 - A _global descriptor table_ or equivalent, providing rules as to which
-  sections of memory are accessible (reading, writing, execution) from which
+  sections of memory are accessible (reading, writing, jumping) from which
   positions, or perhaps a simpler system that accomplishes a similar thing
 - An _interrupt descriptor table_ or equivalent, providing a set of addresses to
   jump to when it is necessary to handle certain interrupts. Following this
@@ -27,7 +27,46 @@ This proposal focuses on two central ideas:
   of this table, as well as the fact that interrupt handling can be designed
   with this knowledge.
 
-TODO: Explain in more detail
+A simple way to achieve the global descriptor table (GDT) likely entails having
+a list of boundaries in memory, across which reads, writes, or jumps cannot
+occur. This would encourage locality and keep the system simple, but might not
+work out with the concept of virtual addresses.
+
+This table would only permit adding region descriptor entries around regions
+that the current region is not subject to. Essentially, it would be possible to
+allocate any regions anywhere before there are any, but adding more would only
+be able to make privilege more granular, and it's not possible to remove a
+region descriptor entry from within the region, of course. This means that any
+region-based activities should not be proxied through function calls because
+they will apply from the called region and can potentially result in privilege
+escalation.
+
+Programs could be initialized by writing the program to memory and then adding a
+barrier to it. How would barrier removal work, though? If you can't remove a
+barrier you're affected by, programs could just remove barriers for other
+programs. I suppose specifying a removal point on creation might be a good
+option.
+
+Entering a block would only be possible from the left, by jumping to the
+instruction right before it starts and requiring the CPU to increase the
+instruction pointer past the boundary. Exiting from the block, then, would only
+be possible from the right, whether the limited block naturally reaches the exit
+or if there's a jump to right before the right side of the block.
+
+Interrupts would be another way to exit from blocks. Interrupts would be
+implemented with an interrupt descriptor table (IDT), storing, at minimum, an
+array (where the index is the interrupt id) of table entries, with each entry
+containing the destination address to jump to on interrupt, as well as the
+address to write the previous address that was being executed from.
+
+Interrupts would be trusted to be jumped from anywhere because they have access
+to the point they were jumped to from, so they can be designed around this
+possibility.
+
+One issue is that this system doesn't support the concept of *privilege levels*—
+it only supports the idea of memory barriers. This means it might be impossible
+to jump back to a given section in memory. A simple system could exist on top of
+this, but again it would add more complexity.
 
 ## Minimum addressable size of one bit
 
