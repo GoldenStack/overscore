@@ -166,7 +166,7 @@ pub fn follow(self: *@This(), instruction: Instruction) Error!void {
 
         .irm => |op| self.setWordAt(op.left, try self.getWordAt(try self.getWordAt(op.right))),
 
-        .iwm => |op| self.setWordAt(try self.getWordAt(op.left), op.right),
+        .iwm => |op| self.setWordAt(try self.getWordAt(op.left), try self.getWordAt(op.right)),
 
         .sys => |op| self.setWordAt(op.left, self.sys(try self.getWordAt(op.right))),
     };
