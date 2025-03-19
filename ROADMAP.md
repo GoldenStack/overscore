@@ -68,6 +68,25 @@ it only supports the idea of memory barriers. This means it might be impossible
 to jump back to a given section in memory. A simple system could exist on top of
 this, but again it would add more complexity.
 
+## Micro-operations and macro-operations
+
+The Overscore instruction set is very minimal. This is intended to keep the
+complexity of the CPU low so that is both easy to implement and easy to program
+in. However, keeping the complexity so low makes the CPU less and less useful,
+inciting comments like "you're basically in esolang territory at that point".
+
+Implementing micro-operations and macro-operations allows the complexity to
+remain relatively low, but makes writing assembly much easier and provides more
+room for optimizations.
+
+Specifically, all current operations will become micro-operations, and several
+larger macro-operations will be defined solely out of these micro-operations,
+introducing no new features into the CPU. From an assembly programmer's
+perspective, they might be considered as just syntax sugar. Thus, the macro-
+instructions can kind of be thought of as macros.
+
+Implementation tactics may include macro-operation fusion.
+
 ## Minimum addressable size of one bit
 
 Makes the minimum addressable size of the CPU equal to one (1) bit.
