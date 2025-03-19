@@ -85,6 +85,9 @@ introducing no new features into the CPU. From an assembly programmer's
 perspective, they might be considered as just syntax sugar. Thus, the macro-
 instructions can kind of be thought of as macros.
 
+Ideally, all operations are dependent on the word size, not the minimum
+addressable size.
+
 Implementation tactics may include macro-operation fusion.
 
 ## Minimum addressable size of one bit
