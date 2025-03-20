@@ -36,6 +36,10 @@ simplicity. It [could be simpler](https://en.wikipedia.org/wiki/One-instruction_
 but this has been intentionally avoided as to prevent the CPU from becoming a
 [Turing tarpit](https://en.wikipedia.org/wiki/Turing_tarpit).
 
+For example, it's possible to remove some of the indirect move instructions by
+modifying relevant addresses in the code itself, but this requires
+self-modifying code and increases the complexity greatly.
+
 A null byte (opcode zero) exits. Otherwise, invalid opcodes always error.
 Addressing invalid memory always errors (errors are defined as emulator exits).
 
