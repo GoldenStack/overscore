@@ -138,3 +138,7 @@ This **would not** affect the instruction set; only the assembler is changed.
     the assembly is even further from machine code and makes less sense
 - More typing for the same instructions
 
+## Less detailed items
+
+- Structure this like a CLI app, e.g. `cat main.asm | overscore assemble | overscore emulate`
+- Improve error messages in the assembler
