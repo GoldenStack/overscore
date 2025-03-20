@@ -142,3 +142,4 @@ This **would not** affect the instruction set; only the assembler is changed.
 
 - Structure this like a CLI app, e.g. `cat main.asm | overscore assemble | overscore emulate`
 - Improve error messages in the assembler
+- Compress instruction sizes
