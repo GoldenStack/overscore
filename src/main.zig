@@ -9,7 +9,7 @@ pub fn main() !void {
     const allocator = gpa.allocator();
 
     // Load the assembly and convert it to a slice
-    const assembly = @embedFile("example.asm");
+    const assembly = @embedFile("fibonacci.asm");
     const asm_slice: []const u8 = assembly[0..assembly.len];
 
     // Assemble the assembly into binary
