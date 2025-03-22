@@ -70,17 +70,11 @@ pub fn init(tokens: Tokenizer.TokenIterator, allocator: std.mem.Allocator) @This
 pub fn read_container(self: *@This()) !Container {
     var declarations = std.ArrayList(Declaration).init(self.allocator);
 
-    while (true) {
-        if (self.peek()) |_| {
-            const declaration = try self.read_declaration();
-
-            try declarations.append(declaration);
-        } else |_| return .{
-            .namespace = declarations,
-        };
-    }
-
-    return self.fail(.eof);
+    while (self.peek()) |_| {
+        try declarations.append(try self.read_declaration());
+    } else |_| return .{
+        .namespace = declarations,
+    };
 }
 
 pub fn read_declaration(self: *@This()) !Declaration {
@@ -98,7 +92,7 @@ pub fn read_declaration(self: *@This()) !Declaration {
 
     const value = try self.read_expression();
 
-    if (@as(ExpressionTag, value) == .number) _ = try self.expect(.@";");
+    _ = try self.expect(.@";");
 
     return .{
         .access = access,
