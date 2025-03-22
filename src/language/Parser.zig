@@ -137,6 +137,31 @@ pub const ErrorContext = union(Error) {
     expected_token: Tokenizer.TokenType,
     expected_tokens: []const Tokenizer.TokenType,
     number_too_large: []const u8,
+
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
+
+        switch (self) {
+            .eof => try writer.print("Unexpected EOF", .{}),
+            .expected_token => |token| try writer.print("Expected {s}", .{ @tagName(token) }),
+            .expected_tokens => |tokens| {
+                try writer.writeAll("Expected one of ");
+            
+                for (0.., tokens) |index, token| {
+                    if (index != 0) try writer.writeAll(", ");
+
+                    try writer.print("{s}", .{ @tagName(token) });
+                }
+            },
+            .number_too_large => |number| try writer.print("Number \"{s}\" too large to store ", .{ number }),
+        }
+    }
 };
 
 /// The error set of errors that can occur while parsing.
