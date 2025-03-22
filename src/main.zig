@@ -2,19 +2,31 @@ const std = @import("std");
 const Cpu = @import("Cpu.zig");
 const Assembler = @import("Assembler.zig");
 const Tokenizer = @import("language/Tokenizer.zig");
+const Parser = @import("language/Parser.zig");
 
 pub fn main() !void {
     // Create an allocator and error if it leaks
     var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
     defer _ = gpa.deinit();
-    // const allocator = gpa.allocator();
+    const allocator = gpa.allocator();
 
     const src_bytes = @embedFile("example.os");
     const src: []const u8 = src_bytes;
 
-    var tokenizer = Tokenizer.tokenize(src);
+    const tokens = Tokenizer.tokenize(src);
+    var parser = Parser.init(tokens, allocator);
 
-    while (tokenizer.next()) |token| std.debug.print("{any} \"{s}\" at row {any} col {any}\n", .{token.@"type", token.value, token.start.row+1, token.start.col+1});
+    if (parser.read_ast()) |ast| {
+        std.debug.print("AST: {any}\n", .{ast});
+    } else |err| {
+        if (err == error.ParsingError) {
+            const loc = parser.tokens.location();
+
+            std.debug.print("Error: {any} at row {any} col {any}\n", .{ parser.error_context, loc.row, loc.col });
+        } else {
+            std.debug.print("other error: {any}\n", .{err});
+        }
+    }
 
     // // Load the assembly and convert it to a slice
     // const assembly = @embedFile("fibonacci.asm");
