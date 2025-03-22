@@ -68,7 +68,8 @@ pub const TokenIterator = struct {
         };
     }
 
-    fn location(self: *const @This()) Location {
+    /// Returns the location of this tokenizer in the source string.
+    pub fn location(self: *const @This()) Location {
         return .{
             .pos = self.pos,
             .row = self.row,
