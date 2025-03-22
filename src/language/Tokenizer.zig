@@ -25,6 +25,7 @@ pub const TokenType = enum {
     @"pub",
     @"const",
     @"return",
+    mov,
 
     // General language constructs
     ident,
@@ -160,6 +161,7 @@ pub const TokenIterator = struct {
             .{ "pub", .@"pub" },
             .{ "const", .@"const" },
             .{ "return", .@"return" },
+            .{ "mov", .mov },
         });
 
         return .{

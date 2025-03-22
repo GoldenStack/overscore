@@ -17,12 +17,15 @@ pub fn main() !void {
     var parser = Parser.init(tokens, allocator);
 
     if (parser.read_ast()) |ast| {
+        defer ast.deinit();
+        
         std.debug.print("AST: {any}\n", .{ast});
     } else |err| {
         if (err == error.ParsingError) {
             const loc = parser.tokens.location();
 
             std.debug.print("Error: {any} at row {any} col {any}\n", .{ parser.error_context, loc.row, loc.col });
+            return err;
         } else {
             std.debug.print("other error: {any}\n", .{err});
         }

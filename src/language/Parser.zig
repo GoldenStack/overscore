@@ -1,8 +1,8 @@
 const std = @import("std");
 const Tokenizer = @import("Tokenizer.zig");
 
-/// A literal value. Currently constrained to being a u32.
-pub const Lit = u32;
+/// A literal number. Currently constrained to being a u32.
+pub const Number = u32;
 
 /// The tag for statements.
 pub const StatementTag = enum {
@@ -11,7 +11,7 @@ pub const StatementTag = enum {
 
 /// An arbitrary statement.
 pub const Statement = union(StatementTag) {
-    mov: struct { left: Lit, right: Lit },
+    mov: struct { left: Number, right: Number },
 };
 
 /// The tag for the AST.
@@ -22,6 +22,12 @@ pub const AstTag = enum {
 /// The abstract syntax tree for the language
 pub const Ast = union(AstTag) {
     block: std.ArrayList(Statement),
+
+    pub fn deinit(self: *const @This()) void {
+        switch (self.*) {
+            .block => |block| block.deinit(),
+        }
+    }
 };
 
 /// Every possible error that can occur while parsing.
@@ -80,14 +86,35 @@ pub fn read_block(self: *@This()) !Ast {
 }
 
 pub fn read_statement(self: *@This()) !Statement {
-    _ = self;
-    @panic("1");
+    _ = try self.expect(.mov);
+
+    const left = try self.read_number();
+    const right = try self.read_number();
+
+    return .{ .mov = .{
+        .left = left,
+        .right = right,
+    } };
+}
+
+pub fn read_number(self: *@This()) !Number {
+    const token = try self.expect(.number);
+
+    // TODO: Parsing error
+    const number = try std.fmt.parseUnsigned(Number, token.value, 10);
+
+    return number;
 }
 
 pub fn expect(self: *@This(), @"type": Tokenizer.TokenType) !Tokenizer.Token {
+    const start = self.tokens.pos;
+
     const token = try self.next();
 
-    return if (token.type == @"type") token else self.fail(Tokenizer.Token, .{ .expected_token = @"type" });
+    if (token.type == @"type") return token;
+
+    self.tokens.pos = start; // Backtrack
+    return self.fail(Tokenizer.Token, .{ .expected_token = @"type" });
 }
 
 pub fn next(self: *@This()) !Tokenizer.Token {
