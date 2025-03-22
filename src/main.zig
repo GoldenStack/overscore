@@ -22,7 +22,7 @@ pub fn main() !void {
 
     const container = parser.read_container() catch |err| {
         if (err == error.ParsingError) {
-            std.debug.print("Error at line {any} column {any}: {any}\n", .{ parser.tokens.row + 1, parser.tokens.col + 1, parser.error_context });
+            std.debug.print("Error at line {any} column {any}: {any}\n", .{ parser.tokens.row, parser.tokens.col, parser.error_context });
             return;
         } else return err;
     };

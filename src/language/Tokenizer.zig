@@ -94,8 +94,8 @@ pub const TokenIterator = struct {
             .src = src,
             .pos = 0,
 
-            .row = 0,
-            .col = 0,
+            .row = 1,
+            .col = 1,
         };
     }
 
@@ -119,7 +119,7 @@ pub const TokenIterator = struct {
 
         if (char == '\n') {
             self.row += 1;
-            self.col = 0;
+            self.col = 1;
         } else {
             self.col += 1;
         }
