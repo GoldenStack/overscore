@@ -1,5 +1,8 @@
 
-pub const x = 2;
+pub const x = {
+    mov 1 2
+    2;
+};
 
 // pub const y = {
 //     mov 1 2

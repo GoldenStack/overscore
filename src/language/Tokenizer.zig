@@ -11,8 +11,8 @@ pub const Location = struct {
 /// A token type. This contains all of the possible unique meanings for tokens.
 pub const TokenType = enum {
     // Special characters
-    // @"{",
-    // @"}",
+    @"{",
+    @"}",
     // @"(",
     // @")",
     @"=",
@@ -26,7 +26,7 @@ pub const TokenType = enum {
     @"const",
     @"var",
     // @"return",
-    // mov,
+    mov,
 
     // General language constructs
     ident,
@@ -103,8 +103,8 @@ pub const TokenIterator = struct {
 
         return switch (char) {
             // Fast paths for singular character tokens
-            // '{' => .@"{",
-            // '}' => .@"}",
+            '{' => .@"{",
+            '}' => .@"}",
             // '(' => .@"(",
             // ')' => .@")",
             '=' => .@"=",
@@ -163,7 +163,7 @@ pub const TokenIterator = struct {
             .{ "const", .@"const" },
             .{ "var", .@"var" },
             // .{ "return", .@"return" },
-            // .{ "mov", .mov },
+            .{ "mov", .mov },
         });
 
         return .{

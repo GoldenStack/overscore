@@ -28,12 +28,26 @@ pub const Mutability = enum {
 
 /// The tag for expressions.
 pub const ExpressionTag = enum {
+    block,
     number,
 };
 
 /// An arbitrary expression.
 pub const Expression = union(ExpressionTag) {
+    block: std.ArrayList(Statement),
     number: u32,
+};
+
+/// The tag for statements.
+pub const StatementTag = enum {
+    mov,
+    expression,
+};
+
+/// An arbitrary statement.
+pub const Statement = union(StatementTag) {
+    mov: struct { Expression, Expression },
+    expression: Expression,
 };
 
 /// Every possible error that can occur while parsing.
@@ -41,6 +55,7 @@ pub const Error = enum {
     eof,
     expected_token,
     expected_tokens,
+    number_too_large,
 };
 
 /// The context for an error that can occur while parsing.
@@ -48,6 +63,13 @@ pub const ErrorContext = union(Error) {
     eof,
     expected_token: Tokenizer.TokenType,
     expected_tokens: []const Tokenizer.TokenType,
+    number_too_large: []const u8,
+};
+
+/// The error set of errors that can occur while parsing.
+pub const ParsingError = error {
+    ParsingError,
+    OutOfMemory,
 };
 
 tokens: Tokenizer.TokenIterator,
@@ -67,7 +89,7 @@ pub fn init(tokens: Tokenizer.TokenIterator, allocator: std.mem.Allocator) @This
     };
 }
 
-pub fn read_container(self: *@This()) !Container {
+pub fn read_container(self: *@This()) ParsingError!Container {
     var declarations = std.ArrayList(Declaration).init(self.allocator);
 
     while (self.peek()) |_| {
@@ -77,7 +99,7 @@ pub fn read_container(self: *@This()) !Container {
     };
 }
 
-pub fn read_declaration(self: *@This()) !Declaration {
+pub fn read_declaration(self: *@This()) ParsingError!Declaration {
     const access: Access = if (self.expect(.@"pub")) |_| .public else |_| .private;
 
     const mutability: Mutability = switch ((try self.expect_many(.{ .@"const", .@"var" })).type) {
@@ -102,15 +124,55 @@ pub fn read_declaration(self: *@This()) !Declaration {
     };
 }
 
-pub fn read_expression(self: *@This()) !Expression {
-    return .{ .number = try self.read_number() };
+pub fn read_expression(self: *@This()) ParsingError!Expression {
+    return switch ((try self.peek()).type) {
+        .@"{" => {
+            _ = try self.expect(.@"{");
+
+            var statements = std.ArrayList(Statement).init(self.allocator);
+
+            while ((try self.peek()).type != .@"}") {
+                try statements.append(try self.read_statement());
+            }
+
+            _ = try self.expect(.@"}");
+
+            return .{
+                .block = statements,
+            };
+        },
+        .number => .{ .number = try self.read_number() },
+        else => self.fail(.{ .expected_tokens = &.{ .@"{", .number } }),
+    };
 }
 
-pub fn read_number(self: *@This()) !u32 {
+pub fn read_statement(self: *@This()) ParsingError!Statement {
+    return switch ((try self.peek()).type) {
+        .mov => {
+            _ = try self.expect(.mov);
+
+            const left = try self.read_expression();
+            const right = try self.read_expression();
+
+            return .{ .mov = .{
+                left, right
+            } }; 
+        },
+        else => {
+            const expr = try self.read_expression();
+
+            _ = try self.expect(.@";");
+
+            return .{ .expression = expr };
+        },
+    };
+}
+
+pub fn read_number(self: *@This()) ParsingError!u32 {
     const token = try self.expect(.number);
 
-    // TODO: Parsing error
-    const number = try std.fmt.parseUnsigned(u32, token.value, 10);
+    const number = std.fmt.parseUnsigned(u32, token.value, 10)
+        catch return self.fail(.{ .number_too_large = token.value });
 
     return number;
 }
