@@ -10,15 +10,26 @@ pub const Location = struct {
 
 /// A token type. This contains all of the possible unique meanings for tokens.
 pub const TokenType = enum {
+    // Special characters
     @"{",
     @"}",
     @"(",
     @")",
     @"=",
+    @";",
+    @",",
+
+    // Kewords
     @"fn",
     @"for",
+    @"pub",
+    @"const",
+    @"return",
+
+    // General language constructs
     ident,
     number,
+    comment,
 };
 
 /// A token. This contains a type, a raw value, and its position in the source
@@ -66,7 +77,7 @@ pub const TokenIterator = struct {
     }
 
     fn peek_char(self: *const @This()) ?u8 {
-        if (self.pos >= self.src.len) return null else return self.src[self.pos];
+        return if (self.pos < self.src.len) self.src[self.pos] else null;
     }
 
     fn next_char(self: *@This()) ?u8 {
@@ -94,6 +105,18 @@ pub const TokenIterator = struct {
             '(' => .@"(",
             ')' => .@")",
             '=' => .@"=",
+            ';' => .@";",
+            ',' => .@",",
+
+            // Less fast paths for multi-character non-alphabetic tokens
+            '/' => {
+                if (self.peek_char()) |c| if (c == '/') {
+                    while (self.next_char()) |c2| {
+                        if (c2 == '\n') return .comment;
+                    }
+                };
+                return .ident;
+            },
 
             // All other cases
             else => {
@@ -129,16 +152,21 @@ pub const TokenIterator = struct {
 
         const value = self.src[start.pos..end.pos];
 
-        // Multi-character tokens.
-        // Technically this could be optimized as we already check the starting
-        // character, but this doesn't particularly matter.
+        // Multi-character alphabetic tokens.
         const types = std.StaticStringMap(TokenType).initComptime(.{
             .{ "fn", .@"fn" },
             .{ "for", .@"for" },
+            .{ "pub", .@"pub" },
+            .{ "const", .@"const" },
+            .{ "return", .@"return" },
         });
 
         return .{
-            .type = types.get(value) orelse @"type",
+            .type = switch (@"type") {
+                .ident => types.get(value) orelse @"type",
+                else => @"type",
+            },
+
             .value = value,
 
             .start = start,

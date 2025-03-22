@@ -5,3 +5,5 @@ pub const x = fn (x, y) {
 
     return 2345;
 }
+
+pub const y = fn (x) x * 2;
