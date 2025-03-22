@@ -116,7 +116,7 @@ pub const TokenIterator = struct {
                 if (self.peek_char()) |c| if (c == '/') {
                     while (self.next_char()) |c2| {
                         if (c2 == '\n') return .comment;
-                    }
+                    } else return .comment;
                 };
                 return .ident;
             },
