@@ -1,49 +1,59 @@
 const std = @import("std");
 const Tokenizer = @import("Tokenizer.zig");
 
-/// A literal number. Currently constrained to being a u32.
-pub const Number = u32;
-
-/// The tag for statements.
-pub const StatementTag = enum {
-    mov,
+/// A container, containing any number of declarations.
+pub const Container = struct {
+    namespace: std.ArrayList(Declaration),
 };
 
-/// An arbitrary statement.
-pub const Statement = union(StatementTag) {
-    mov: struct { left: Number, right: Number },
+/// A declaration inside a scope.
+pub const Declaration = struct {
+    access: Access,
+    mutability: Mutability,
+    name: Tokenizer.Token,
+    value: Expression,
 };
 
-/// The tag for the AST.
-pub const AstTag = enum {
-    block,
+/// An access modifier, either private or public.
+pub const Access = enum {
+    private,
+    public,
 };
 
-/// The abstract syntax tree for the language
-pub const Ast = union(AstTag) {
-    block: std.ArrayList(Statement),
+/// A mutability modifier, either constant or variable.
+pub const Mutability = enum {
+    constant,
+    variable,
+};
 
-    pub fn deinit(self: *const @This()) void {
-        switch (self.*) {
-            .block => |block| block.deinit(),
-        }
-    }
+/// The tag for expressions.
+pub const ExpressionTag = enum {
+    number,
+};
+
+/// An arbitrary expression.
+pub const Expression = union(ExpressionTag) {
+    number: u32,
 };
 
 /// Every possible error that can occur while parsing.
 pub const Error = enum {
     eof,
     expected_token,
+    expected_tokens,
 };
 
 /// The context for an error that can occur while parsing.
 pub const ErrorContext = union(Error) {
     eof,
     expected_token: Tokenizer.TokenType,
+    expected_tokens: []const Tokenizer.TokenType,
 };
 
 tokens: Tokenizer.TokenIterator,
 allocator: std.mem.Allocator,
+
+next_token: ?Tokenizer.Token = null,
 
 /// The context for whatever error may have occurred. If any functions on this
 /// type return error.ParsingError, this value is significant. Otherwise, it may
@@ -57,71 +67,106 @@ pub fn init(tokens: Tokenizer.TokenIterator, allocator: std.mem.Allocator) @This
     };
 }
 
-pub fn read_ast(self: *@This()) !Ast {
-    return self.read_block();
-}
-
-pub fn fail(self: *@This(), comptime T: type, @"error": ErrorContext) !T {
-    self.error_context = @"error";
-    return error.ParsingError;
-}
-
-pub fn read_block(self: *@This()) !Ast {
-    _ = try self.expect(.@"{");
-
-    var statements = std.ArrayList(Statement).init(self.allocator);
+pub fn read_container(self: *@This()) !Container {
+    var declarations = std.ArrayList(Declaration).init(self.allocator);
 
     while (true) {
-        if (self.expect(.@"}")) |_| {
+        if (self.peek()) |t| {
+            std.debug.print("{any} {s}\n", .{t, t.value});
+            const declaration = try self.read_declaration();
 
-            return .{ .block = statements };
-
-        } else |_| {
-            const statement = try self.read_statement();
-
-            try statements.append(statement);
-        }
-
+            try declarations.append(declaration);
+        } else |_| return .{
+            .namespace = declarations,
+        };
     }
+
+    return self.fail(.eof);
 }
 
-pub fn read_statement(self: *@This()) !Statement {
-    _ = try self.expect(.mov);
+pub fn read_declaration(self: *@This()) !Declaration {
+    const access: Access = if (self.expect(.@"pub")) |_| .public else |_| .private;
 
-    const left = try self.read_number();
-    const right = try self.read_number();
+    const mutability: Mutability = switch ((try self.expect_many(.{ .@"const", .@"var" })).type) {
+        .@"const" => .constant,
+        .@"var" => .variable,
+        else => unreachable,
+    };
 
-    return .{ .mov = .{
-        .left = left,
-        .right = right,
-    } };
+    const name = try self.expect(.ident);
+
+    _ = try self.expect(.@"=");
+
+    const value = try self.read_expression();
+
+    if (@as(ExpressionTag, value) == .number) _ = try self.expect(.@";");
+
+    return .{
+        .access = access,
+        .mutability = mutability,
+        .name = name,
+        .value = value,
+    };
 }
 
-pub fn read_number(self: *@This()) !Number {
+pub fn read_expression(self: *@This()) !Expression {
+    return .{ .number = try self.read_number() };
+}
+
+pub fn read_number(self: *@This()) !u32 {
     const token = try self.expect(.number);
 
     // TODO: Parsing error
-    const number = try std.fmt.parseUnsigned(Number, token.value, 10);
+    const number = try std.fmt.parseUnsigned(u32, token.value, 10);
 
     return number;
 }
 
+pub fn fail(self: *@This(), @"error": ErrorContext) error { ParsingError } {
+    self.error_context = @"error";
+    return error.ParsingError;
+}
+
 pub fn expect(self: *@This(), @"type": Tokenizer.TokenType) !Tokenizer.Token {
-    const start = self.tokens.pos;
+    const token = try self.peek();
+
+    if (token.type == @"type") {
+        return self.next();
+    } else {
+        return self.fail(.{ .expected_token = @"type" });
+    }
+}
+
+pub fn expect_many(self: *@This(), types: anytype) !Tokenizer.Token {
+    const token = try self.peek();
+
+    if (std.mem.indexOfScalar(Tokenizer.TokenType, &types, token.type) != null) {
+        return self.next();
+    } else {
+        return self.fail(.{ .expected_tokens = &types });
+    }
+}
+
+pub fn peek(self: *@This()) !Tokenizer.Token {
+    if (self.next_token) |token| return token;
 
     const token = try self.next();
 
-    if (token.type == @"type") return token;
+    self.next_token = token;
+    self.tokens.pos = token.start.pos;
 
-    self.tokens.pos = start; // Backtrack
-    return self.fail(Tokenizer.Token, .{ .expected_token = @"type" });
+    return token;
 }
 
 pub fn next(self: *@This()) !Tokenizer.Token {
-    while (true) {
-        const token = self.tokens.next() orelse return self.fail(Tokenizer.Token, .eof);
+    if (self.next_token) |token| {
+        self.tokens.pos = token.end.pos;
+        self.next_token = null;
+        return token;
+    }
 
+    while (self.tokens.next() orelse self.fail(.eof)) |token| {
         // Comments mean nothing for now.
         if (token.type != .comment) return token;
-    }
+    } else |err| return err;
 }

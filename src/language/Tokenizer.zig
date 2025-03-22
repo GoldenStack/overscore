@@ -11,21 +11,22 @@ pub const Location = struct {
 /// A token type. This contains all of the possible unique meanings for tokens.
 pub const TokenType = enum {
     // Special characters
-    @"{",
-    @"}",
-    @"(",
-    @")",
+    // @"{",
+    // @"}",
+    // @"(",
+    // @")",
     @"=",
     @";",
-    @",",
+    // @",",
 
     // Kewords
-    @"fn",
-    @"for",
+    // @"fn",
+    // @"for",
     @"pub",
     @"const",
-    @"return",
-    mov,
+    @"var",
+    // @"return",
+    // mov,
 
     // General language constructs
     ident,
@@ -102,13 +103,13 @@ pub const TokenIterator = struct {
 
         return switch (char) {
             // Fast paths for singular character tokens
-            '{' => .@"{",
-            '}' => .@"}",
-            '(' => .@"(",
-            ')' => .@")",
+            // '{' => .@"{",
+            // '}' => .@"}",
+            // '(' => .@"(",
+            // ')' => .@")",
             '=' => .@"=",
             ';' => .@";",
-            ',' => .@",",
+            // ',' => .@",",
 
             // Less fast paths for multi-character non-alphabetic tokens
             '/' => {
@@ -156,12 +157,13 @@ pub const TokenIterator = struct {
 
         // Multi-character alphabetic tokens.
         const types = std.StaticStringMap(TokenType).initComptime(.{
-            .{ "fn", .@"fn" },
-            .{ "for", .@"for" },
+            // .{ "fn", .@"fn" },
+            // .{ "for", .@"for" },
             .{ "pub", .@"pub" },
             .{ "const", .@"const" },
-            .{ "return", .@"return" },
-            .{ "mov", .mov },
+            .{ "var", .@"var" },
+            // .{ "return", .@"return" },
+            // .{ "mov", .mov },
         });
 
         return .{

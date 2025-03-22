@@ -1,8 +1,10 @@
 
-{
-    mov 1 2
-    mov 3 2
-}
+pub const x = 2;
+
+// pub const y = {
+//     mov 1 2
+//     mov 3 2
+// }
 
 // The function X.
 // pub const x = fn (x, y) {

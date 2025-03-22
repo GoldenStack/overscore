@@ -6,9 +6,13 @@ const Parser = @import("language/Parser.zig");
 
 pub fn main() !void {
     // Create an allocator and error if it leaks
-    var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
-    defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    // var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
+    // defer _ = gpa.deinit();
+    // const allocator = gpa.allocator();
+
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
     const src_bytes = @embedFile("example.os");
     const src: []const u8 = src_bytes;
@@ -16,10 +20,8 @@ pub fn main() !void {
     const tokens = Tokenizer.tokenize(src);
     var parser = Parser.init(tokens, allocator);
 
-    if (parser.read_ast()) |ast| {
-        defer ast.deinit();
-        
-        std.debug.print("AST: {any}\n", .{ast});
+    if (parser.read_container()) |container| {
+        std.debug.print("container: {any}\n", .{container});
     } else |err| {
         if (err == error.ParsingError) {
             const loc = parser.tokens.location();
