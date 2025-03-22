@@ -67,7 +67,7 @@ pub const ErrorContext = union(Error) {
 };
 
 /// The error set of errors that can occur while parsing.
-pub const ParsingError = error {
+pub const ParsingError = error{
     ParsingError,
     OutOfMemory,
 };
@@ -154,9 +154,7 @@ pub fn read_statement(self: *@This()) ParsingError!Statement {
             const left = try self.read_expression();
             const right = try self.read_expression();
 
-            return .{ .mov = .{
-                left, right
-            } }; 
+            return .{ .mov = .{ left, right } };
         },
         else => {
             const expr = try self.read_expression();
@@ -171,13 +169,10 @@ pub fn read_statement(self: *@This()) ParsingError!Statement {
 pub fn read_number(self: *@This()) ParsingError!u32 {
     const token = try self.expect(.number);
 
-    const number = std.fmt.parseUnsigned(u32, token.value, 10)
-        catch return self.fail(.{ .number_too_large = token.value });
-
-    return number;
+    return std.fmt.parseUnsigned(u32, token.value, 10) catch self.fail(.{ .number_too_large = token.value });
 }
 
-pub fn fail(self: *@This(), @"error": ErrorContext) error { ParsingError } {
+pub fn fail(self: *@This(), @"error": ErrorContext) error{ParsingError} {
     self.error_context = @"error";
     return error.ParsingError;
 }
