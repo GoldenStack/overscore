@@ -14,6 +14,7 @@ pub const TokenType = enum {
     @"}",
     @"(",
     @")",
+    @"=",
     @"fn",
     @"for",
     ident,
@@ -92,6 +93,7 @@ pub const TokenIterator = struct {
             '}' => .@"}",
             '(' => .@"(",
             ')' => .@")",
+            '=' => .@"=",
 
             // All other cases
             else => {

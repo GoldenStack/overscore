@@ -1,9 +1,7 @@
-{
-    {
-        fn x {
-            for y in z ();
-        }
-        23hello
-        //
-    }
+
+// The function X.
+pub const x = fn (x, y) {
+    for (0);
+
+    return 2345;
 }
