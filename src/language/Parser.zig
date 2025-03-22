@@ -4,6 +4,22 @@ const Tokenizer = @import("Tokenizer.zig");
 /// A container, containing any number of declarations.
 pub const Container = struct {
     namespace: std.ArrayList(Declaration),
+
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
+
+        try writer.writeAll("Container { ");
+
+        for (self.namespace.items) |item| try writer.print("{}", .{item});
+
+        try writer.writeAll(" }");
+    }
 };
 
 /// A declaration inside a scope.
@@ -12,6 +28,23 @@ pub const Declaration = struct {
     mutability: Mutability,
     name: Tokenizer.Token,
     value: Expression,
+
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
+
+        try writer.print("{s} {s} \"{s}\" = {}", .{
+            @tagName(self.access),
+            @tagName(self.mutability),
+            self.name.value,
+            self.value,
+        });
+    }
 };
 
 /// An access modifier, either private or public.
@@ -36,6 +69,29 @@ pub const ExpressionTag = enum {
 pub const Expression = union(ExpressionTag) {
     block: std.ArrayList(Statement),
     number: u32,
+
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
+
+        switch (self) {
+            .block => |block| {
+                try writer.writeAll("{ ");
+
+                for (block.items) |item| {
+                    try writer.print("{}; ", .{item});
+                }
+
+                try writer.writeAll("}");
+            },
+            .number => |value| try writer.print("{}", .{value}),
+        }
+    }
 };
 
 /// The tag for statements.
@@ -48,6 +104,23 @@ pub const StatementTag = enum {
 pub const Statement = union(StatementTag) {
     mov: struct { Expression, Expression },
     expression: Expression,
+
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
+
+        switch (self) {
+            .mov => |mov| {
+                try writer.print("mov {} {}", mov);
+            },
+            .expression => |value| try writer.print("({})", .{value}),
+        }
+    }
 };
 
 /// Every possible error that can occur while parsing.

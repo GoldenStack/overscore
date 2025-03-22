@@ -6,6 +6,18 @@ pub const Location = struct {
     pos: usize,
     row: usize,
     col: usize,
+
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
+
+        try writer.print("row {} col {}", .{ self.row, self.col });
+    }
 };
 
 /// A token type. This contains all of the possible unique meanings for tokens.
@@ -42,6 +54,23 @@ pub const Token = struct {
 
     start: Location,
     end: Location,
+
+    pub fn format(
+        self: @This(),
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
+
+        try writer.print("TokenType.{s} \"{s}\" from {} to {}", .{
+            @tagName(self.type),
+            self.value,
+            self.start,
+            self.end,
+        });
+    }
 };
 
 /// Returns a tokenizer for the given source string. The tokenizer does not
