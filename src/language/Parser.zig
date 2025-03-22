@@ -71,8 +71,7 @@ pub fn read_container(self: *@This()) !Container {
     var declarations = std.ArrayList(Declaration).init(self.allocator);
 
     while (true) {
-        if (self.peek()) |t| {
-            std.debug.print("{any} {s}\n", .{t, t.value});
+        if (self.peek()) |_| {
             const declaration = try self.read_declaration();
 
             try declarations.append(declaration);
