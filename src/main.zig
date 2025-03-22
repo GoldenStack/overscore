@@ -1,34 +1,42 @@
 const std = @import("std");
 const Cpu = @import("Cpu.zig");
 const Assembler = @import("Assembler.zig");
+const Tokenizer = @import("language/Tokenizer.zig");
 
 pub fn main() !void {
     // Create an allocator and error if it leaks
     var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
     defer _ = gpa.deinit();
-    const allocator = gpa.allocator();
+    // const allocator = gpa.allocator();
 
-    // Load the assembly and convert it to a slice
-    const assembly = @embedFile("fibonacci.asm");
-    const asm_slice: []const u8 = assembly[0..assembly.len];
+    const src_bytes = @embedFile("example.os");
+    const src: []const u8 = src_bytes;
 
-    // Assemble the assembly into binary
-    var binary = std.ArrayList(Cpu.Unit).init(allocator);
-    try Assembler.assemble(asm_slice, allocator, binary.writer());
-    defer binary.deinit();
+    var tokenizer = Tokenizer.tokenize(src);
 
-    // Display the assembled binary
-    std.debug.print("Assembled binary: {any}\n", .{binary.items});
+    while (tokenizer.next()) |token| std.debug.print("{any} \"{s}\" at row {any} col {any}\n", .{token.@"type", token.value, token.start.row+1, token.start.col+1});
 
-    // Create a CPU and load the binary into memory
-    var cpu = Cpu.init(sys);
-    @memcpy(cpu.memory[0..binary.items.len], binary.items);
+    // // Load the assembly and convert it to a slice
+    // const assembly = @embedFile("fibonacci.asm");
+    // const asm_slice: []const u8 = assembly[0..assembly.len];
 
-    // Keep running instructions while they can be read
-    while (try cpu.prepareInstruction()) |instr| {
-        // std.debug.print("{any}\n", .{instr});
-        try cpu.follow(instr);
-    }
+    // // Assemble the assembly into binary
+    // var binary = std.ArrayList(Cpu.Unit).init(allocator);
+    // try Assembler.assemble(asm_slice, allocator, binary.writer());
+    // defer binary.deinit();
+
+    // // Display the assembled binary
+    // std.debug.print("Assembled binary: {any}\n", .{binary.items});
+
+    // // Create a CPU and load the binary into memory
+    // var cpu = Cpu.init(sys);
+    // @memcpy(cpu.memory[0..binary.items.len], binary.items);
+
+    // // Keep running instructions while they can be read
+    // while (try cpu.prepareInstruction()) |instr| {
+    //     // std.debug.print("{any}\n", .{instr});
+    //     try cpu.follow(instr);
+    // }
 }
 
 fn sys(in: Cpu.Word) Cpu.Word {
