@@ -98,12 +98,14 @@ pub const Expression = union(ExpressionTag) {
 pub const StatementTag = enum {
     mov,
     expression,
+    declaration,
 };
 
 /// An arbitrary statement.
 pub const Statement = union(StatementTag) {
     mov: struct { Expression, Expression },
     expression: Expression,
+    declaration: Declaration,
 
     pub fn format(
         self: @This(),
@@ -118,7 +120,8 @@ pub const Statement = union(StatementTag) {
             .mov => |mov| {
                 try writer.print("mov {} {}", mov);
             },
-            .expression => |value| try writer.print("({})", .{value}),
+            .expression => |value| try writer.print("{}", .{value}),
+            .declaration => |decl| try writer.print("{}", .{decl}),
         }
     }
 };
@@ -254,6 +257,7 @@ pub fn read_statement(self: *@This()) ParsingError!Statement {
 
             return .{ .mov = .{ left, right } };
         },
+        .@"pub", .@"const", .@"var" => .{ .declaration = try self.read_declaration() },
         else => {
             const expr = try self.read_expression();
 
