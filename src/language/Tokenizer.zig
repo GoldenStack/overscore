@@ -16,7 +16,7 @@ pub const Location = struct {
         _ = fmt;
         _ = options;
 
-        try writer.print("row {} col {}", .{ self.row, self.col });
+        try writer.print("line {} column {}", .{ self.row, self.col });
     }
 };
 

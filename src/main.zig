@@ -23,7 +23,7 @@ pub fn main() !void {
         const loc = parser.tokens.location();
 
         if (err == error.ParsingError) {
-            std.debug.print("Error at line {any} column {any}: {any}\n", .{ loc.row, loc.col, parser.error_context });
+            std.debug.print("Error at {}: {any}\n", .{ loc, parser.error_context });
 
             // Find the current line
             const lineStart = if (std.mem.lastIndexOfScalar(u8, src[0..loc.pos], '\n')) |idx| idx + 1 else 0;
