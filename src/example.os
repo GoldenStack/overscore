@@ -1,8 +1,31 @@
 
-pub const x = {
-    mov 1 2
-    2;
+// Type names here are made up because complex expression parsing doesn't exist yet.
+
+pub const zero = empty;
+pub var null = unit;
+const Pos = product { X, Y };
+var Person = tagged product {
+    name: Name,
+    age: Age,
 };
+
+pub const Ip = sum { u32, Array };
+pub const Ip2 = tagged sum { v4: u32, v6: u128 };
+
+pub const UniqueStruct = unique product { X, Y };
+//const UniqueNull = unique empty;
+
+pub const Bingus = fn(u32, u32) u32;
+
+// Blocks evaluate to a pointer to the block.
+// Numbers evaluate to the number.
+
+// pub const x = {
+//     pub const y = 2;
+// 
+//     //mov 1 2
+//     //2;
+// };
 
 // pub const y = {
 //     mov 1 2

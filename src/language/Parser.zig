@@ -1,9 +1,11 @@
 const std = @import("std");
 const Tokenizer = @import("Tokenizer.zig");
 
-/// A container, containing any number of declarations.
 pub const Container = struct {
-    namespace: std.ArrayList(Declaration),
+    unique: bool,
+    variant: ContainerVariant,
+    fields: Fields,
+    members: std.ArrayList(ContainerDecl),
 
     pub fn format(
         self: @This(),
@@ -14,115 +16,141 @@ pub const Container = struct {
         _ = fmt;
         _ = options;
 
-        try writer.writeAll("Container { ");
+        if (self.unique) try writer.writeAll("unique ");
+        if (self.fields == .tagged) try writer.writeAll("tagged ");
 
-        for (self.namespace.items) |item| try writer.print("{}", .{item});
+        try writer.print("{s} {{ {}", .{ @tagName(self.variant), self.fields });
 
-        try writer.writeAll(" }");
+        for (self.members.items) |member| try writer.print("{} ", .{member});
+
+        try writer.writeAll("}");
     }
 };
 
-/// A declaration inside a scope.
-pub const Declaration = struct {
+pub const ContainerVariant = enum {
+    sum,
+    product,
+};
+
+pub const FieldsTag = enum {
+    untagged,
+    tagged,
+};
+
+pub const Fields = union(FieldsTag) {
+    untagged: std.ArrayList(Expr),
+    tagged: std.StringHashMap(Expr),
+
+    pub fn format(
+        self: @This(),
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        switch (self) {
+            .untagged => |fields| for (fields.items) |item| try writer.print("{}, ", .{item}),
+            .tagged => |fields| {
+                var iter = fields.iterator();
+                while (iter.next()) |item| try writer.print("{s}: {}, ", .{ item.key_ptr.*, item.value_ptr });
+            },
+        }
+    }
+};
+
+pub const ContainerDecl = struct {
     access: Access,
+    decl: Decl,
+
+    pub fn format(
+        self: @This(),
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try writer.print("{s} {}", .{ @tagName(self.access), self.decl });
+    }
+};
+
+pub const Decl = struct {
     mutability: Mutability,
     name: Tokenizer.Token,
-    value: Expression,
+    value: Expr,
 
     pub fn format(
         self: @This(),
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        _ = fmt;
-        _ = options;
-
-        try writer.print("{s} {s} \"{s}\" = {}", .{
-            @tagName(self.access),
-            @tagName(self.mutability),
-            self.name.value,
-            self.value,
-        });
+        try writer.print("{s} {s} = {};", .{ @tagName(self.mutability), self.name.value, self.value });
     }
 };
 
-/// An access modifier, either private or public.
 pub const Access = enum {
     private,
     public,
 };
 
-/// A mutability modifier, either constant or variable.
 pub const Mutability = enum {
     constant,
     variable,
 };
 
-/// The tag for expressions.
-pub const ExpressionTag = enum {
+pub const ExprTag = enum {
+    function,
+    container,
+    ident,
     block,
-    number,
 };
 
-/// An arbitrary expression.
-pub const Expression = union(ExpressionTag) {
-    block: std.ArrayList(Statement),
-    number: u32,
+pub const Expr = union(ExprTag) {
+    function: Function,
+    container: Container,
+    ident: Tokenizer.Token,
+    block: Block,
 
     pub fn format(
         self: @This(),
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        _ = fmt;
-        _ = options;
-
         switch (self) {
-            .block => |block| {
-                try writer.writeAll("{ ");
-
-                for (block.items) |item| {
-                    try writer.print("{}; ", .{item});
-                }
-
-                try writer.writeAll("}");
-            },
-            .number => |value| try writer.print("{}", .{value}),
+            .function => |function| try writer.print("{}", .{function}),
+            .container => |container| try writer.print("{}", .{container}),
+            .ident => |token| try writer.print("{s}", .{token.value}),
+            .block => |block| try writer.print("{}", .{block}),
         }
     }
 };
 
-/// The tag for statements.
-pub const StatementTag = enum {
-    mov,
-    expression,
-    declaration,
-};
-
-/// An arbitrary statement.
-pub const Statement = union(StatementTag) {
-    mov: struct { Expression, Expression },
-    expression: Expression,
-    declaration: Declaration,
+pub const Function = struct {
+    parameters: std.ArrayList(Expr),
+    @"return": *Expr,
 
     pub fn format(
         self: @This(),
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        _ = fmt;
-        _ = options;
+        try writer.writeAll("fn (");
 
-        switch (self) {
-            .mov => |mov| {
-                try writer.print("mov {} {}", mov);
-            },
-            .expression => |value| try writer.print("{}", .{value}),
-            .declaration => |decl| try writer.print("{}", .{decl}),
-        }
+        for (self.parameters.items) |param| try writer.print("{},", .{param});
+
+        try writer.print(") {}", .{self.@"return"});
+    }
+};
+
+pub const Block = struct {
+    pub fn format(
+        self: @This(),
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = self;
+        try writer.writeAll("{}");
     }
 };
 
@@ -143,13 +171,10 @@ pub const ErrorContext = union(Error) {
 
     pub fn format(
         self: @This(),
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        _ = fmt;
-        _ = options;
-
         switch (self) {
             .eof => try writer.print("Unexpected EOF", .{}),
             .expected_token => |token| try writer.print("Expected {s}", .{@tagName(token)}),
@@ -190,88 +215,220 @@ pub fn init(tokens: Tokenizer.TokenIterator, allocator: std.mem.Allocator) @This
     };
 }
 
-pub fn read_container(self: *@This()) ParsingError!Container {
-    var declarations = std.ArrayList(Declaration).init(self.allocator);
+pub fn read_root(self: *@This()) ParsingError!Container {
+    return self.read_tagged_container(true, .product);
+}
 
-    while (self.peek()) |_| {
-        try declarations.append(try self.read_declaration());
-    } else |_| return .{
-        .namespace = declarations,
+pub fn read_container(self: *@This()) ParsingError!Container {
+    var token = try self.expect_many(.{ .unique, .tagged, .sum, .product });
+
+    const unique = token.type == .unique;
+    if (unique) token = try self.expect_many(.{ .tagged, .sum, .product });
+
+    const tagged = token.type == .tagged;
+    if (tagged) token = try self.expect_many(.{ .sum, .product });
+
+    const variant: ContainerVariant = switch (token.type) {
+        .sum => .sum,
+        .product => .product,
+        else => unreachable,
+    };
+
+    _ = try self.expect(.@"{");
+
+    const container = try if (tagged) self.read_tagged_container(unique, variant) else self.read_untagged_container(unique, variant);
+
+    _ = try self.expect(.@"}");
+
+    return container;
+}
+
+pub fn read_untagged_container(self: *@This(), unique: bool, variant: ContainerVariant) ParsingError!Container {
+    const Parser = @This();
+    var ctx = .{
+        .members = std.ArrayList(ContainerDecl).init(self.allocator),
+        .fields = std.ArrayList(Expr).init(self.allocator),
+    };
+
+    const read = struct {
+        fn read(parser: *Parser, context: *@TypeOf(ctx)) ParsingError!void {
+            const token = try parser.peek();
+
+            switch (token.type) {
+                .@"pub", .@"const", .@"var" => try context.members.append(try parser.read_container_decl()),
+                else => {
+                    try context.fields.append(try parser.read_expr());
+
+                    if (parser.peek()) |nxt| {
+                        if (nxt.type != .@"}") {
+                            _ = try parser.expect(.@",");
+                        }
+                    } else |_| {}
+                },
+            }
+        }
+    }.read;
+
+    try self.read_iterated_until(null, .@"}", &ctx, read);
+
+    return .{
+        .unique = unique,
+        .variant = variant,
+        .fields = .{ .untagged = ctx.fields },
+        .members = ctx.members,
     };
 }
 
-pub fn read_declaration(self: *@This()) ParsingError!Declaration {
-    const access: Access = if (self.expect(.@"pub")) |_| .public else |_| .private;
-
-    const mutability: Mutability = switch ((try self.expect_many(.{ .@"const", .@"var" })).type) {
-        .@"const" => .constant,
-        .@"var" => .variable,
-        else => unreachable,
+pub fn read_tagged_container(self: *@This(), unique: bool, variant: ContainerVariant) ParsingError!Container {
+    const Parser = @This();
+    var ctx = .{
+        .members = std.ArrayList(ContainerDecl).init(self.allocator),
+        .fields = std.StringHashMap(Expr).init(self.allocator),
     };
+
+    const read = struct {
+        fn read(parser: *Parser, context: *@TypeOf(ctx)) ParsingError!void {
+            const token = try parser.peek();
+
+            switch (token.type) {
+                .@"pub", .@"const", .@"var" => try context.members.append(try parser.read_container_decl()),
+                .ident => {
+                    _ = try parser.next(); // Read the token
+                    _ = try parser.expect(.@":");
+
+                    try context.fields.put(token.value, try parser.read_expr());
+
+                    if (parser.peek()) |nxt| {
+                        if (nxt.type != .@"}") {
+                            _ = try parser.expect(.@",");
+                        }
+                    } else |_| {}
+                },
+                else => return parser.fail(.{ .expected_tokens = &.{ .@"{", .@"pub", .@"const", .@"var", .ident } }),
+            }
+        }
+    }.read;
+
+    try self.read_iterated_until(null, .@"}", &ctx, read);
+
+    return .{
+        .unique = unique,
+        .variant = variant,
+        .fields = .{ .tagged = ctx.fields },
+        .members = ctx.members,
+    };
+}
+
+pub fn read_container_decl(self: *@This()) ParsingError!ContainerDecl {
+    const token = try self.peek();
+
+    const access: Access = if (token.type == .@"pub") .public else .private;
+    if (access == .public) _ = try self.next();
+
+    return .{
+        .access = access,
+        .decl = try self.read_decl(),
+    };
+}
+
+pub fn read_decl(self: *@This()) ParsingError!Decl {
+    const token = try self.expect_many(.{ .@"const", .@"var" });
+
+    const mutability: Mutability = if (token.type == .@"const") .constant else .variable;
 
     const name = try self.expect(.ident);
 
     _ = try self.expect(.@"=");
 
-    const value = try self.read_expression();
+    const value = try self.read_expr();
 
     _ = try self.expect(.@";");
 
+    return .{ .mutability = mutability, .name = name, .value = value };
+}
+
+pub fn read_expr(self: *@This()) ParsingError!Expr {
+    const token = try self.peek();
+
+    return switch (token.type) {
+        .@"fn" => .{ .function = try self.read_function() },
+        .unique, .tagged, .sum, .product => .{ .container = try self.read_container() },
+        .ident => .{ .ident = try self.next() },
+        .@"{" => .{ .block = try self.read_block() },
+        else => return self.fail(.{ .expected_tokens = &.{ .@"fn", .unique, .tagged, .sum, .product, .ident, .@"{" } }),
+    };
+}
+
+pub fn read_function(self: *@This()) ParsingError!Function {
+    _ = try self.expect(.@"fn");
+    _ = try self.expect(.@"(");
+
+    const Parser = @This();
+
+    var params = std.ArrayList(Expr).init(self.allocator);
+
+    const read = struct {
+        fn read(parser: *Parser, context: *std.ArrayList(Expr)) ParsingError!void {
+            try context.append(try parser.read_expr());
+        }
+    }.read;
+
+    try self.read_iterated_until(.@",", .@")", &params, read);
+
+    _ = try self.expect(.@")");
+
+    const boxed = try self.allocator.create(Expr);
+    boxed.* = try self.read_expr();
+
     return .{
-        .access = access,
-        .mutability = mutability,
-        .name = name,
-        .value = value,
+        .parameters = params,
+        .@"return" = boxed,
     };
 }
 
-pub fn read_expression(self: *@This()) ParsingError!Expression {
-    return switch ((try self.peek()).type) {
-        .@"{" => {
-            _ = try self.expect(.@"{");
+pub fn read_block(self: *@This()) ParsingError!Block {
+    _ = try self.expect(.@"{");
+    _ = try self.expect(.@"}");
 
-            var statements = std.ArrayList(Statement).init(self.allocator);
-
-            while ((try self.peek()).type != .@"}") {
-                try statements.append(try self.read_statement());
-            }
-
-            _ = try self.expect(.@"}");
-
-            return .{
-                .block = statements,
-            };
-        },
-        .number => .{ .number = try self.read_number() },
-        else => self.fail(.{ .expected_tokens = &.{ .@"{", .number } }),
-    };
-}
-
-pub fn read_statement(self: *@This()) ParsingError!Statement {
-    return switch ((try self.peek()).type) {
-        .mov => {
-            _ = try self.expect(.mov);
-
-            const left = try self.read_expression();
-            const right = try self.read_expression();
-
-            return .{ .mov = .{ left, right } };
-        },
-        .@"pub", .@"const", .@"var" => .{ .declaration = try self.read_declaration() },
-        else => {
-            const expr = try self.read_expression();
-
-            _ = try self.expect(.@";");
-
-            return .{ .expression = expr };
-        },
-    };
+    return .{};
 }
 
 pub fn read_number(self: *@This()) ParsingError!u32 {
     const token = try self.expect(.number);
 
     return std.fmt.parseUnsigned(u32, token.value, 10) catch self.fail(.{ .number_too_large = token.value });
+}
+
+fn read_iterated_until(self: *@This(), comptime maybe_sep: ?Tokenizer.TokenType, end: Tokenizer.TokenType, context: anytype, reader: fn (*@This(), @TypeOf(context)) ParsingError!void) !void {
+    // We just started reading, so we don't need a separator
+    var sep_last_iter = true;
+
+    while (true) {
+
+        // Exit if the next token doesn't exist or if it's `end`
+        const token = self.peek() catch return;
+        if (token.type == end) return;
+
+        // If there wasn't a separator, fail, having expected one
+        // This check is placed after the exits so that a separator is optional
+        // for the last argument
+        if (maybe_sep) |sep| if (!sep_last_iter) return self.fail(.{ .expected_token = sep });
+
+        // Add the item and reset the separator tracker
+        try reader(self, context);
+
+        if (maybe_sep == null) continue;
+
+        sep_last_iter = false;
+
+        // Read the next token if it's the separator
+        if (self.peek()) |sep_token| {
+            if (sep_token.type == maybe_sep.?) {
+                _ = try self.next();
+                sep_last_iter = true;
+            }
+        } else |_| {}
+    }
 }
 
 /// Fails, storing the given error context and returning an error.

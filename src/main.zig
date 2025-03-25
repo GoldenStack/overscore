@@ -20,14 +20,15 @@ pub fn main() !void {
     const tokens = Tokenizer.tokenize(src);
     var parser = Parser.init(tokens, allocator);
 
-    const container = parser.read_container() catch |err| {
+    const container = parser.read_root() catch |err| {
+        std.debug.print("next: {any}\n", .{parser.peek()});
         if (err == error.ParsingError) {
             std.debug.print("Error at line {any} column {any}: {any}\n", .{ parser.tokens.row, parser.tokens.col, parser.error_context });
-            return;
+            return err;
         } else return err;
     };
 
-    std.debug.print("container: {any}\n", .{container});
+    std.debug.print("{any}\n", .{container});
 
     // // Load the assembly and convert it to a slice
     // const assembly = @embedFile("fibonacci.asm");

@@ -25,20 +25,22 @@ pub const TokenType = enum {
     // Special characters
     @"{",
     @"}",
-    // @"(",
-    // @")",
+    @"(",
+    @")",
     @"=",
     @";",
-    // @",",
+    @":",
+    @",",
 
     // Kewords
-    // @"fn",
-    // @"for",
     @"pub",
     @"const",
     @"var",
-    // @"return",
-    mov,
+    unique,
+    tagged,
+    product,
+    sum,
+    @"fn",
 
     // General language constructs
     ident,
@@ -134,11 +136,12 @@ pub const TokenIterator = struct {
             // Fast paths for singular character tokens
             '{' => .@"{",
             '}' => .@"}",
-            // '(' => .@"(",
-            // ')' => .@")",
+            '(' => .@"(",
+            ')' => .@")",
             '=' => .@"=",
             ';' => .@";",
-            // ',' => .@",",
+            ':' => .@":",
+            ',' => .@",",
 
             // Less fast paths for multi-character non-alphabetic tokens
             '/' => {
@@ -186,13 +189,14 @@ pub const TokenIterator = struct {
 
         // Multi-character alphabetic tokens.
         const types = std.StaticStringMap(TokenType).initComptime(.{
-            // .{ "fn", .@"fn" },
-            // .{ "for", .@"for" },
             .{ "pub", .@"pub" },
             .{ "const", .@"const" },
             .{ "var", .@"var" },
-            // .{ "return", .@"return" },
-            .{ "mov", .mov },
+            .{ "unique", .unique },
+            .{ "tagged", .tagged },
+            .{ "product", .product },
+            .{ "sum", .sum },
+            .{ "fn", .@"fn" },
         });
 
         return .{
