@@ -10,9 +10,10 @@ The CPU is a simple 32-bit CPU with 8 bit minimum addressable size and 8
 instructions. The architecture size and minimum addressable size are extensively
 configurable and modifying the values in-code should not break any "hardware".
 
-All address space/memory is in one rwx (read-write-execute) block, including
-registers and the instruction counter (address 0). This allows jumps to be
-implemented with arithmetic on the instruction counter at address 0.
+All address space/memory is in one rwx (read-write-execute) block, including the
+instruction counter at address 0. This allows jumps to be implemented with
+arithmetic on the instruction counter at address 0. There are no registers;
+everything refers to memory directly.
 
 ## Instruction Set
 
