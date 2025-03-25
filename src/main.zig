@@ -30,7 +30,7 @@ pub fn main() !void {
             const lineStart = if (std.mem.lastIndexOfScalar(u8, src[0..loc.pos], '\n')) |idx| idx + 1 else 0;
             const lineEnd = (std.mem.indexOfScalar(u8, src[loc.pos..], '\n') orelse 0) + loc.pos;
 
-            const currentLine= src[lineStart..lineEnd];
+            const currentLine = src[lineStart..lineEnd];
 
             std.debug.print("> {s}\n", .{ currentLine });
             
