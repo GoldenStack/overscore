@@ -446,7 +446,7 @@ pub fn peek(self: *@This()) tokenizer.Token {
     const token = self.next();
 
     self.next_token = token;
-    self.tokens.pos = token.start.pos;
+    self.tokens.loc = token.start;
 
     return token;
 }
@@ -455,7 +455,7 @@ pub fn peek(self: *@This()) tokenizer.Token {
 pub fn next(self: *@This()) tokenizer.Token {
     // Return the cached token if possible
     if (self.next_token) |token| {
-        self.tokens.pos = token.end.pos;
+        self.tokens.loc = token.end;
         self.next_token = null;
         return token;
     }

@@ -20,7 +20,7 @@ pub fn main() !void {
     var parser = Parser.init(tokens, allocator);
 
     const container = parser.read_root() catch |err| {
-        const loc = parser.tokens.location();
+        const loc = parser.tokens.loc;
 
         if (err == error.ParsingError) {
             std.debug.print("Error at {}: {any}\n", .{ loc, parser.error_context });
@@ -34,7 +34,7 @@ pub fn main() !void {
             std.debug.print("> {s}\n", .{ currentLine });
             
             const nextlen = parser.peek().value.len;
-            for (0..2 + loc.col-(1 + nextlen)) |_| std.debug.print(" ", .{});
+            for (0..2 + loc.col-1) |_| std.debug.print(" ", .{});
             for (0..nextlen) |_| std.debug.print("^", .{});
             std.debug.print("\n", .{});
             

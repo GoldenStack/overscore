@@ -17,7 +17,6 @@ pub const Location = struct {
     }
 };
 
-
 /// A token. This contains a tag, a raw value, and its position in the source
 /// string.
 pub const Token = struct {
@@ -76,10 +75,7 @@ pub const Token = struct {
 /// A token iterator over a source string.
 pub const Tokenizer = struct {
     src: [:0]const u8,
-    pos: usize,
-
-    row: usize,
-    col: usize,
+    loc: Location,
 
     /// Returns a tokenizer for the given source string. The tokenizer does not
     /// verify the context for any given token; it simply assigns meaning to
@@ -87,37 +83,29 @@ pub const Tokenizer = struct {
     pub fn init(src: [:0]const u8) @This() {
         return .{
             .src = src,
-            .pos = 0,
-
-            .row = 1,
-            .col = 1,
-        };
-    }
-
-    /// Returns the location of this tokenizer in the source string.
-    pub fn location(self: *const @This()) Location {
-        return .{
-            .pos = self.pos,
-            .row = self.row,
-            .col = self.col,
+            .loc = .{
+                .pos = 0,
+                .row = 1,
+                .col = 1,
+            },
         };
     }
 
     fn peek_char(self: *const @This()) u8 {
-        return self.src[self.pos];
+        return self.src[self.loc.pos];
     }
 
     fn next_char(self: *@This()) u8 {
         const char = self.peek_char();
         if (char == 0) return char; // Do not advance past the end
 
-        self.pos += 1;
+        self.loc.pos += 1;
 
         if (char == '\n') {
-            self.row += 1;
-            self.col = 1;
+            self.loc.row += 1;
+            self.loc.col = 1;
         } else {
-            self.col += 1;
+            self.loc.col += 1;
         }
 
         return char;
@@ -126,7 +114,7 @@ pub const Tokenizer = struct {
     fn next_tag(self: *@This()) Token.Tag {
         return switch (self.next_char()) {
             // Fast paths for singular character tokens
-            0  => .eof,
+            0 => .eof,
             '{' => .@"{",
             '}' => .@"}",
             '(' => .@"(",
@@ -164,7 +152,7 @@ pub const Tokenizer = struct {
         };
     }
 
-    fn skip_while(self: *@This(), function: fn(u8) bool) void {
+    fn skip_while(self: *@This(), function: fn (u8) bool) void {
         while (function(self.peek_char())) _ = self.next_char();
     }
 
@@ -172,12 +160,12 @@ pub const Tokenizer = struct {
     pub fn next(self: *@This()) Token {
         self.skip_while(std.ascii.isWhitespace);
 
-        const start = self.location();
+        const start = self.loc;
 
         const tag = self.next_tag();
 
-        const end = self.location();
- 
+        const end = self.loc;
+
         const value = self.src[start.pos..end.pos];
 
         // Multi-character alphabetic tokens.
