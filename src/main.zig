@@ -21,10 +21,25 @@ pub fn main() !void {
     var parser = Parser.init(tokens, allocator);
 
     const container = parser.read_root() catch |err| {
-        std.debug.print("next: {any}\n", .{parser.peek()});
+        const loc = parser.tokens.location();
+
         if (err == error.ParsingError) {
-            std.debug.print("Error at line {any} column {any}: {any}\n", .{ parser.tokens.row, parser.tokens.col, parser.error_context });
-            return err;
+            std.debug.print("Error at line {any} column {any}: {any}\n", .{ loc.row, loc.col, parser.error_context });
+
+            // Find the current line
+            const lineStart = if (std.mem.lastIndexOfScalar(u8, src[0..loc.pos], '\n')) |idx| idx + 1 else 0;
+            const lineEnd = (std.mem.indexOfScalar(u8, src[loc.pos..], '\n') orelse 0) + loc.pos;
+
+            const currentLine= src[lineStart..lineEnd];
+
+            std.debug.print("> {s}\n", .{ currentLine });
+            
+            const nextlen = if (parser.peek()) |tk| tk.value.len else |_| 0;
+            for (0..2 + loc.col-(1 + nextlen)) |_| std.debug.print(" ", .{});
+            for (0..nextlen) |_| std.debug.print("^", .{});
+            std.debug.print("\n", .{});
+            
+            return;
         } else return err;
     };
 
