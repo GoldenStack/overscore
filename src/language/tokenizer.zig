@@ -9,13 +9,10 @@ pub const Location = struct {
 
     pub fn format(
         self: @This(),
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        _ = fmt;
-        _ = options;
-
         try writer.print("line {} column {}", .{ self.row, self.col });
     }
 };
@@ -63,13 +60,10 @@ pub const Token = struct {
 
     pub fn format(
         self: @This(),
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        _ = fmt;
-        _ = options;
-
         try writer.print("Token.{s} \"{s}\" from {} to {}", .{
             @tagName(self.tag),
             self.value,
@@ -129,7 +123,7 @@ pub const Tokenizer = struct {
         return char;
     }
 
-    fn next_token(self: *@This()) Token.Tag {
+    fn next_tag(self: *@This()) Token.Tag {
         return switch (self.next_char()) {
             // Fast paths for singular character tokens
             0  => .eof,
@@ -176,12 +170,11 @@ pub const Tokenizer = struct {
 
     /// Reads the next token from this iterator.
     pub fn next(self: *@This()) Token {
-        // Skip whitespace
         self.skip_while(std.ascii.isWhitespace);
 
         const start = self.location();
 
-        const tag = self.next_token();
+        const tag = self.next_tag();
 
         const end = self.location();
  
