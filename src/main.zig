@@ -1,7 +1,7 @@
 const std = @import("std");
 const Cpu = @import("Cpu.zig");
 const Assembler = @import("Assembler.zig");
-const Tokenizer = @import("language/Tokenizer.zig");
+const tokenizer = @import("language/tokenizer.zig");
 const Parser = @import("language/Parser.zig");
 
 pub fn main() !void {
@@ -16,7 +16,7 @@ pub fn main() !void {
 
     const src = @embedFile("example.os");
 
-    const tokens = Tokenizer.tokenize(src);
+    const tokens = tokenizer.Tokenizer.init(src);
     var parser = Parser.init(tokens, allocator);
 
     const container = parser.read_root() catch |err| {
