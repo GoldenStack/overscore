@@ -156,7 +156,6 @@ pub const Block = struct {
 
 /// Every possible error that can occur while parsing.
 pub const Error = enum {
-    eof,
     expected_token,
     expected_tokens,
     number_too_large,
@@ -164,7 +163,6 @@ pub const Error = enum {
 
 /// The context for an error that can occur while parsing.
 pub const ErrorContext = union(Error) {
-    eof,
     expected_token: Tokenizer.TokenType,
     expected_tokens: []const Tokenizer.TokenType,
     number_too_large: []const u8,
@@ -176,7 +174,6 @@ pub const ErrorContext = union(Error) {
         writer: anytype,
     ) !void {
         switch (self) {
-            .eof => try writer.print("Unexpected EOF", .{}),
             .expected_token => |token| try writer.print("Expected {s}", .{@tagName(token)}),
             .expected_tokens => |tokens| {
                 try writer.writeAll("Expected one of ");
@@ -252,18 +249,12 @@ pub fn read_untagged_container(self: *@This(), unique: bool, variant: ContainerV
 
     const read = struct {
         fn read(parser: *Parser, context: *@TypeOf(ctx)) ParsingError!void {
-            const token = try parser.peek();
-
-            switch (token.type) {
+            switch (parser.peek().type) {
                 .@"pub", .@"const", .@"var" => try context.members.append(try parser.read_container_decl()),
                 else => {
                     try context.fields.append(try parser.read_expr());
 
-                    if (parser.peek()) |nxt| {
-                        if (nxt.type != .@"}") {
-                            _ = try parser.expect(.@",");
-                        }
-                    } else |_| {}
+                    if (parser.peek().type != .@"}") _ = try parser.expect(.@",");
                 },
             }
         }
@@ -288,21 +279,17 @@ pub fn read_tagged_container(self: *@This(), unique: bool, variant: ContainerVar
 
     const read = struct {
         fn read(parser: *Parser, context: *@TypeOf(ctx)) ParsingError!void {
-            const token = try parser.peek();
+            const token = parser.peek();
 
             switch (token.type) {
                 .@"pub", .@"const", .@"var" => try context.members.append(try parser.read_container_decl()),
                 .ident => {
-                    _ = try parser.next(); // Read the token
+                    _ = parser.next(); // Read the token
                     _ = try parser.expect(.@":");
 
                     try context.fields.put(token.value, try parser.read_expr());
 
-                    if (parser.peek()) |nxt| {
-                        if (nxt.type != .@"}") {
-                            _ = try parser.expect(.@",");
-                        }
-                    } else |_| {}
+                    if (parser.peek().type != .@"}") _ = try parser.expect(.@",");
                 },
                 else => return parser.fail(.{ .expected_tokens = &.{ .@"{", .@"pub", .@"const", .@"var", .ident } }),
             }
@@ -320,10 +307,8 @@ pub fn read_tagged_container(self: *@This(), unique: bool, variant: ContainerVar
 }
 
 pub fn read_container_decl(self: *@This()) ParsingError!ContainerDecl {
-    const token = try self.peek();
-
-    const access: Access = if (token.type == .@"pub") .public else .private;
-    if (access == .public) _ = try self.next();
+    const access: Access = if (self.peek().type == .@"pub") .public else .private;
+    if (access == .public) _ = self.next();
 
     return .{
         .access = access,
@@ -348,12 +333,10 @@ pub fn read_decl(self: *@This()) ParsingError!Decl {
 }
 
 pub fn read_expr(self: *@This()) ParsingError!Expr {
-    const token = try self.peek();
-
-    return switch (token.type) {
+    return switch (self.peek().type) {
         .@"fn" => .{ .function = try self.read_function() },
         .unique, .tagged, .sum, .product => .{ .container = try self.read_container() },
-        .ident => .{ .ident = try self.next() },
+        .ident => .{ .ident = self.next() },
         .@"{" => .{ .block = try self.read_block() },
         else => return self.fail(.{ .expected_tokens = &.{ .@"fn", .unique, .tagged, .sum, .product, .ident, .@"{" } }),
     };
@@ -406,8 +389,8 @@ fn read_iterated_until(self: *@This(), comptime maybe_sep: ?Tokenizer.TokenType,
     while (true) {
 
         // Exit if the next token doesn't exist or if it's `end`
-        const token = self.peek() catch return;
-        if (token.type == end) return;
+        const token = self.peek();
+        if (token.type == .eof or token.type == end) return;
 
         // If there wasn't a separator, fail, having expected one
         // This check is placed after the exits so that a separator is optional
@@ -419,15 +402,11 @@ fn read_iterated_until(self: *@This(), comptime maybe_sep: ?Tokenizer.TokenType,
 
         if (maybe_sep == null) continue;
 
-        sep_last_iter = false;
-
         // Read the next token if it's the separator
-        if (self.peek()) |sep_token| {
-            if (sep_token.type == maybe_sep.?) {
-                _ = try self.next();
-                sep_last_iter = true;
-            }
-        } else |_| {}
+        if (self.peek().type == maybe_sep) {
+            _ = self.next();
+            sep_last_iter = true;
+        } else sep_last_iter = false;
     }
 }
 
@@ -440,9 +419,7 @@ pub fn fail(self: *@This(), @"error": ErrorContext) error{ParsingError} {
 /// Reads a token, expecting it to be the provided type, returning an error if
 /// it's not.
 pub fn expect(self: *@This(), @"type": Tokenizer.TokenType) !Tokenizer.Token {
-    const token = try self.peek();
-
-    return if (token.type == @"type")
+    return if (self.peek().type == @"type")
         self.next()
     else
         self.fail(.{ .expected_token = @"type" });
@@ -451,9 +428,7 @@ pub fn expect(self: *@This(), @"type": Tokenizer.TokenType) !Tokenizer.Token {
 /// Reads a token, expecting it to be one of the provided token types, returning
 /// an error if it's not one of those types.
 pub fn expect_many(self: *@This(), types: anytype) !Tokenizer.Token {
-    const token = try self.peek();
-
-    return if (std.mem.indexOfScalar(Tokenizer.TokenType, &types, token.type) != null)
+    return if (std.mem.indexOfScalar(Tokenizer.TokenType, &types, self.peek().type) != null)
         self.next()
     else
         return self.fail(.{ .expected_tokens = &types });
@@ -462,7 +437,7 @@ pub fn expect_many(self: *@This(), types: anytype) !Tokenizer.Token {
 /// Returns the next token from the backing token iterator without advancing the
 /// iterator itself. This value is cached, so peeking does not require
 /// re-reading.
-pub fn peek(self: *@This()) !Tokenizer.Token {
+pub fn peek(self: *@This()) Tokenizer.Token {
     // Return the cached token if possible
     if (self.next_token) |token| return token;
 
@@ -470,7 +445,7 @@ pub fn peek(self: *@This()) !Tokenizer.Token {
     // This could be structured so that next() depends on peek(), but this would
     // mean that there's always hidden and unnecessary backtracking, which is
     // not ideal.
-    const token = try self.next();
+    const token = self.next();
 
     self.next_token = token;
     self.tokens.pos = token.start.pos;
@@ -479,7 +454,7 @@ pub fn peek(self: *@This()) !Tokenizer.Token {
 }
 
 /// Reads the next token from the backing token iterator.
-pub fn next(self: *@This()) !Tokenizer.Token {
+pub fn next(self: *@This()) Tokenizer.Token {
     // Return the cached token if possible
     if (self.next_token) |token| {
         self.tokens.pos = token.end.pos;
@@ -488,8 +463,9 @@ pub fn next(self: *@This()) !Tokenizer.Token {
     }
 
     // Skip tokens until there's a non-comment
-    while (self.tokens.next() orelse self.fail(.eof)) |token| {
-        // Comments mean nothing for now.
+    while (true) {
+        const token = self.tokens.next();
+        // Comments mean nothing for now
         if (token.type != .comment) return token;
-    } else |err| return err;
+    }
 }

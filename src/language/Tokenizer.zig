@@ -46,6 +46,9 @@ pub const TokenType = enum {
     ident,
     number,
     comment,
+
+    // Meta-tokens
+    eof,
 };
 
 /// A token. This contains a type, a raw value, and its position in the source
@@ -78,20 +81,20 @@ pub const Token = struct {
 /// Returns a tokenizer for the given source string. The tokenizer does not
 /// verify the context for any given token; it simply assigns meaning to each of
 /// the individual tokens in the source string.
-pub fn tokenize(src: []const u8) TokenIterator {
+pub fn tokenize(src: [:0]const u8) TokenIterator {
     return TokenIterator.init(src);
 }
 
 /// A token iterator over a source string.
 pub const TokenIterator = struct {
-    src: []const u8,
+    src: [:0]const u8,
     pos: usize,
 
     row: usize,
     col: usize,
 
     /// Initializes the token iterator for the given source string.
-    pub fn init(src: []const u8) @This() {
+    pub fn init(src: [:0]const u8) @This() {
         return .{
             .src = src,
             .pos = 0,
@@ -110,12 +113,13 @@ pub const TokenIterator = struct {
         };
     }
 
-    fn peek_char(self: *const @This()) ?u8 {
-        return if (self.pos < self.src.len) self.src[self.pos] else null;
+    fn peek_char(self: *const @This()) u8 {
+        return self.src[self.pos];
     }
 
-    fn next_char(self: *@This()) ?u8 {
-        const char = self.peek_char() orelse return null;
+    fn next_char(self: *@This()) u8 {
+        const char = self.peek_char();
+        if (char == 0) return char;
 
         self.pos += 1;
 
@@ -129,11 +133,10 @@ pub const TokenIterator = struct {
         return char;
     }
 
-    fn next_token(self: *@This()) ?TokenType {
-        const char = self.next_char() orelse return null;
-
-        return switch (char) {
+    fn next_token(self: *@This()) TokenType {
+        return switch (self.next_char()) {
             // Fast paths for singular character tokens
+            0  => .eof,
             '{' => .@"{",
             '}' => .@"}",
             '(' => .@"(",
@@ -145,25 +148,27 @@ pub const TokenIterator = struct {
 
             // Less fast paths for multi-character non-alphabetic tokens
             '/' => {
-                if (self.peek_char()) |c| if (c == '/') {
-                    while (self.next_char()) |c2| {
-                        if (c2 == '\n') return .comment;
-                    } else return .comment;
-                };
-                return .ident;
+                if (self.peek_char() != '/') return .ident;
+
+                // Skip until newline or EOF
+                while (true) {
+                    const token = self.next_char();
+                    if (token == '\n' or token == 0) break;
+                }
+                return .comment;
             },
 
             // All other cases
-            else => {
+            else => |char| {
                 if (std.ascii.isAlphabetic(char)) {
-                    while (self.peek_char()) |c| {
-                        if (std.ascii.isAlphanumeric(c)) _ = self.next_char() else break;
+                    while (std.ascii.isAlphanumeric(self.peek_char())) {
+                        _ = self.next_char();
                     }
 
                     return .ident;
                 } else if (std.ascii.isDigit(char)) {
-                    while (self.peek_char()) |c| {
-                        if (std.ascii.isDigit(c)) _ = self.next_char() else break;
+                    while (std.ascii.isDigit(self.peek_char())) {
+                        _ = self.next_char();
                     }
 
                     return .number;
@@ -173,18 +178,16 @@ pub const TokenIterator = struct {
     }
 
     /// Reads the next token from this iterator.
-    pub fn next(self: *@This()) ?Token {
+    pub fn next(self: *@This()) Token {
         // Skip whitespace
-        while (self.peek_char()) |c| {
-            if (std.ascii.isWhitespace(c)) _ = self.next_char() else break;
-        } else return null;
+        while (std.ascii.isWhitespace(self.peek_char())) _ = self.next_char();
 
         const start = self.location();
 
-        const @"type" = self.next_token() orelse return null;
+        const @"type" = self.next_token();
 
         const end = self.location();
-
+ 
         const value = self.src[start.pos..end.pos];
 
         // Multi-character alphabetic tokens.

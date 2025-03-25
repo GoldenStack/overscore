@@ -14,8 +14,7 @@ pub fn main() !void {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const src_bytes = @embedFile("example.os");
-    const src: []const u8 = src_bytes;
+    const src = @embedFile("example.os");
 
     const tokens = Tokenizer.tokenize(src);
     var parser = Parser.init(tokens, allocator);
@@ -28,13 +27,13 @@ pub fn main() !void {
 
             // Find the current line
             const lineStart = if (std.mem.lastIndexOfScalar(u8, src[0..loc.pos], '\n')) |idx| idx + 1 else 0;
-            const lineEnd = (std.mem.indexOfScalar(u8, src[loc.pos..], '\n') orelse 0) + loc.pos;
+            const lineEnd = std.mem.indexOfScalarPos(u8, src, loc.pos, '\n') orelse loc.pos;
 
             const currentLine = src[lineStart..lineEnd];
 
             std.debug.print("> {s}\n", .{ currentLine });
             
-            const nextlen = if (parser.peek()) |tk| tk.value.len else |_| 0;
+            const nextlen = parser.peek().value.len;
             for (0..2 + loc.col-(1 + nextlen)) |_| std.debug.print(" ", .{});
             for (0..nextlen) |_| std.debug.print("^", .{});
             std.debug.print("\n", .{});
