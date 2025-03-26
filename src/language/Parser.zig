@@ -156,15 +156,16 @@ pub const Block = struct {
 
 /// Every possible error that can occur while parsing.
 pub const Error = enum {
-    expected_token,
-    expected_tokens,
+    expected_tag,
     number_too_large,
 };
 
 /// The context for an error that can occur while parsing.
 pub const ErrorContext = union(Error) {
-    expected_token: tokenizer.Token.Tag,
-    expected_tokens: []const tokenizer.Token.Tag,
+    expected_tag: struct {
+        expected: []const tokenizer.Token.Tag,
+        found: tokenizer.Token.Tag,
+    },
     number_too_large: []const u8,
 
     pub fn format(
@@ -174,15 +175,23 @@ pub const ErrorContext = union(Error) {
         writer: anytype,
     ) !void {
         switch (self) {
-            .expected_token => |token| try writer.print("Expected {s}", .{@tagName(token)}),
-            .expected_tokens => |tokens| {
-                try writer.writeAll("Expected one of ");
+            .expected_tag => |value| {
+                const expected = value.expected;
 
-                for (0.., tokens) |index, token| {
-                    if (index != 0) try writer.writeAll(", ");
+                switch (expected.len) {
+                    0 => @panic("Expected at least one argument to expect"),
+                    1 => try writer.print("Expected {s}", .{ @tagName(expected[0]) }),
+                    2 => try writer.print("Expected {s} or {s}", .{ @tagName(expected[0]), @tagName(expected[1]) }),
+                    else => {
+                        for (0.., expected) |index, tag| {
+                            if (index != 0) try writer.writeAll(", ");
 
-                    try writer.print("{s}", .{@tagName(token)});
+                            try writer.print("{s}", .{@tagName(tag)});
+                        }
+                    },
                 }
+
+                try writer.print(", found {s}", .{@tagName(value.found)});
             },
             .number_too_large => |number| try writer.print("Number \"{s}\" too large to store ", .{number}),
         }
@@ -217,13 +226,13 @@ pub fn read_root(self: *@This()) ParsingError!Container {
 }
 
 pub fn read_container(self: *@This()) ParsingError!Container {
-    var token = try self.expect_many(.{ .unique, .tagged, .sum, .product });
+    var token = try self.expect_many(&.{ .unique, .tagged, .sum, .product });
 
     const unique = token.tag == .unique;
-    if (unique) token = try self.expect_many(.{ .tagged, .sum, .product });
+    if (unique) token = try self.expect_many(&.{ .tagged, .sum, .product });
 
     const tagged = token.tag == .tagged;
-    if (tagged) token = try self.expect_many(.{ .sum, .product });
+    if (tagged) token = try self.expect_many(&.{ .sum, .product });
 
     const variant: ContainerVariant = switch (token.tag) {
         .sum => .sum,
@@ -291,7 +300,7 @@ pub fn read_tagged_container(self: *@This(), unique: bool, variant: ContainerVar
 
                     if (parser.peek().tag != .@"}") _ = try parser.expect(.@",");
                 },
-                else => return parser.fail(.{ .expected_tokens = &.{ .@"{", .@"pub", .@"const", .@"var", .ident } }),
+                else => return parser.fail_expected( &.{ .@"{", .@"pub", .@"const", .@"var", .ident }),
             }
         }
     }.read;
@@ -317,7 +326,7 @@ pub fn read_container_decl(self: *@This()) ParsingError!ContainerDecl {
 }
 
 pub fn read_decl(self: *@This()) ParsingError!Decl {
-    const token = try self.expect_many(.{ .@"const", .@"var" });
+    const token = try self.expect_many(&.{ .@"const", .@"var" });
 
     const mutability: Mutability = if (token.tag == .@"const") .constant else .variable;
 
@@ -338,7 +347,7 @@ pub fn read_expr(self: *@This()) ParsingError!Expr {
         .unique, .tagged, .sum, .product => .{ .container = try self.read_container() },
         .ident => .{ .ident = self.next() },
         .@"{" => .{ .block = try self.read_block() },
-        else => return self.fail(.{ .expected_tokens = &.{ .@"fn", .unique, .tagged, .sum, .product, .ident, .@"{" } }),
+        else => return self.fail_expected(&.{ .@"fn", .unique, .tagged, .sum, .product, .ident, .@"{" }),
     };
 }
 
@@ -395,7 +404,7 @@ fn read_iterated_until(self: *@This(), comptime maybe_sep: ?tokenizer.Token.Tag,
         // If there wasn't a separator, fail, having expected one
         // This check is placed after the exits so that a separator is optional
         // for the last argument
-        if (maybe_sep) |sep| if (!sep_last_iter) return self.fail(.{ .expected_token = sep });
+        if (maybe_sep) |sep| if (!sep_last_iter) return self.fail_expected(&.{ sep });
 
         // Add the item and reset the separator tracker
         try reader(self, context);
@@ -416,20 +425,25 @@ pub fn fail(self: *@This(), @"error": ErrorContext) error{ParsingError} {
     return error.ParsingError;
 }
 
+pub fn fail_expected(self: *@This(), comptime tags: []const tokenizer.Token.Tag) error{ParsingError} {
+    return self.fail(.{ .expected_tag = .{
+        .expected = tags,
+        .found = self.peek().tag,
+    }});
+}
+
 /// Reads a token, returning an error if it's not equal to the given tag.
-pub fn expect(self: *@This(), tag: tokenizer.Token.Tag) !tokenizer.Token {
-    return if (self.peek().tag == tag)
-        self.next()
-    else
-        self.fail(.{ .expected_token = tag });
+pub fn expect(self: *@This(), comptime tag: tokenizer.Token.Tag) !tokenizer.Token {
+    return self.expect_many(&.{ tag });
 }
 
 /// Reads a token, returning an error if it's not one of the given tags.
-pub fn expect_many(self: *@This(), tags: anytype) !tokenizer.Token {
-    return if (std.mem.indexOfScalar(tokenizer.Token.Tag, &tags, self.peek().tag) != null)
-        self.next()
-    else
-        return self.fail(.{ .expected_tokens = &tags });
+pub fn expect_many(self: *@This(), comptime tags: []const tokenizer.Token.Tag) !tokenizer.Token {
+    const next_tag = self.peek().tag;
+
+    inline for (tags) |tag| {
+        if (tag == next_tag) return self.next();
+    } else return self.fail_expected(tags);
 }
 
 /// Returns the next token from the backing token iterator without advancing the
