@@ -55,6 +55,15 @@ pub const Token = struct {
 
         // Meta-tokens
         eof,
+
+        pub fn format(
+            self: @This(),
+            comptime _: []const u8,
+            _: std.fmt.FormatOptions,
+            writer: anytype,
+        ) !void {
+            try writer.writeAll(@tagName(self));
+        }
     };
 
     pub fn format(
@@ -63,12 +72,7 @@ pub const Token = struct {
         _: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        try writer.print("Token.{s} \"{s}\" from {} to {}", .{
-            @tagName(self.tag),
-            self.value,
-            self.start,
-            self.end,
-        });
+        try writer.print("Token.{s} \"{s}\" from {} to {}", .{ self.tag, self.value, self.start, self.end });
     }
 };
 

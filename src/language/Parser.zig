@@ -180,18 +180,18 @@ pub const ErrorContext = union(Error) {
 
                 switch (expected.len) {
                     0 => @panic("Expected at least one argument to expect"),
-                    1 => try writer.print("Expected {s}", .{ @tagName(expected[0]) }),
-                    2 => try writer.print("Expected {s} or {s}", .{ @tagName(expected[0]), @tagName(expected[1]) }),
+                    1 => try writer.print("Expected {}", .{ expected[0] }),
+                    2 => try writer.print("Expected {} or {}", .{ expected[0], expected[1] }),
                     else => {
                         for (0.., expected) |index, tag| {
                             if (index != 0) try writer.writeAll(", ");
 
-                            try writer.print("{s}", .{@tagName(tag)});
+                            try writer.print("{}", .{tag});
                         }
                     },
                 }
 
-                try writer.print(", found {s}", .{@tagName(value.found)});
+                try writer.print(", found {}", .{value.found});
             },
             .number_too_large => |number| try writer.print("Number \"{s}\" too large to store ", .{number}),
         }
