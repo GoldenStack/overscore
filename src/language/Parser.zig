@@ -9,13 +9,10 @@ pub const Container = struct {
 
     pub fn format(
         self: @This(),
-        comptime fmt: []const u8,
-        options: std.fmt.FormatOptions,
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        _ = fmt;
-        _ = options;
-
         if (self.unique) try writer.writeAll("unique ");
         if (self.fields == .tagged) try writer.writeAll("tagged ");
 
@@ -144,12 +141,11 @@ pub const Function = struct {
 
 pub const Block = struct {
     pub fn format(
-        self: @This(),
+        _: @This(),
         comptime _: []const u8,
         _: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        _ = self;
         try writer.writeAll("{}");
     }
 };
@@ -180,7 +176,7 @@ pub const ErrorContext = union(Error) {
 
                 switch (expected.len) {
                     0 => @panic("Expected at least one argument to expect"),
-                    1 => try writer.print("Expected {}", .{ expected[0] }),
+                    1 => try writer.print("Expected {}", .{expected[0]}),
                     2 => try writer.print("Expected {} or {}", .{ expected[0], expected[1] }),
                     else => {
                         for (0.., expected) |index, tag| {
@@ -300,7 +296,7 @@ pub fn read_tagged_container(self: *@This(), unique: bool, variant: ContainerVar
 
                     if (parser.peek().tag != .@"}") _ = try parser.expect(.@",");
                 },
-                else => return parser.fail_expected( &.{ .@"{", .@"pub", .@"const", .@"var", .ident }),
+                else => return parser.fail_expected(&.{ .@"{", .@"pub", .@"const", .@"var", .ident }),
             }
         }
     }.read;
@@ -404,7 +400,7 @@ fn read_iterated_until(self: *@This(), comptime maybe_sep: ?tokenizer.Token.Tag,
         // If there wasn't a separator, fail, having expected one
         // This check is placed after the exits so that a separator is optional
         // for the last argument
-        if (maybe_sep) |sep| if (!sep_last_iter) return self.fail_expected(&.{ sep });
+        if (maybe_sep) |sep| if (!sep_last_iter) return self.fail_expected(&.{sep});
 
         // Add the item and reset the separator tracker
         try reader(self, context);
@@ -429,12 +425,12 @@ pub fn fail_expected(self: *@This(), comptime tags: []const tokenizer.Token.Tag)
     return self.fail(.{ .expected_tag = .{
         .expected = tags,
         .found = self.peek().tag,
-    }});
+    } });
 }
 
 /// Reads a token, returning an error if it's not equal to the given tag.
 pub fn expect(self: *@This(), comptime tag: tokenizer.Token.Tag) !tokenizer.Token {
-    return self.expect_many(&.{ tag });
+    return self.expect_many(&.{tag});
 }
 
 /// Reads a token, returning an error if it's not one of the given tags.
