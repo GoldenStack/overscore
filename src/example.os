@@ -23,7 +23,9 @@ pub const Ip2 = tagged sum { v4: u32, v6: u128 };
 pub const UniqueStruct = unique product { X, Y };
 //const UniqueNull = unique empty;
 
-pub const Bingus = fn(a: u32, b: u32) u32;
+pub const Bingus = fn(a: u32, b: u32) u32 {
+    const _ = Void;
+};
 
 // Blocks evaluate to a pointer to the block.
 // Numbers evaluate to the number.

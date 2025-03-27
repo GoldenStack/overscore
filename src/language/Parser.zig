@@ -139,6 +139,7 @@ pub const Expr = union(ExprTag) {
 pub const Function = struct {
     parameters: std.ArrayList(NamedExpr),
     @"return": *Expr,
+    body: Block,
 
     pub fn format(
         self: @This(),
@@ -150,7 +151,7 @@ pub const Function = struct {
 
         for (self.parameters.items) |param| try writer.print("{}, ", .{param});
 
-        try writer.print(") {}", .{self.@"return"});
+        try writer.print(") {} {}", .{self.@"return", self.body});
     }
 };
 
@@ -406,9 +407,12 @@ pub fn read_function(self: *@This()) ParsingError!Function {
     const boxed = try self.allocator.create(Expr);
     boxed.* = try self.read_expr();
 
+    const body = try self.read_block();
+
     return .{
         .parameters = params,
         .@"return" = boxed,
+        .body = body,
     };
 }
 
