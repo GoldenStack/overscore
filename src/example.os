@@ -23,6 +23,14 @@ pub const Ip2 = tagged sum { v4: u32, v6: u128 };
 pub const UniqueStruct = unique product { X, Y };
 //const UniqueNull = unique empty;
 
+pub const X = (fn(a: u32, b: u32) u32 {
+    const _ = ((((((((Void))))))));
+    return (((((4)))));
+});
+
+pub const Four = X(2, 3);
+pub const FourAgain = ((((((((((((X))))))))))))(2, 3);
+
 pub const Bingus = fn(a: u32, b: u32) u32 {
     const _ = Void;
     return 5;

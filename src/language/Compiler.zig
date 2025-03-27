@@ -157,7 +157,6 @@ fn names_block(self: *@This(), block: Parser.Block) CompilerError!void {
                 try self.names.put(decl.name, decl.value);
             },
             .@"return" => |ret| try self.names_expr(ret),
-            else => {},
         }
     }
 
@@ -184,6 +183,11 @@ fn names_expr(self: *@This(), expr: Parser.Expr) CompilerError!void {
             for (func.parameters.items) |param| {
                 _ = self.names.remove(param.name);
             }
+        },
+        .call => |call| {
+            try self.names_expr(call.function.*);
+
+            for (call.arguments.items) |arg| try self.names_expr(arg);
         },
         .ident => |ident| if (!self.names.contains(ident)) return self.fail(.{ .ident_unknown = ident }),
         .number => {},

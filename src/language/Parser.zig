@@ -110,6 +110,7 @@ pub const Mutability = enum {
 
 pub const ExprTag = enum {
     function,
+    call,
     container,
     ident,
     block,
@@ -118,6 +119,7 @@ pub const ExprTag = enum {
 
 pub const Expr = union(ExprTag) {
     function: Function,
+    call: Call,
     container: Container,
     ident: tokenizer.Token,
     block: Block,
@@ -131,6 +133,7 @@ pub const Expr = union(ExprTag) {
     ) !void {
         switch (self) {
             .function => |function| try writer.print("{}", .{function}),
+            .call => |call| try writer.print("{}", .{call}),
             .container => |container| try writer.print("{}", .{container}),
             .ident => |token| try writer.print("{s}", .{token.value}),
             .block => |block| try writer.print("{}", .{block}),
@@ -154,7 +157,25 @@ pub const Function = struct {
 
         for (self.parameters.items) |param| try writer.print("{}, ", .{param});
 
-        try writer.print(") {} {}", .{self.@"return", self.body});
+        try writer.print(") {} {}", .{ self.@"return", self.body });
+    }
+};
+
+pub const Call = struct {
+    function: *Expr,
+    arguments: std.ArrayList(Expr),
+
+    pub fn format(
+        self: @This(),
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try writer.print("{}(", .{self.function});
+
+        for (self.arguments.items) |argument| try writer.print("{}, ", .{argument});
+
+        try writer.writeAll(")");
     }
 };
 
@@ -377,12 +398,12 @@ pub fn read_decl(self: *@This()) ParsingError!Decl {
 }
 
 pub fn read_expr(self: *@This()) ParsingError!Expr {
-    return switch (self.peek().tag) {
-        .@"(" => {
+    var expr: Expr = switch (self.peek().tag) {
+        .@"(" => parens: {
             _ = self.next();
             const expr = try self.read_expr();
             _ = try self.expect(.@")");
-            return expr;
+            break :parens expr;
         },
         .@"fn" => .{ .function = try self.read_function() },
         .unique, .tagged, .sum, .product => .{ .container = try self.read_container() },
@@ -390,6 +411,39 @@ pub fn read_expr(self: *@This()) ParsingError!Expr {
         .@"{" => .{ .block = try self.read_block() },
         .number => .{ .number = try self.read_number() },
         else => return self.fail_expected(&.{ .@"fn", .unique, .tagged, .sum, .product, .ident, .@"{", .number }),
+    };
+
+    // Handle postfix operator (function calling)
+    while (self.peek().tag == .@"(") {
+        expr = .{ .call = try self.read_parameters(expr) };
+    }
+
+    return expr;
+}
+
+pub fn read_parameters(self: *@This(), function: Expr) ParsingError!Call {
+    _ = try self.expect(.@"(");
+
+    const Parser = @This();
+
+    var args = std.ArrayList(Expr).init(self.allocator);
+
+    const read = struct {
+        fn read(parser: *Parser, context: *std.ArrayList(Expr)) ParsingError!void {
+            try context.append(try parser.read_expr());
+        }
+    }.read;
+
+    try self.read_iterated_until(.@",", .@")", &args, read);
+
+    _ = try self.expect(.@")");
+    
+    const boxed = try self.allocator.create(Expr);
+    boxed.* = function;
+
+    return .{
+        .function = boxed,
+        .arguments = args,
     };
 }
 
@@ -460,7 +514,7 @@ pub fn read_statement(self: *@This()) ParsingError!Stmt {
     return switch (self.peek().tag) {
         .@"return" => {
             _ = self.next();
-            
+
             const expr = try self.read_expr();
 
             _ = try self.expect(.@";");
