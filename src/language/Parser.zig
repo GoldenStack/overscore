@@ -146,7 +146,6 @@ pub const Function = struct {
 };
 
 pub const Block = struct {
-
     stmts: std.ArrayList(Stmt),
 
     pub fn format(
@@ -426,9 +425,7 @@ pub fn read_block(self: *@This()) ParsingError!Block {
 
     _ = try self.expect(.@"}");
 
-    return .{
-        .stmts = stmts
-    };
+    return .{ .stmts = stmts };
 }
 
 pub fn read_statement(self: *@This()) ParsingError!Stmt {

@@ -12,7 +12,7 @@ pub const TypeTag = enum {
     sum,
     tagged_sum,
     unique,
-    @"type",
+    type,
 };
 
 /// Possible fully-evaluated type expressions.

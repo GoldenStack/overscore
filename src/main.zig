@@ -32,12 +32,12 @@ pub fn main() !void {
 
             const currentLine = src[lineStart..lineEnd];
 
-            std.debug.print("> {s}\n", .{ currentLine });
+            std.debug.print("> {s}\n", .{currentLine});
             const nextlen = parser.peek().value.len;
-            for (0..2 + loc.col-1) |_| std.debug.print(" ", .{});
+            for (0..2 + loc.col - 1) |_| std.debug.print(" ", .{});
             for (0..nextlen) |_| std.debug.print("^", .{});
             std.debug.print("\n", .{});
-            
+
             return;
         } else return err;
     };
