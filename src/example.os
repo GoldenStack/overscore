@@ -9,6 +9,14 @@ var Person = tagged product {
     age: Age,
 };
 
+pub const Void = {
+    const x = sum {};
+    const y = sum {};
+};
+
+pub const empty = sum {};
+pub const unit = product {};
+
 pub const Ip = sum { u32, Array };
 pub const Ip2 = tagged sum { v4: u32, v6: u128 };
 
@@ -19,13 +27,6 @@ pub const Bingus = fn(u32, u32) u32;
 
 // Blocks evaluate to a pointer to the block.
 // Numbers evaluate to the number.
-
-// pub const x = {
-//     pub const y = 2;
-// 
-//     //mov 1 2
-//     //2;
-// };
 
 // pub const y = {
 //     mov 1 2

@@ -3,6 +3,7 @@ const Cpu = @import("Cpu.zig");
 const Assembler = @import("Assembler.zig");
 const tokenizer = @import("language/tokenizer.zig");
 const Parser = @import("language/Parser.zig");
+const Compiler = @import("language/Compiler.zig");
 
 pub fn main() !void {
     // Create an allocator and error if it leaks
@@ -32,7 +33,6 @@ pub fn main() !void {
             const currentLine = src[lineStart..lineEnd];
 
             std.debug.print("> {s}\n", .{ currentLine });
-            
             const nextlen = parser.peek().value.len;
             for (0..2 + loc.col-1) |_| std.debug.print(" ", .{});
             for (0..nextlen) |_| std.debug.print("^", .{});
@@ -43,6 +43,16 @@ pub fn main() !void {
     };
 
     std.debug.print("{any}\n", .{container});
+
+    // Compile it!
+    var compiler = Compiler.init(allocator);
+    const compiled = compiler.compile(container) catch |err| {
+        if (err == error.CompilerError) {
+            std.debug.print("Error: {any}\n", .{compiler.error_context});
+        } else return err;
+    };
+
+    std.debug.print("{any}\n", .{compiled});
 
     // // Load the assembly and convert it to a slice
     // const assembly = @embedFile("fibonacci.asm");
