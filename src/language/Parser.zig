@@ -36,7 +36,7 @@ pub const FieldsTag = enum {
 
 pub const Fields = union(FieldsTag) {
     untagged: std.ArrayList(Expr),
-    tagged: std.ArrayList(TaggedField),
+    tagged: std.ArrayList(NamedExpr),
 
     pub fn format(
         self: @This(),
@@ -55,9 +55,18 @@ pub const Fields = union(FieldsTag) {
     }
 };
 
-pub const TaggedField = struct {
+pub const NamedExpr = struct {
     name: tokenizer.Token,
     value: Expr,
+
+    pub fn format(
+        self: @This(),
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try writer.print("{s}: {}", .{ self.name.value, self.value });
+    }
 };
 
 pub const ContainerDecl = struct {
@@ -128,7 +137,7 @@ pub const Expr = union(ExprTag) {
 };
 
 pub const Function = struct {
-    parameters: std.ArrayList(Expr),
+    parameters: std.ArrayList(NamedExpr),
     @"return": *Expr,
 
     pub fn format(
@@ -139,7 +148,7 @@ pub const Function = struct {
     ) !void {
         try writer.writeAll("fn (");
 
-        for (self.parameters.items) |param| try writer.print("{},", .{param});
+        for (self.parameters.items) |param| try writer.print("{}, ", .{param});
 
         try writer.print(") {}", .{self.@"return"});
     }
@@ -312,7 +321,7 @@ pub fn read_tagged_container(self: *@This(), unique: bool, variant: ContainerVar
         .unique = unique,
         .variant = variant,
         .decls = std.ArrayList(ContainerDecl).init(self.allocator),
-        .fields = .{ .tagged = std.ArrayList(TaggedField).init(self.allocator) },
+        .fields = .{ .tagged = std.ArrayList(NamedExpr).init(self.allocator) },
     };
 
     const read = struct {
@@ -322,14 +331,8 @@ pub fn read_tagged_container(self: *@This(), unique: bool, variant: ContainerVar
             switch (token.tag) {
                 .@"pub", .@"const", .@"var" => try context.decls.append(try parser.read_container_decl()),
                 .ident => {
-                    _ = parser.next(); // Read the token
-                    _ = try parser.expect(.@":");
-
                     switch (context.fields) {
-                        .tagged => |*tagged| try tagged.append(.{
-                            .name = token,
-                            .value = try parser.read_expr(),
-                        }),
+                        .tagged => |*tagged| try tagged.append(try parser.read_named_expr()),
                         else => unreachable,
                     }
 
@@ -387,11 +390,11 @@ pub fn read_function(self: *@This()) ParsingError!Function {
 
     const Parser = @This();
 
-    var params = std.ArrayList(Expr).init(self.allocator);
+    var params = std.ArrayList(NamedExpr).init(self.allocator);
 
     const read = struct {
-        fn read(parser: *Parser, context: *std.ArrayList(Expr)) ParsingError!void {
-            try context.append(try parser.read_expr());
+        fn read(parser: *Parser, context: *std.ArrayList(NamedExpr)) ParsingError!void {
+            try context.append(try parser.read_named_expr());
         }
     }.read;
 
@@ -426,6 +429,19 @@ pub fn read_block(self: *@This()) ParsingError!Block {
     _ = try self.expect(.@"}");
 
     return .{ .stmts = stmts };
+}
+
+pub fn read_named_expr(self: *@This()) ParsingError!NamedExpr {
+    const name = try self.expect(.ident);
+
+    _ = try self.expect(.@":");
+
+    const value = try self.read_expr();
+
+    return .{
+        .name = name,
+        .value = value,
+    };
 }
 
 pub fn read_statement(self: *@This()) ParsingError!Stmt {
