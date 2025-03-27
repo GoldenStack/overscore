@@ -150,18 +150,14 @@ fn TokenHashMap(comptime V: type) type {
 fn names_block(self: *@This(), block: Parser.Block) CompilerError!void {
     for (block.stmts.items) |stmt| {
         switch (stmt) {
-            .decl => {
-                try self.check_name(stmt.decl.name);
-                try self.names.put(stmt.decl.name, stmt.decl.value);
-            },
-            else => {},
-        }
-    }
+            .decl => |decl| {
+                try self.names_expr(decl.value);
 
-    for (block.stmts.items) |stmt| {
-        switch (stmt) {
-            .decl => |decl| try self.names_expr(decl.value),
+                try self.check_name(decl.name);
+                try self.names.put(decl.name, decl.value);
+            },
             .@"return" => |ret| try self.names_expr(ret),
+            else => {},
         }
     }
 
