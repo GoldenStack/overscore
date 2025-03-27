@@ -125,9 +125,12 @@ allocator: std.mem.Allocator,
 /// may contain anything.
 error_context: ?ErrorContext = null,
 
+names: TokenHashMap(Parser.Expr),
+
 pub fn init(allocator: std.mem.Allocator) @This() {
     return .{
         .allocator = allocator,
+        .names = TokenHashMap(Parser.Expr).init(allocator),
     };
 }
 
@@ -144,54 +147,54 @@ fn TokenHashMap(comptime V: type) type {
     return std.HashMap(tokenizer.Token, V, Context, std.hash_map.default_max_load_percentage);
 }
 
-fn names_block(self: *@This(), block: Parser.Block, names: *TokenHashMap(Parser.Expr)) CompilerError!void {
+fn names_block(self: *@This(), block: Parser.Block) CompilerError!void {
     for (block.stmts.items) |stmt| {
-        try self.check_name(names, stmt.decl.name);
-        try names.put(stmt.decl.name, stmt.decl.value);
+        try self.check_name(stmt.decl.name);
+        try self.names.put(stmt.decl.name, stmt.decl.value);
     }
 
     for (block.stmts.items) |stmt| {
-        try self.names_expr(stmt.decl.value, names);
+        try self.names_expr(stmt.decl.value);
     }
 
     for (block.stmts.items) |stmt| {
-        _ = names.remove(stmt.decl.name);
+        _ = self.names.remove(stmt.decl.name);
     }
 }
 
-fn names_expr(self: *@This(), expr: Parser.Expr, names: *TokenHashMap(Parser.Expr)) CompilerError!void {
+fn names_expr(self: *@This(), expr: Parser.Expr) CompilerError!void {
     switch (expr) {
-        .block => |block| try self.names_block(block, names),
-        .container => |cont| try self.names_container(cont, names),
+        .block => |block| try self.names_block(block),
+        .container => |cont| try self.names_container(cont),
         .function => |func| {
             for (func.parameters.items) |param| {
-                try self.check_name(names, param.name);
-                try names.put(param.name, param.value);
+                try self.check_name(param.name);
+                try self.names.put(param.name, param.value);
             }
 
-            try self.names_block(func.body, names);
+            try self.names_block(func.body);
 
             for (func.parameters.items) |param| {
-                _ = names.remove(param.name);
+                _ = self.names.remove(param.name);
             }
         },
-        .ident => |ident| if (!names.contains(ident)) return self.fail(.{ .ident_unknown = ident }),
+        .ident => |ident| if (!self.names.contains(ident)) return self.fail(.{ .ident_unknown = ident }),
     }
 }
 
-fn names_container(self: *@This(), container: Parser.Container, names: *TokenHashMap(Parser.Expr)) CompilerError!void {
+fn names_container(self: *@This(), container: Parser.Container) CompilerError!void {
     for (container.decls.items) |decl| {
-        try self.check_name(names, decl.decl.name);
-        try names.put(decl.decl.name, decl.decl.value);
+        try self.check_name(decl.decl.name);
+        try self.names.put(decl.decl.name, decl.decl.value);
     }
 
-    for (container.decls.items) |decl| try self.names_expr(decl.decl.value, names);
+    for (container.decls.items) |decl| try self.names_expr(decl.decl.value);
 
-    for (container.decls.items) |decl| _ = names.remove(decl.decl.name);
+    for (container.decls.items) |decl| _ = self.names.remove(decl.decl.name);
 }
 
-fn check_name(self: *@This(), names: *TokenHashMap(Parser.Expr), name: tokenizer.Token) CompilerError!void {
-    const ptr = names.getEntry(name);
+fn check_name(self: *@This(), name: tokenizer.Token) CompilerError!void {
+    const ptr = self.names.getEntry(name);
 
     if (ptr) |existing| return self.fail(.{ .ident_redeclared = .{
         .declared = existing.key_ptr.*,
@@ -205,6 +208,5 @@ fn fail(self: *@This(), @"error": ErrorContext) error{CompilerError} {
 }
 
 pub fn compile(self: *@This(), container: Parser.Container) CompilerError!void {
-    var names = TokenHashMap(Parser.Expr).init(self.allocator);
-    try self.names_container(container, &names);
+    try self.names_container(container);
 }
