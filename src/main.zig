@@ -28,7 +28,7 @@ pub fn main() !void {
 
             // Find the current line
             const lineStart = if (std.mem.lastIndexOfScalar(u8, src[0..loc.pos], '\n')) |idx| idx + 1 else 0;
-            const lineEnd = std.mem.indexOfScalarPos(u8, src, loc.pos, '\n') orelse loc.pos;
+            const lineEnd = std.mem.indexOfScalarPos(u8, src, loc.pos, '\n') orelse src.len;
 
             const currentLine = src[lineStart..lineEnd];
 
