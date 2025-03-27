@@ -378,6 +378,12 @@ pub fn read_decl(self: *@This()) ParsingError!Decl {
 
 pub fn read_expr(self: *@This()) ParsingError!Expr {
     return switch (self.peek().tag) {
+        .@"(" => {
+            _ = self.next();
+            const expr = try self.read_expr();
+            _ = try self.expect(.@")");
+            return expr;
+        },
         .@"fn" => .{ .function = try self.read_function() },
         .unique, .tagged, .sum, .product => .{ .container = try self.read_container() },
         .ident => .{ .ident = self.next() },
