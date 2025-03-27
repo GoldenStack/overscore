@@ -336,6 +336,7 @@ pub fn read_tagged_container(self: *@This(), unique: bool, variant: ContainerVar
                         else => unreachable,
                     }
 
+                    // This makes the last field mandatory in file containers
                     if (parser.peek().tag != .@"}") _ = try parser.expect(.@",");
                 },
                 else => return parser.fail_expected(&.{ .@"{", .@"pub", .@"const", .@"var", .ident }),
