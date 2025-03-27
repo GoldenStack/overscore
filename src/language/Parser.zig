@@ -113,6 +113,7 @@ pub const ExprTag = enum {
     container,
     ident,
     block,
+    number,
 };
 
 pub const Expr = union(ExprTag) {
@@ -120,6 +121,7 @@ pub const Expr = union(ExprTag) {
     container: Container,
     ident: tokenizer.Token,
     block: Block,
+    number: u128,
 
     pub fn format(
         self: @This(),
@@ -132,6 +134,7 @@ pub const Expr = union(ExprTag) {
             .container => |container| try writer.print("{}", .{container}),
             .ident => |token| try writer.print("{s}", .{token.value}),
             .block => |block| try writer.print("{}", .{block}),
+            .number => |number| try writer.print("{}", .{number}),
         }
     }
 };
@@ -174,10 +177,12 @@ pub const Block = struct {
 
 pub const StmtTag = enum {
     decl,
+    @"return",
 };
 
 pub const Stmt = union(StmtTag) {
     decl: Decl,
+    @"return": Expr,
 
     pub fn format(
         self: @This(),
@@ -187,6 +192,7 @@ pub const Stmt = union(StmtTag) {
     ) !void {
         switch (self) {
             .decl => |decl| try writer.print("{}", .{decl}),
+            .@"return" => |ret| try writer.print("return {};", .{ret}),
         }
     }
 };
@@ -382,7 +388,8 @@ pub fn read_expr(self: *@This()) ParsingError!Expr {
         .unique, .tagged, .sum, .product => .{ .container = try self.read_container() },
         .ident => .{ .ident = self.next() },
         .@"{" => .{ .block = try self.read_block() },
-        else => return self.fail_expected(&.{ .@"fn", .unique, .tagged, .sum, .product, .ident, .@"{" }),
+        .number => .{ .number = try self.read_number() },
+        else => return self.fail_expected(&.{ .@"fn", .unique, .tagged, .sum, .product, .ident, .@"{", .number }),
     };
 }
 
@@ -450,15 +457,24 @@ pub fn read_named_expr(self: *@This()) ParsingError!NamedExpr {
 }
 
 pub fn read_statement(self: *@This()) ParsingError!Stmt {
-    return .{
-        .decl = try self.read_decl(),
+    return switch (self.peek().tag) {
+        .@"return" => {
+            _ = self.next();
+            
+            const expr = try self.read_expr();
+
+            _ = try self.expect(.@";");
+
+            return .{ .@"return" = expr };
+        },
+        else => .{ .decl = try self.read_decl() },
     };
 }
 
-pub fn read_number(self: *@This()) ParsingError!u32 {
+pub fn read_number(self: *@This()) ParsingError!u128 {
     const token = try self.expect(.number);
 
-    return std.fmt.parseUnsigned(u32, token.value, 10) catch self.fail(.{ .number_too_large = token.value });
+    return std.fmt.parseUnsigned(u128, token.value, 10) catch self.fail(.{ .number_too_large = token.value });
 }
 
 fn read_iterated_until(self: *@This(), comptime maybe_sep: ?tokenizer.Token.Tag, end: tokenizer.Token.Tag, context: anytype, reader: fn (*@This(), @TypeOf(context)) ParsingError!void) !void {

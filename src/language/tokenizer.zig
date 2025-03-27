@@ -47,6 +47,7 @@ pub const Token = struct {
         product,
         sum,
         @"fn",
+        @"return",
 
         // General language constructs
         ident,
@@ -182,6 +183,7 @@ pub const Tokenizer = struct {
             .{ "product", .product },
             .{ "sum", .sum },
             .{ "fn", .@"fn" },
+            .{ "return", .@"return" },
         });
 
         return .{

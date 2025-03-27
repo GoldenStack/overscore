@@ -25,6 +25,7 @@ pub const UniqueStruct = unique product { X, Y };
 
 pub const Bingus = fn(a: u32, b: u32) u32 {
     const _ = Void;
+    return 5;
 };
 
 // Blocks evaluate to a pointer to the block.

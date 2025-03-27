@@ -149,16 +149,27 @@ fn TokenHashMap(comptime V: type) type {
 
 fn names_block(self: *@This(), block: Parser.Block) CompilerError!void {
     for (block.stmts.items) |stmt| {
-        try self.check_name(stmt.decl.name);
-        try self.names.put(stmt.decl.name, stmt.decl.value);
+        switch (stmt) {
+            .decl => {
+                try self.check_name(stmt.decl.name);
+                try self.names.put(stmt.decl.name, stmt.decl.value);
+            },
+            else => {},
+        }
     }
 
     for (block.stmts.items) |stmt| {
-        try self.names_expr(stmt.decl.value);
+        switch (stmt) {
+            .decl => |decl| try self.names_expr(decl.value),
+            .@"return" => |ret| try self.names_expr(ret),
+        }
     }
 
     for (block.stmts.items) |stmt| {
-        _ = self.names.remove(stmt.decl.name);
+        switch (stmt) {
+            .decl => _ = self.names.remove(stmt.decl.name),
+            else => {},
+        }
     }
 }
 
@@ -179,6 +190,7 @@ fn names_expr(self: *@This(), expr: Parser.Expr) CompilerError!void {
             }
         },
         .ident => |ident| if (!self.names.contains(ident)) return self.fail(.{ .ident_unknown = ident }),
+        .number => {},
     }
 }
 
