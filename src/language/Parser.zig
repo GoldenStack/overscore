@@ -306,10 +306,7 @@ pub fn read_untagged_container(self: *@This(), unique: bool, variant: ContainerV
             switch (parser.peek().tag) {
                 .@"pub", .@"const", .@"var" => try context.decls.append(try parser.read_container_decl()),
                 else => {
-                    switch (context.fields) {
-                        .untagged => |*untagged| try untagged.append(try parser.read_expr()),
-                        else => unreachable,
-                    }
+                    try context.fields.untagged.append(try parser.read_expr());
 
                     if (parser.peek().tag != .@"}") _ = try parser.expect(.@",");
                 },
@@ -338,10 +335,7 @@ pub fn read_tagged_container(self: *@This(), unique: bool, variant: ContainerVar
             switch (token.tag) {
                 .@"pub", .@"const", .@"var" => try context.decls.append(try parser.read_container_decl()),
                 .ident => {
-                    switch (context.fields) {
-                        .tagged => |*tagged| try tagged.append(try parser.read_named_expr()),
-                        else => unreachable,
-                    }
+                    try context.fields.tagged.append(try parser.read_named_expr());
 
                     // This makes the last field mandatory in file containers
                     if (parser.peek().tag != .@"}") _ = try parser.expect(.@",");
