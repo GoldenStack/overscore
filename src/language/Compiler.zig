@@ -151,6 +151,10 @@ fn names_block(self: *@This(), block: Parser.Block, names: *TokenHashMap(Parser.
     }
 
     for (block.stmts.items) |stmt| {
+        try self.names_expr(stmt.decl.value, names);
+    }
+
+    for (block.stmts.items) |stmt| {
         _ = names.remove(stmt.decl.name);
     }
 }
