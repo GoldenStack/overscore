@@ -191,6 +191,7 @@ fn names_expr(self: *@This(), expr: Parser.Expr) CompilerError!void {
         },
         .ident => |ident| if (!self.names.contains(ident)) return self.fail(.{ .ident_unknown = ident }),
         .number => {},
+        .parentheses => |parens| try self.names_expr(parens.*),
     }
 }
 

@@ -115,6 +115,7 @@ pub const ExprTag = enum {
     ident,
     block,
     number,
+    parentheses,
 };
 
 pub const Expr = union(ExprTag) {
@@ -124,6 +125,7 @@ pub const Expr = union(ExprTag) {
     ident: tokenizer.Token,
     block: Block,
     number: u128,
+    parentheses: *Expr,
 
     pub fn format(
         self: @This(),
@@ -138,6 +140,7 @@ pub const Expr = union(ExprTag) {
             .ident => |token| try writer.print("{s}", .{token.value}),
             .block => |block| try writer.print("{}", .{block}),
             .number => |number| try writer.print("{}", .{number}),
+            .parentheses => |parens| try writer.print("({})", .{parens}),
         }
     }
 };
@@ -399,17 +402,20 @@ pub fn read_decl(self: *@This()) ParsingError!Decl {
 
 pub fn read_expr(self: *@This()) ParsingError!Expr {
     var expr: Expr = switch (self.peek().tag) {
-        .@"(" => parens: {
-            _ = self.next();
-            const expr = try self.read_expr();
-            _ = try self.expect(.@")");
-            break :parens expr;
-        },
         .@"fn" => .{ .function = try self.read_function() },
         .unique, .tagged, .sum, .product => .{ .container = try self.read_container() },
         .ident => .{ .ident = self.next() },
         .@"{" => .{ .block = try self.read_block() },
         .number => .{ .number = try self.read_number() },
+        .@"(" => .{ .parentheses = parens: {
+            _ = self.next();
+
+            const boxed = try self.allocator.create(Expr);
+            boxed.* = try self.read_expr();
+
+            _ = try self.expect(.@")");
+            break :parens boxed;
+        } },
         else => return self.fail_expected(&.{ .@"fn", .unique, .tagged, .sum, .product, .ident, .@"{", .number }),
     };
 
