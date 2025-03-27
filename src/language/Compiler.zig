@@ -11,6 +11,7 @@ pub const TypeTag = enum {
     sum,
     tagged_sum,
     unique,
+    @"type",
 };
 
 /// Possible fully-evaluated type expressions.
@@ -71,4 +72,12 @@ pub const Type = union(TypeTag) {
     /// This does not necessarily affect coercion (i.e. `struct { 5 }` being
     /// coercible to the type `unique struct { u32 }`).
     unique: *Type,
+
+    /// A type.
+    ///
+    /// When the value of an expression is a type, the type of the expression is
+    /// `type`. This does lead to unsoundness in the type system due to
+    /// Russell's paradox, likely the only point of unsoundness, but I don't
+    /// really care.
+    type,
 };
