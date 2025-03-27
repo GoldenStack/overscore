@@ -5,7 +5,7 @@ pub const Container = struct {
     unique: bool,
     variant: ContainerVariant,
     fields: Fields,
-    members: std.ArrayList(ContainerDecl),
+    decls: std.ArrayList(ContainerDecl),
 
     pub fn format(
         self: @This(),
@@ -18,7 +18,7 @@ pub const Container = struct {
 
         try writer.print("{s} {{ {}", .{ @tagName(self.variant), self.fields });
 
-        for (self.members.items) |member| try writer.print("{} ", .{member});
+        for (self.decls.items) |decl| try writer.print("{} ", .{decl});
 
         try writer.writeAll("}");
     }
@@ -146,13 +146,39 @@ pub const Function = struct {
 };
 
 pub const Block = struct {
+
+    stmts: std.ArrayList(Stmt),
+
     pub fn format(
-        _: @This(),
+        self: @This(),
         comptime _: []const u8,
         _: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        try writer.writeAll("{}");
+        try writer.writeAll("{ ");
+
+        for (self.stmts.items) |stmt| try writer.print("{} ", .{stmt});
+
+        try writer.writeAll("}");
+    }
+};
+
+pub const StmtTag = enum {
+    decl,
+};
+
+pub const Stmt = union(StmtTag) {
+    decl: Decl,
+
+    pub fn format(
+        self: @This(),
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        switch (self) {
+            .decl => |decl| try writer.print("{}", .{decl}),
+        }
     }
 };
 
@@ -256,14 +282,14 @@ pub fn read_untagged_container(self: *@This(), unique: bool, variant: ContainerV
     var container: Container = .{
         .unique = unique,
         .variant = variant,
-        .members = std.ArrayList(ContainerDecl).init(self.allocator),
+        .decls = std.ArrayList(ContainerDecl).init(self.allocator),
         .fields = .{ .untagged = std.ArrayList(Expr).init(self.allocator) },
     };
 
     const read = struct {
         fn read(parser: *Parser, context: *Container) ParsingError!void {
             switch (parser.peek().tag) {
-                .@"pub", .@"const", .@"var" => try context.members.append(try parser.read_container_decl()),
+                .@"pub", .@"const", .@"var" => try context.decls.append(try parser.read_container_decl()),
                 else => {
                     switch (context.fields) {
                         .untagged => |*untagged| try untagged.append(try parser.read_expr()),
@@ -286,7 +312,7 @@ pub fn read_tagged_container(self: *@This(), unique: bool, variant: ContainerVar
     var container: Container = .{
         .unique = unique,
         .variant = variant,
-        .members = std.ArrayList(ContainerDecl).init(self.allocator),
+        .decls = std.ArrayList(ContainerDecl).init(self.allocator),
         .fields = .{ .tagged = std.ArrayList(TaggedField).init(self.allocator) },
     };
 
@@ -295,7 +321,7 @@ pub fn read_tagged_container(self: *@This(), unique: bool, variant: ContainerVar
             const token = parser.peek();
 
             switch (token.tag) {
-                .@"pub", .@"const", .@"var" => try context.members.append(try parser.read_container_decl()),
+                .@"pub", .@"const", .@"var" => try context.decls.append(try parser.read_container_decl()),
                 .ident => {
                     _ = parser.next(); // Read the token
                     _ = try parser.expect(.@":");
@@ -385,9 +411,30 @@ pub fn read_function(self: *@This()) ParsingError!Function {
 
 pub fn read_block(self: *@This()) ParsingError!Block {
     _ = try self.expect(.@"{");
+
+    const Parser = @This();
+
+    var stmts = std.ArrayList(Stmt).init(self.allocator);
+
+    const read = struct {
+        fn read(parser: *Parser, context: *std.ArrayList(Stmt)) ParsingError!void {
+            try context.append(try parser.read_statement());
+        }
+    }.read;
+
+    try self.read_iterated_until(null, .@"}", &stmts, read);
+
     _ = try self.expect(.@"}");
 
-    return .{};
+    return .{
+        .stmts = stmts
+    };
+}
+
+pub fn read_statement(self: *@This()) ParsingError!Stmt {
+    return .{
+        .decl = try self.read_decl(),
+    };
 }
 
 pub fn read_number(self: *@This()) ParsingError!u32 {
