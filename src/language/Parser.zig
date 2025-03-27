@@ -36,7 +36,7 @@ pub const FieldsTag = enum {
 
 pub const Fields = union(FieldsTag) {
     untagged: std.ArrayList(Expr),
-    tagged: std.StringHashMap(Expr),
+    tagged: std.ArrayList(TaggedField),
 
     pub fn format(
         self: @This(),
@@ -47,11 +47,17 @@ pub const Fields = union(FieldsTag) {
         switch (self) {
             .untagged => |fields| for (fields.items) |item| try writer.print("{}, ", .{item}),
             .tagged => |fields| {
-                var iter = fields.iterator();
-                while (iter.next()) |item| try writer.print("{s}: {}, ", .{ item.key_ptr.*, item.value_ptr });
+                for (fields.items) |item| {
+                    try writer.print("{s}: {}, ", .{ item.name.value, item.value });
+                }
             },
         }
     }
+};
+
+pub const TaggedField = struct {
+    name: tokenizer.Token,
+    value: Expr,
 };
 
 pub const ContainerDecl = struct {
@@ -247,17 +253,22 @@ pub fn read_container(self: *@This()) ParsingError!Container {
 
 pub fn read_untagged_container(self: *@This(), unique: bool, variant: ContainerVariant) ParsingError!Container {
     const Parser = @This();
-    var ctx = .{
+    var container: Container = .{
+        .unique = unique,
+        .variant = variant,
         .members = std.ArrayList(ContainerDecl).init(self.allocator),
-        .fields = std.ArrayList(Expr).init(self.allocator),
+        .fields = .{ .untagged = std.ArrayList(Expr).init(self.allocator) },
     };
 
     const read = struct {
-        fn read(parser: *Parser, context: *@TypeOf(ctx)) ParsingError!void {
+        fn read(parser: *Parser, context: *Container) ParsingError!void {
             switch (parser.peek().tag) {
                 .@"pub", .@"const", .@"var" => try context.members.append(try parser.read_container_decl()),
                 else => {
-                    try context.fields.append(try parser.read_expr());
+                    switch (context.fields) {
+                        .untagged => |*untagged| try untagged.append(try parser.read_expr()),
+                        else => unreachable,
+                    }
 
                     if (parser.peek().tag != .@"}") _ = try parser.expect(.@",");
                 },
@@ -265,25 +276,22 @@ pub fn read_untagged_container(self: *@This(), unique: bool, variant: ContainerV
         }
     }.read;
 
-    try self.read_iterated_until(null, .@"}", &ctx, read);
+    try self.read_iterated_until(null, .@"}", &container, read);
 
-    return .{
-        .unique = unique,
-        .variant = variant,
-        .fields = .{ .untagged = ctx.fields },
-        .members = ctx.members,
-    };
+    return container;
 }
 
 pub fn read_tagged_container(self: *@This(), unique: bool, variant: ContainerVariant) ParsingError!Container {
     const Parser = @This();
-    var ctx = .{
+    var container: Container = .{
+        .unique = unique,
+        .variant = variant,
         .members = std.ArrayList(ContainerDecl).init(self.allocator),
-        .fields = std.StringHashMap(Expr).init(self.allocator),
+        .fields = .{ .tagged = std.ArrayList(TaggedField).init(self.allocator) },
     };
 
     const read = struct {
-        fn read(parser: *Parser, context: *@TypeOf(ctx)) ParsingError!void {
+        fn read(parser: *Parser, context: *Container) ParsingError!void {
             const token = parser.peek();
 
             switch (token.tag) {
@@ -292,7 +300,13 @@ pub fn read_tagged_container(self: *@This(), unique: bool, variant: ContainerVar
                     _ = parser.next(); // Read the token
                     _ = try parser.expect(.@":");
 
-                    try context.fields.put(token.value, try parser.read_expr());
+                    switch (context.fields) {
+                        .tagged => |*tagged| try tagged.append(.{
+                            .name = token,
+                            .value = try parser.read_expr(),
+                        }),
+                        else => unreachable,
+                    }
 
                     if (parser.peek().tag != .@"}") _ = try parser.expect(.@",");
                 },
@@ -301,14 +315,9 @@ pub fn read_tagged_container(self: *@This(), unique: bool, variant: ContainerVar
         }
     }.read;
 
-    try self.read_iterated_until(null, .@"}", &ctx, read);
+    try self.read_iterated_until(null, .@"}", &container, read);
 
-    return .{
-        .unique = unique,
-        .variant = variant,
-        .fields = .{ .tagged = ctx.fields },
-        .members = ctx.members,
-    };
+    return container;
 }
 
 pub fn read_container_decl(self: *@This()) ParsingError!ContainerDecl {
