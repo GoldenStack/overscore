@@ -173,16 +173,16 @@ fn names_expr(self: *@This(), expr: Parser.Expr) CompilerError!void {
         .block => |block| try self.names_block(block),
         .container => |cont| try self.names_container(cont),
         .function => |func| {
-            for (func.parameters.items) |param| {
-                try self.check_name(param.name);
-                try self.names.put(param.name, param.value);
-            }
+            for (func.parameters.items) |param| if (param == .tagged) {
+                try self.check_name(param.tagged.name);
+                try self.names.put(param.tagged.name, param.tagged.value);
+            };
 
-            try self.names_block(func.body);
+            if (func.body) |body| try self.names_block(body);
 
-            for (func.parameters.items) |param| {
-                _ = self.names.remove(param.name);
-            }
+            for (func.parameters.items) |param| if (param == .tagged) {
+                _ = self.names.remove(param.tagged.name);
+            };
         },
         .call => |call| {
             try self.names_expr(call.function.*);

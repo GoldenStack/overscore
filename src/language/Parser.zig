@@ -4,7 +4,7 @@ const tokenizer = @import("tokenizer.zig");
 pub const Container = struct {
     unique: bool,
     variant: ContainerVariant,
-    fields: Fields,
+    fields: std.ArrayList(Field),
     decls: std.ArrayList(ContainerDecl),
 
     pub fn format(
@@ -14,9 +14,10 @@ pub const Container = struct {
         writer: anytype,
     ) !void {
         if (self.unique) try writer.writeAll("unique ");
-        if (self.fields == .tagged) try writer.writeAll("tagged ");
 
-        try writer.print("{s} {{ {}", .{ @tagName(self.variant), self.fields });
+        try writer.print("{s} {{ ", .{ @tagName(self.variant) });
+
+        for (self.fields.items) |field| try writer.print("{}, ", .{field});
 
         for (self.decls.items) |decl| try writer.print("{} ", .{decl});
 
@@ -29,14 +30,17 @@ pub const ContainerVariant = enum {
     product,
 };
 
-pub const FieldsTag = enum {
+pub const FieldTag = enum {
     untagged,
     tagged,
 };
 
-pub const Fields = union(FieldsTag) {
-    untagged: std.ArrayList(Expr),
-    tagged: std.ArrayList(NamedExpr),
+pub const Field = union(FieldTag) {
+    untagged: Expr,
+    tagged: struct {
+        name: tokenizer.Token,
+        value: Expr,
+    },
 
     pub fn format(
         self: @This(),
@@ -45,27 +49,9 @@ pub const Fields = union(FieldsTag) {
         writer: anytype,
     ) !void {
         switch (self) {
-            .untagged => |fields| for (fields.items) |item| try writer.print("{}, ", .{item}),
-            .tagged => |fields| {
-                for (fields.items) |item| {
-                    try writer.print("{s}: {}, ", .{ item.name.value, item.value });
-                }
-            },
+            .untagged => |field| try writer.print("{}", .{field}),
+            .tagged => |field| try writer.print("{s}: {}", .{ field.name.value, field.value }),
         }
-    }
-};
-
-pub const NamedExpr = struct {
-    name: tokenizer.Token,
-    value: Expr,
-
-    pub fn format(
-        self: @This(),
-        comptime _: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        try writer.print("{s}: {}", .{ self.name.value, self.value });
     }
 };
 
@@ -146,9 +132,9 @@ pub const Expr = union(ExprTag) {
 };
 
 pub const Function = struct {
-    parameters: std.ArrayList(NamedExpr),
+    parameters: std.ArrayList(Field),
     @"return": *Expr,
-    body: Block,
+    body: ?Block,
 
     pub fn format(
         self: @This(),
@@ -160,7 +146,9 @@ pub const Function = struct {
 
         for (self.parameters.items) |param| try writer.print("{}, ", .{param});
 
-        try writer.print(") {} {}", .{ self.@"return", self.body });
+        try writer.print(") {}", .{self.@"return"});
+
+        if (self.body) |block| try writer.print(" {}", .{block});
     }
 };
 
@@ -289,17 +277,14 @@ pub fn init(tokens: tokenizer.Tokenizer, allocator: std.mem.Allocator) @This() {
 }
 
 pub fn read_root(self: *@This()) ParsingError!Container {
-    return self.read_tagged_container(true, .product);
+    return self.read_container_contents(true, .product);
 }
 
 pub fn read_container(self: *@This()) ParsingError!Container {
-    var token = try self.expect_many(&.{ .unique, .tagged, .sum, .product });
+    var token = try self.expect_many(&.{ .unique, .sum, .product });
 
     const unique = token.tag == .unique;
-    if (unique) token = try self.expect_many(&.{ .tagged, .sum, .product });
-
-    const tagged = token.tag == .tagged;
-    if (tagged) token = try self.expect_many(&.{ .sum, .product });
+    if (unique) token = try self.expect_many(&.{ .sum, .product });
 
     const variant: ContainerVariant = switch (token.tag) {
         .sum => .sum,
@@ -309,62 +294,32 @@ pub fn read_container(self: *@This()) ParsingError!Container {
 
     _ = try self.expect(.@"{");
 
-    const container = try if (tagged) self.read_tagged_container(unique, variant) else self.read_untagged_container(unique, variant);
+    const container = try self.read_container_contents(unique, variant);
 
     _ = try self.expect(.@"}");
 
     return container;
 }
 
-pub fn read_untagged_container(self: *@This(), unique: bool, variant: ContainerVariant) ParsingError!Container {
-    const Parser = @This();
+pub fn read_container_contents(self: *@This(), unique: bool, variant: ContainerVariant) ParsingError!Container {
     var container: Container = .{
         .unique = unique,
         .variant = variant,
         .decls = std.ArrayList(ContainerDecl).init(self.allocator),
-        .fields = .{ .untagged = std.ArrayList(Expr).init(self.allocator) },
+        .fields = std.ArrayList(Field).init(self.allocator),
     };
 
+    const Parser = @This();
     const read = struct {
         fn read(parser: *Parser, context: *Container) ParsingError!void {
             switch (parser.peek().tag) {
                 .@"pub", .@"const", .@"var" => try context.decls.append(try parser.read_container_decl()),
                 else => {
-                    try context.fields.untagged.append(try parser.read_expr());
+                    try context.fields.append(try parser.read_field());
 
+                    // This makes the last comma mandatory in file containers
                     if (parser.peek().tag != .@"}") _ = try parser.expect(.@",");
                 },
-            }
-        }
-    }.read;
-
-    try self.read_iterated_until(null, .@"}", &container, read);
-
-    return container;
-}
-
-pub fn read_tagged_container(self: *@This(), unique: bool, variant: ContainerVariant) ParsingError!Container {
-    const Parser = @This();
-    var container: Container = .{
-        .unique = unique,
-        .variant = variant,
-        .decls = std.ArrayList(ContainerDecl).init(self.allocator),
-        .fields = .{ .tagged = std.ArrayList(NamedExpr).init(self.allocator) },
-    };
-
-    const read = struct {
-        fn read(parser: *Parser, context: *Container) ParsingError!void {
-            const token = parser.peek();
-
-            switch (token.tag) {
-                .@"pub", .@"const", .@"var" => try context.decls.append(try parser.read_container_decl()),
-                .ident => {
-                    try context.fields.tagged.append(try parser.read_named_expr());
-
-                    // This makes the last field mandatory in file containers
-                    if (parser.peek().tag != .@"}") _ = try parser.expect(.@",");
-                },
-                else => return parser.fail_expected(&.{ .@"{", .@"pub", .@"const", .@"var", .ident }),
             }
         }
     }.read;
@@ -403,7 +358,7 @@ pub fn read_decl(self: *@This()) ParsingError!Decl {
 pub fn read_expr(self: *@This()) ParsingError!Expr {
     var expr: Expr = switch (self.peek().tag) {
         .@"fn" => .{ .function = try self.read_function() },
-        .unique, .tagged, .sum, .product => .{ .container = try self.read_container() },
+        .unique, .sum, .product => .{ .container = try self.read_container() },
         .ident => .{ .ident = self.next() },
         .@"{" => .{ .block = try self.read_block() },
         .number => .{ .number = try self.read_number() },
@@ -416,7 +371,7 @@ pub fn read_expr(self: *@This()) ParsingError!Expr {
             _ = try self.expect(.@")");
             break :parens boxed;
         } },
-        else => return self.fail_expected(&.{ .@"fn", .unique, .tagged, .sum, .product, .ident, .@"{", .number }),
+        else => return self.fail_expected(&.{ .@"fn", .unique, .sum, .product, .ident, .@"{", .number }),
     };
 
     // Handle postfix operator (function calling)
@@ -443,7 +398,7 @@ pub fn read_parameters(self: *@This(), function: Expr) ParsingError!Call {
     try self.read_iterated_until(.@",", .@")", &args, read);
 
     _ = try self.expect(.@")");
-    
+
     const boxed = try self.allocator.create(Expr);
     boxed.* = function;
 
@@ -459,11 +414,11 @@ pub fn read_function(self: *@This()) ParsingError!Function {
 
     const Parser = @This();
 
-    var params = std.ArrayList(NamedExpr).init(self.allocator);
+    var params = std.ArrayList(Field).init(self.allocator);
 
     const read = struct {
-        fn read(parser: *Parser, context: *std.ArrayList(NamedExpr)) ParsingError!void {
-            try context.append(try parser.read_named_expr());
+        fn read(parser: *Parser, context: *std.ArrayList(Field)) ParsingError!void {
+            try context.append(try parser.read_field());
         }
     }.read;
 
@@ -474,7 +429,10 @@ pub fn read_function(self: *@This()) ParsingError!Function {
     const boxed = try self.allocator.create(Expr);
     boxed.* = try self.read_expr();
 
-    const body = try self.read_block();
+    const body = if (self.peek().tag == .@"{")
+        try self.read_block()
+    else
+        null;
 
     return .{
         .parameters = params,
@@ -503,7 +461,23 @@ pub fn read_block(self: *@This()) ParsingError!Block {
     return .{ .stmts = stmts };
 }
 
-pub fn read_named_expr(self: *@This()) ParsingError!NamedExpr {
+pub fn read_field(self: *@This()) ParsingError!Field {
+    const expr = try self.read_expr();
+
+    if (self.peek().tag == .@":") { // Tagged
+        if (expr == .ident) {
+            _ = self.next(); // Read the colon
+
+            const value = try self.read_expr();
+            return .{ .tagged = .{
+                .name = expr.ident,
+                .value = value,
+            } };
+        } else return self.fail_expected(&.{.ident});
+    } else { // Untagged
+        return .{ .untagged = expr };
+    }
+
     const name = try self.expect(.ident);
 
     _ = try self.expect(.@":");
