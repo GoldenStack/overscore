@@ -7,10 +7,7 @@ pub const TypeTag = enum {
     empty,
     unit,
     function,
-    product,
-    tagged_product,
-    sum,
-    tagged_sum,
+    container,
     unique,
     type,
 };
@@ -35,27 +32,8 @@ pub const Type = union(TypeTag) {
         @"return": *TypedExpr,
     },
 
-    /// The product between multiple types. This is equivalent to a tuple.
-    ///
-    /// For example: `const Pos = product { u32, u32 }`
-    product: std.ArrayList(TypedExpr),
-
-    /// The product between multiple types, including a tag. This is equivalent
-    /// to a struct.
-    ///
-    /// For example: `const Pos = product { x: u32, y: u32 }`
-    tagged_product: std.ArrayList(NamedExpr),
-
-    /// The sum between multiple types. This is equivalent to a union.
-    ///
-    /// For example: `const Ip = sum { u32, [4]u8 }`
-    sum: std.ArrayList(TypedExpr),
-
-    /// The sum between multiple types, including a tag. This is equivalent to a
-    /// tagged union.
-    ///
-    /// For example: `const Ip = sum { v4: u32, v6: u128 }`
-    tagged_sum: std.StringHashMap(TypedExpr),
+    /// A container. See docs for `Container` for more specifics. 
+    container: Container,
 
     /// A unique wrapper around a type.
     ///
@@ -75,8 +53,47 @@ pub const Type = union(TypeTag) {
     /// Russell's paradox, likely the only point of unsoundness, but I don't
     /// really care.
     type,
+
+    pub fn format(
+        self: @This(),
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        switch (self) {
+            .empty => try writer.writeAll("empty"),
+            .unit => try writer.writeAll("unit"),
+            .function => |function| {
+                try writer.writeAll("fn (");
+
+                for (function.parameters.items) |param| try writer.print("{}, ", .{param});
+
+                try writer.print(") {}", .{function.@"return"});
+            },
+            .container => |container| try writer.print("{}", .{container}),
+            .unique => |unique| try writer.print("unique {}", .{unique.*}),
+            .type => try writer.writeAll("type"),
+        }
+    }
+    
 };
 
+/// Containers can take four main types:
+/// 
+/// - The product of multiple types, equivalent to a tuple. For example,
+///   `const Pos = product { u32, u32 }`
+/// 
+/// - The product of multiple types, including a tag for each type. This is
+///   equivalent to a struct. For example, `const Pos = product { x: u32, y: u32
+///   }`
+/// 
+/// - The sum of multiple types. This is equivalent to a union, as there is, in
+///   memory, always overlap between multiple types as they're always
+///   represented as bits. For example, `const Ip = sum { u32, [4]u8 }`.
+/// 
+/// - The sum of multiple types, including a tag for each type. This is
+///   equivalent to a tagged union. For example, `const Ip = sum { v4: u32, v6:
+///   u128 }`
 pub const Container = struct {
     unique: bool,
     variant: Parser.ContainerVariant,
@@ -134,7 +151,7 @@ pub const Fields = union(FieldsTag) {
 pub const NamedExpr = struct {
     name: tokenizer.Token,
     value: TypedExpr,
-
+    
     pub fn format(
         self: @This(),
         comptime _: []const u8,
@@ -184,7 +201,7 @@ pub const TypedExpr = struct {
         _: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        try writer.print("{} :: {?}", .{ self.value, self.type });
+        try writer.print("({} :: {?})", .{ self.value, self.type });
     }
 };
 
@@ -486,7 +503,7 @@ fn semantics_function(self: *@This(), function: Parser.Function) CompilerError!E
                 return .{ .type = .{ .function = .{
                     .parameters = untagged,
                     .@"return" = ptr,
-                } } };
+                } } };                
             } else if (untagged.items.len == 0) {
                 return .{ .function = .{
                     .parameters = std.ArrayList(NamedExpr).init(self.allocator),
@@ -528,7 +545,7 @@ fn semantics_block(self: *@This(), block: Parser.Block) CompilerError!Block {
                 try stmts.append(.{ .decl = ptr.* });
             },
             .@"return" => |ret| try stmts.append(.{ .@"return" = try self.enforce_has_type(ret, null) }),
-        }
+        }        
     }
 
     for (block.stmts.items) |stmt| if (stmt == .decl) {
