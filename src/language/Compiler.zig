@@ -95,7 +95,6 @@ pub const Type = union(TypeTag) {
 ///   equivalent to a tagged union. For example, `const Ip = sum { v4: u32, v6:
 ///   u128 }`
 pub const Container = struct {
-    unique: bool,
     variant: Parser.ContainerVariant,
     fields: Fields,
     decls: std.ArrayList(ContainerDecl),
@@ -106,8 +105,6 @@ pub const Container = struct {
         _: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        if (self.unique) try writer.writeAll("unique ");
-
         try writer.print("{s} {{ ", .{@tagName(self.variant)});
 
         try writer.print("{}", .{self.fields});
@@ -454,7 +451,6 @@ fn semantics_container(self: *@This(), container: Parser.Container) CompilerErro
     _ = &decls;
 
     return .{
-        .unique = container.unique,
         .variant = container.variant,
         .fields = fields,
         .decls = decls,
@@ -472,6 +468,11 @@ fn semantics_expr(self: *@This(), expr: Parser.Expr) CompilerError!Expr {
         .block => |block| .{ .block = try self.semantics_block(block) },
         .number => |number| .{ .number = number },
         .parentheses => |parens| try self.semantics_expr(parens.*),
+        .unique => |unique| .{ .type = .{ .unique = unique: {
+            const ptr = try self.allocator.create(TypedExpr);
+            ptr.* = try self.enforce_has_type(unique.value.*, .type);
+            break :unique ptr;
+        }  } }
     };
 }
 

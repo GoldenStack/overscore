@@ -2,7 +2,6 @@ const std = @import("std");
 const tokenizer = @import("tokenizer.zig");
 
 pub const Container = struct {
-    unique: bool,
     variant: ContainerVariant,
     fields: std.ArrayList(Field),
     decls: std.ArrayList(ContainerDecl),
@@ -13,8 +12,6 @@ pub const Container = struct {
         _: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        if (self.unique) try writer.writeAll("unique ");
-
         try writer.print("{s} {{ ", .{ @tagName(self.variant) });
 
         for (self.fields.items) |field| try writer.print("{}, ", .{field});
@@ -113,6 +110,7 @@ pub const ExprTag = enum {
     block,
     number,
     parentheses,
+    unique,
 };
 
 pub const Expr = union(ExprTag) {
@@ -123,6 +121,7 @@ pub const Expr = union(ExprTag) {
     block: Block,
     number: u128,
     parentheses: *Expr,
+    unique: Unique,
 
     pub fn format(
         self: @This(),
@@ -138,7 +137,21 @@ pub const Expr = union(ExprTag) {
             .block => |block| try writer.print("{}", .{block}),
             .number => |number| try writer.print("{}", .{number}),
             .parentheses => |parens| try writer.print("({})", .{parens}),
+            .unique => |unique| try writer.print("{}", .{unique}),
         }
+    }
+};
+
+pub const Unique = struct {
+    value: *Expr,
+
+    pub fn format(
+        self: @This(),
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try writer.print("unique {}", .{self.value.*});
     }
 };
 
@@ -288,14 +301,11 @@ pub fn init(tokens: tokenizer.Tokenizer, allocator: std.mem.Allocator) @This() {
 }
 
 pub fn read_root(self: *@This()) ParsingError!Container {
-    return self.read_container_contents(true, .product);
+    return self.read_container_contents(.product);
 }
 
 pub fn read_container(self: *@This()) ParsingError!Container {
-    var token = try self.expect_many(&.{ .unique, .sum, .product });
-
-    const unique = token.tag == .unique;
-    if (unique) token = try self.expect_many(&.{ .sum, .product });
+    const token = try self.expect_many(&.{ .sum, .product });
 
     const variant: ContainerVariant = switch (token.tag) {
         .sum => .sum,
@@ -305,16 +315,15 @@ pub fn read_container(self: *@This()) ParsingError!Container {
 
     _ = try self.expect(.@"{");
 
-    const container = try self.read_container_contents(unique, variant);
+    const container = try self.read_container_contents(variant);
 
     _ = try self.expect(.@"}");
 
     return container;
 }
 
-pub fn read_container_contents(self: *@This(), unique: bool, variant: ContainerVariant) ParsingError!Container {
+pub fn read_container_contents(self: *@This(), variant: ContainerVariant) ParsingError!Container {
     var container: Container = .{
-        .unique = unique,
         .variant = variant,
         .decls = std.ArrayList(ContainerDecl).init(self.allocator),
         .fields = std.ArrayList(Field).init(self.allocator),
@@ -369,7 +378,7 @@ pub fn read_decl(self: *@This()) ParsingError!Decl {
 pub fn read_expr(self: *@This()) ParsingError!Expr {
     var expr: Expr = switch (self.peek().tag) {
         .@"fn" => .{ .function = try self.read_function() },
-        .unique, .sum, .product => .{ .container = try self.read_container() },
+        .sum, .product => .{ .container = try self.read_container() },
         .ident => .{ .ident = self.next() },
         .@"{" => .{ .block = try self.read_block() },
         .number => .{ .number = try self.read_number() },
@@ -382,7 +391,14 @@ pub fn read_expr(self: *@This()) ParsingError!Expr {
             _ = try self.expect(.@")");
             break :parens boxed;
         } },
-        else => return self.fail_expected(&.{ .@"fn", .unique, .sum, .product, .ident, .@"{", .number }),
+        .unique => .{ .unique = .{ .value = unique: {
+            _ = self.next();
+
+            const ptr = try self.allocator.create(Expr);
+            ptr.* = try self.read_expr();
+            break :unique ptr;
+        } } },
+        else => return self.fail_expected(&.{ .@"fn", .unique, .sum, .product, .ident, .@"{", .number, .unique }),
     };
 
     // Handle postfix operator (function calling)
