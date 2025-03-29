@@ -487,6 +487,12 @@ fn semantics_function(self: *@This(), function: Parser.Function) CompilerError!E
                     .parameters = untagged,
                     .@"return" = ptr,
                 } } };
+            } else if (untagged.items.len == 0) {
+                return .{ .function = .{
+                    .parameters = std.ArrayList(NamedExpr).init(self.allocator),
+                    .@"return" = ptr,
+                    .body = try self.semantics_block(function.body.?),
+                } };
             }
         },
         .tagged => |tagged| {
