@@ -37,10 +37,7 @@ pub const FieldTag = enum {
 
 pub const Field = union(FieldTag) {
     untagged: Expr,
-    tagged: struct {
-        name: tokenizer.Token,
-        value: Expr,
-    },
+    tagged: NamedExpr,
 
     pub fn format(
         self: @This(),
@@ -50,8 +47,22 @@ pub const Field = union(FieldTag) {
     ) !void {
         switch (self) {
             .untagged => |field| try writer.print("{}", .{field}),
-            .tagged => |field| try writer.print("{s}: {}", .{ field.name.value, field.value }),
+            .tagged => |field| try writer.print("{}", .{field}),
         }
+    }
+};
+
+pub const NamedExpr = struct {
+    name: tokenizer.Token,
+    value: Expr,
+
+    pub fn format(
+        self: @This(),
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try writer.print("{s}: {}", .{ self.name.value, self.value });
     }
 };
 

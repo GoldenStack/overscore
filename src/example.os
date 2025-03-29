@@ -9,6 +9,18 @@ var Person = product {
     age: Age,
 };
 
+person: 2,
+abc: 2,
+//person,
+//person: 2,
+
+const Y = product {};
+const Name = null;
+var Age = null;
+var u32 = product { sum {}, sum {} };
+pub const Array = 2;
+pub const u128 = 2;
+
 pub const Void = {
     const x = sum {};
     const y = sum {};
@@ -31,9 +43,9 @@ pub const X = (fn(a: u32, b: u32) u32 {
 pub const Four = X(2, 3);
 pub const FourAgain = ((((((((((((X))))))))))))(2, 3);
 
-const TripleGuardedSeven = fn() fn() fn() number {
-    return fn() fn() number {
-        return fn() number {
+const TripleGuardedSeven = fn() fn() fn() u32 {
+    return fn() fn() u32 {
+        return fn() u32 {
             return 7;
         };
     };
