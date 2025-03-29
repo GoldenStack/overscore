@@ -37,6 +37,7 @@ pub const Token = struct {
         @";",
         @":",
         @",",
+        @".",
 
         // Kewords
         @"pub",
@@ -127,6 +128,7 @@ pub const Tokenizer = struct {
             ';' => .@";",
             ':' => .@":",
             ',' => .@",",
+            '.' => .@".",
 
             // Less fast paths for multi-character non-alphabetic tokens
             '/' => {

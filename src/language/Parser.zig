@@ -111,6 +111,7 @@ pub const ExprTag = enum {
     number,
     parentheses,
     unique,
+    property,
 };
 
 pub const Expr = union(ExprTag) {
@@ -122,6 +123,7 @@ pub const Expr = union(ExprTag) {
     number: u128,
     parentheses: *Expr,
     unique: Unique,
+    property: Property,
 
     pub fn format(
         self: @This(),
@@ -138,7 +140,22 @@ pub const Expr = union(ExprTag) {
             .number => |number| try writer.print("{}", .{number}),
             .parentheses => |parens| try writer.print("({})", .{parens}),
             .unique => |unique| try writer.print("{}", .{unique}),
+            .property => |property| try writer.print("{}", .{property}),
         }
+    }
+};
+
+pub const Property = struct {
+    container: *Expr,
+    property: tokenizer.Token,
+
+    pub fn format(
+        self: @This(),
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try writer.print("{}.{s}", .{self.container.*, self.property});
     }
 };
 
@@ -385,8 +402,7 @@ pub fn read_expr(self: *@This()) ParsingError!Expr {
         .@"(" => .{ .parentheses = parens: {
             _ = self.next();
 
-            const boxed = try self.allocator.create(Expr);
-            boxed.* = try self.read_expr();
+            const boxed = try self.box(try self.read_expr());
 
             _ = try self.expect(.@")");
             break :parens boxed;
@@ -394,19 +410,35 @@ pub fn read_expr(self: *@This()) ParsingError!Expr {
         .unique => .{ .unique = .{ .value = unique: {
             _ = self.next();
 
-            const ptr = try self.allocator.create(Expr);
-            ptr.* = try self.read_expr();
-            break :unique ptr;
+            break :unique try self.box(try self.read_expr());
         } } },
         else => return self.fail_expected(&.{ .@"fn", .unique, .sum, .product, .ident, .@"{", .number, .unique }),
     };
 
-    // Handle postfix operator (function calling)
-    while (self.peek().tag == .@"(") {
-        expr = .{ .call = try self.read_parameters(expr) };
+    // Handle non-prefix operators
+    while (true) {
+        expr = switch (self.peek().tag) {
+            .@"(" => .{ .call = try self.read_parameters(expr) },
+            .@"." => .{ .property = try self.read_property(expr) },
+            else => return expr,
+        };
     }
+}
 
-    return expr;
+fn box(self: *@This(), expr: Expr) ParsingError!*Expr {
+    const ptr = try self.allocator.create(Expr);
+    ptr.* = expr;
+    return ptr;
+}
+
+pub fn read_property(self: *@This(), container: Expr) ParsingError!Property {
+    _ = try self.expect(.@".");
+    const property = try self.expect(.ident);
+
+    return .{
+        .container = try self.box(container),
+        .property = property,
+    };
 }
 
 pub fn read_parameters(self: *@This(), function: Expr) ParsingError!Call {
@@ -426,11 +458,8 @@ pub fn read_parameters(self: *@This(), function: Expr) ParsingError!Call {
 
     _ = try self.expect(.@")");
 
-    const boxed = try self.allocator.create(Expr);
-    boxed.* = function;
-
     return .{
-        .function = boxed,
+        .function = try self.box(function),
         .arguments = args,
     };
 }
@@ -453,8 +482,7 @@ pub fn read_function(self: *@This()) ParsingError!Function {
 
     _ = try self.expect(.@")");
 
-    const boxed = try self.allocator.create(Expr);
-    boxed.* = try self.read_expr();
+    const ret = try self.box(try self.read_expr());
 
     const body = if (self.peek().tag == .@"{")
         try self.read_block()
@@ -463,7 +491,7 @@ pub fn read_function(self: *@This()) ParsingError!Function {
 
     return .{
         .parameters = params,
-        .@"return" = boxed,
+        .@"return" = ret,
         .body = body,
     };
 }

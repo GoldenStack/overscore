@@ -26,6 +26,10 @@ pub const Void = {
     const y = sum {};
 };
 
+pub const BeepBeep = fn (x: Person) Age {
+    return x.age;
+};
+
 pub const empty = sum {};
 pub const unit = product {};
 

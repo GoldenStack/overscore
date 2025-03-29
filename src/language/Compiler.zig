@@ -210,6 +210,7 @@ pub const ExprTag = enum {
     block,
     number,
     type,
+    property,
 };
 
 pub const Expr = union(ExprTag) {
@@ -220,6 +221,7 @@ pub const Expr = union(ExprTag) {
     block: Block,
     number: u128,
     type: Type,
+    property: Property,
 
     pub fn format(
         self: @This(),
@@ -235,7 +237,22 @@ pub const Expr = union(ExprTag) {
             .block => |block| try writer.print("{}", .{block}),
             .number => |number| try writer.print("{}", .{number}),
             .type => |@"type"| try writer.print("{}", .{@"type"}),
+            .property => |property| try writer.print("{}", .{property}),
         }
+    }
+};
+
+pub const Property = struct {
+    container: *TypedExpr,
+    property: tokenizer.Token,
+
+    pub fn format(
+        self: @This(),
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try writer.print("{}.{s}", .{self.container.*, self.property});
     }
 };
 
@@ -468,17 +485,16 @@ fn semantics_expr(self: *@This(), expr: Parser.Expr) CompilerError!Expr {
         .block => |block| .{ .block = try self.semantics_block(block) },
         .number => |number| .{ .number = number },
         .parentheses => |parens| try self.semantics_expr(parens.*),
-        .unique => |unique| .{ .type = .{ .unique = unique: {
-            const ptr = try self.allocator.create(TypedExpr);
-            ptr.* = try self.enforce_has_type(unique.value.*, .type);
-            break :unique ptr;
-        }  } }
+        .unique => |unique| .{ .type = .{ .unique = try self.box(TypedExpr, try self.enforce_has_type(unique.value.*, .type)) } },
+        .property => |property| .{ .property = .{
+            .container = try self.box(TypedExpr, try self.enforce_has_type(property.container.*, null)),
+            .property = property.property,
+        } },
     };
 }
 
 fn semantics_call(self: *@This(), call: Parser.Call) CompilerError!Call {
-    const ptr = try self.allocator.create(TypedExpr);
-    ptr.* = try self.enforce_has_type(call.function.*, null);
+    const ptr = try self.box(TypedExpr, try self.enforce_has_type(call.function.*, null));
 
     var args = std.ArrayList(TypedExpr).init(self.allocator);
     for (call.arguments.items) |arg| {
@@ -493,22 +509,19 @@ fn semantics_call(self: *@This(), call: Parser.Call) CompilerError!Call {
 
 fn semantics_function(self: *@This(), function: Parser.Function) CompilerError!Expr {
     const fields = try self.homogenize_fields(function.parameters);
-    const ret = try self.enforce_has_type(function.@"return".*, .type);
-
-    const ptr = try self.allocator.create(TypedExpr);
-    ptr.* = ret;
+    const ret = try self.box(TypedExpr, try self.enforce_has_type(function.@"return".*, .type));
 
     switch (fields) {
         .untagged => |untagged| {
             if (function.body == null) {
                 return .{ .type = .{ .function = .{
                     .parameters = untagged,
-                    .@"return" = ptr,
+                    .@"return" = ret,
                 } } };                
             } else if (untagged.items.len == 0) {
                 return .{ .function = .{
                     .parameters = std.ArrayList(NamedExpr).init(self.allocator),
-                    .@"return" = ptr,
+                    .@"return" = ret,
                     .body = try self.semantics_block(function.body.?),
                 } };
             }
@@ -517,7 +530,7 @@ fn semantics_function(self: *@This(), function: Parser.Function) CompilerError!E
             if (function.body) |body| {
                 return .{ .function = .{
                     .parameters = tagged,
-                    .@"return" = ptr,
+                    .@"return" = ret,
                     .body = try self.semantics_block(body),
                 } };
             }
@@ -563,7 +576,7 @@ fn name_add(self: *@This(), name: tokenizer.Token) CompilerError!*Decl {
             .redeclared = name,
         } });
     } else {
-        const ptr = try self.allocator.create(Decl);
+        const ptr = try self.box(Decl, undefined);
 
         const index = self.namespace.items.len;
         try self.names.put(name, index);
@@ -571,6 +584,12 @@ fn name_add(self: *@This(), name: tokenizer.Token) CompilerError!*Decl {
 
         return ptr;
     }
+}
+
+fn box(self: *@This(), comptime T: type, value: T) CompilerError!*T {
+    const ptr = try self.allocator.create(T);
+    ptr.* = value;
+    return ptr;
 }
 
 fn homogenize_fields(self: *@This(), fields: std.ArrayList(Parser.Field)) CompilerError!Fields {
