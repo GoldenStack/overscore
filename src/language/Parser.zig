@@ -27,12 +27,12 @@ pub const ContainerVariant = enum {
     product,
 };
 
-pub const FieldTag = enum {
+pub const TaggedStatus = enum {
     untagged,
     tagged,
 };
 
-pub const Field = union(FieldTag) {
+pub const Field = union(TaggedStatus) {
     untagged: Expr,
     tagged: NamedExpr,
 

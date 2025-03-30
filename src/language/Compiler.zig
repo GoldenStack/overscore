@@ -115,12 +115,7 @@ pub const Container = struct {
     }
 };
 
-pub const FieldsTag = enum {
-    untagged,
-    tagged,
-};
-
-pub const Fields = union(FieldsTag) {
+pub const Fields = union(Parser.TaggedStatus) {
     untagged: std.ArrayList(TypedExpr),
     tagged: std.ArrayList(NamedExpr),
 
@@ -252,7 +247,7 @@ pub const Property = struct {
         _: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        try writer.print("{}.{s}", .{self.container.*, self.property});
+        try writer.print("{}.{s}", .{ self.container.*, self.property.value });
     }
 };
 
@@ -338,7 +333,7 @@ pub const Error = enum {
     unknown_identifier,
     expected_homogenous_fields,
     duplicate_tag,
-    mismatched_function_declaration,
+    expected_different_tagged_status,
 };
 
 /// The context for errors that occur while compiling.
@@ -353,9 +348,9 @@ pub const ErrorContext = union(Error) {
         tagged_example: Parser.NamedExpr,
     },
     duplicate_tag: struct { tokenizer.Token, tokenizer.Token },
-    mismatched_function_declaration: struct {
-        fields: Fields,
-        body: ?Parser.Block,
+    expected_different_tagged_status: struct {
+        expected: Parser.TaggedStatus,
+        counterexample: Parser.Field,
     },
 
     pub fn format(
@@ -374,18 +369,16 @@ pub const ErrorContext = union(Error) {
                 // TODO: Pretty error message API
                 // TODO: Point to parent as well (struct/container/function)
                 _ = fields;
-                try writer.print("Expected entirely tagged or untagged values, but found a mix of both", .{});
+                try writer.writeAll("Expected entirely tagged or untagged values, but found a mix of both");
             },
             .duplicate_tag => |dup| {
                 // TODO: Point to parent as well (struct/container/function)
                 try writer.print("Duplicate tag {s}, defined at both {} and {}", .{ dup[0].value, dup[0].start, dup[1].start });
             },
-            .mismatched_function_declaration => |mis| {
-                // TODO: Improve error message with error message rework
-                if (mis.body) |_| {
-                    try writer.print("Function type expression does not have a body", .{});
-                } else {
-                    try writer.print("Expected body for function declaration", .{});
+            .expected_different_tagged_status => |status| {
+                switch (status.expected) {
+                    .untagged => try writer.writeAll("Expected untagged field but found tagged one(s)"),
+                    .tagged => try writer.writeAll("Expected tagged fields but found untagged one(s)"),
                 }
             },
         }
@@ -462,10 +455,9 @@ fn semantics_container(self: *@This(), container: Parser.Container) CompilerErro
         try decls.append(value);
     }
 
-    const fields = try self.homogenize_fields(container.fields);
+    const fields = try self.homogenize_fields(container.fields, null, .untagged);
 
     for (container.decls.items) |decl| _ = self.names.remove(decl.decl.name);
-    _ = &decls;
 
     return .{
         .variant = container.variant,
@@ -508,39 +500,39 @@ fn semantics_call(self: *@This(), call: Parser.Call) CompilerError!Call {
 }
 
 fn semantics_function(self: *@This(), function: Parser.Function) CompilerError!Expr {
-    const fields = try self.homogenize_fields(function.parameters);
-    const ret = try self.box(TypedExpr, try self.enforce_has_type(function.@"return".*, .type));
+    if (function.body) |body| { // This is a function declaration
+        // 1. Dump names into namespace without evaluating
+        for (function.parameters.items) |item| {
+            if (item == .tagged) {
+                // TODO: This induces name errors before correct tagged errors.
+                _ = try self.name_add(item.tagged.name);
+            }
+        }
 
-    switch (fields) {
-        .untagged => |untagged| {
-            if (function.body == null) {
-                return .{ .type = .{ .function = .{
-                    .parameters = untagged,
-                    .@"return" = ret,
-                } } };                
-            } else if (untagged.items.len == 0) {
-                return .{ .function = .{
-                    .parameters = std.ArrayList(NamedExpr).init(self.allocator),
-                    .@"return" = ret,
-                    .body = try self.semantics_block(function.body.?),
-                } };
-            }
-        },
-        .tagged => |tagged| {
-            if (function.body) |body| {
-                return .{ .function = .{
-                    .parameters = tagged,
-                    .@"return" = ret,
-                    .body = try self.semantics_block(body),
-                } };
-            }
-        },
+        // 2. Evaluate names and return value
+        const params = try self.enforce_tagged_fields(function.parameters);
+        const ret = try self.box(TypedExpr, try self.enforce_has_type(function.@"return".*, .type));
+
+        // 3. Evaluate function body
+        const block = try self.semantics_block(body);
+
+        // 4. Clean up parameters in namespace
+        for (params.items) |param| _ = self.names.remove(param.name);
+
+        // 5. Return values
+        return .{ .function = .{
+            .parameters = params,
+            .@"return" = ret,
+            .body = block,
+        } };
+    } else { // This is a function type
+        const fields = try self.enforce_untagged_fields(function.parameters);
+
+        return .{ .type = .{ .function = .{
+            .parameters = fields,
+            .@"return" = try self.box(TypedExpr, try self.enforce_has_type(function.@"return".*, .type)),
+        } } };
     }
-
-    return self.fail(.{ .mismatched_function_declaration = .{
-        .fields = fields,
-        .body = function.body,
-    } });
 }
 
 fn semantics_block(self: *@This(), block: Parser.Block) CompilerError!Block {
@@ -549,7 +541,7 @@ fn semantics_block(self: *@This(), block: Parser.Block) CompilerError!Block {
     for (block.stmts.items) |stmt| {
         switch (stmt) {
             .decl => |decl| {
-                const ptr = try self.name_add(decl.name);
+                _, const ptr = try self.name_add(decl.name);
                 ptr.* = .{
                     .mutability = decl.mutability,
                     .name = decl.name,
@@ -569,7 +561,7 @@ fn semantics_block(self: *@This(), block: Parser.Block) CompilerError!Block {
     return .{ .stmts = stmts };
 }
 
-fn name_add(self: *@This(), name: tokenizer.Token) CompilerError!*Decl {
+fn name_add(self: *@This(), name: tokenizer.Token) CompilerError!struct { usize, *Decl } {
     if (self.names.getEntry(name)) |entry| {
         return self.fail(.{ .redeclared_identifier = .{
             .declared = entry.key_ptr.*,
@@ -582,7 +574,7 @@ fn name_add(self: *@This(), name: tokenizer.Token) CompilerError!*Decl {
         try self.names.put(name, index);
         try self.namespace.append(ptr);
 
-        return ptr;
+        return .{ index, ptr };
     }
 }
 
@@ -592,10 +584,15 @@ fn box(self: *@This(), comptime T: type, value: T) CompilerError!*T {
     return ptr;
 }
 
-fn homogenize_fields(self: *@This(), fields: std.ArrayList(Parser.Field)) CompilerError!Fields {
-    if (fields.items.len == 0) return .{ .untagged = std.ArrayList(TypedExpr).init(self.allocator) };
+fn homogenize_fields(self: *@This(), fields: std.ArrayList(Parser.Field), expected: ?Parser.TaggedStatus, default: Parser.TaggedStatus) CompilerError!Fields {
+    if (fields.items.len == 0) {
+        return switch (expected orelse default) {
+            .untagged => .{ .untagged = std.ArrayList(TypedExpr).init(self.allocator) },
+            .tagged => .{ .tagged = std.ArrayList(NamedExpr).init(self.allocator) },
+        };
+    }
 
-    return switch (fields.items[0]) {
+    return switch (expected orelse @as(Parser.TaggedStatus, fields.items[0])) {
         .untagged => .{ .untagged = try self.enforce_untagged_fields(fields) },
         .tagged => .{ .tagged = try self.enforce_tagged_fields(fields) },
     };
@@ -604,6 +601,13 @@ fn homogenize_fields(self: *@This(), fields: std.ArrayList(Parser.Field)) Compil
 /// Expects at least one item in `fields` and that the first item is untagged.
 fn enforce_untagged_fields(self: *@This(), fields: std.ArrayList(Parser.Field)) CompilerError!std.ArrayList(TypedExpr) {
     var list = std.ArrayList(TypedExpr).init(self.allocator);
+
+    if (fields.items.len > 0 and fields.items[0] != .untagged) {
+        return self.fail(.{ .expected_different_tagged_status = .{
+            .expected = .untagged,
+            .counterexample = fields.items[0],
+        } });
+    }
 
     for (fields.items) |item| {
         switch (item) {
@@ -621,6 +625,13 @@ fn enforce_untagged_fields(self: *@This(), fields: std.ArrayList(Parser.Field)) 
 /// Expects at least one item in `fields` and that the first item is tagged.
 fn enforce_tagged_fields(self: *@This(), fields: std.ArrayList(Parser.Field)) CompilerError!std.ArrayList(NamedExpr) {
     var list = std.ArrayList(NamedExpr).init(self.allocator);
+
+    if (fields.items.len > 0 and fields.items[0] != .tagged) {
+        return self.fail(.{ .expected_different_tagged_status = .{
+            .expected = .tagged,
+            .counterexample = fields.items[0],
+        } });
+    }
 
     for (fields.items) |item| {
         switch (item) {
