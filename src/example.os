@@ -30,6 +30,10 @@ pub const BeepBeep = fn (x: Person) Age {
     return x.age;
 };
 
+pub const recursive = fn () sum {} {
+    return recursive();
+};
+
 pub const empty = sum {};
 pub const unit = product {};
 
