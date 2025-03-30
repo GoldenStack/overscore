@@ -32,7 +32,7 @@ pub const Type = union(TypeTag) {
         @"return": *TypedExpr,
     },
 
-    /// A container. See docs for `Container` for more specifics. 
+    /// A container. See docs for `Container` for more specifics.
     container: Container,
 
     /// A unique wrapper around a type.
@@ -75,22 +75,21 @@ pub const Type = union(TypeTag) {
             .type => try writer.writeAll("type"),
         }
     }
-    
 };
 
 /// Containers can take four main types:
-/// 
+///
 /// - The product of multiple types, equivalent to a tuple. For example,
 ///   `const Pos = product { u32, u32 }`
-/// 
+///
 /// - The product of multiple types, including a tag for each type. This is
 ///   equivalent to a struct. For example, `const Pos = product { x: u32, y: u32
 ///   }`
-/// 
+///
 /// - The sum of multiple types. This is equivalent to a union, as there is, in
 ///   memory, always overlap between multiple types as they're always
 ///   represented as bits. For example, `const Ip = sum { u32, [4]u8 }`.
-/// 
+///
 /// - The sum of multiple types, including a tag for each type. This is
 ///   equivalent to a tagged union. For example, `const Ip = sum { v4: u32, v6:
 ///   u128 }`
@@ -143,7 +142,7 @@ pub const Fields = union(Parser.TaggedStatus) {
 pub const NamedExpr = struct {
     name: tokenizer.Token,
     value: TypedExpr,
-    
+
     pub fn format(
         self: @This(),
         comptime _: []const u8,
@@ -551,7 +550,7 @@ fn semantics_block(self: *@This(), block: Parser.Block) CompilerError!Block {
                 try stmts.append(.{ .decl = ptr.* });
             },
             .@"return" => |ret| try stmts.append(.{ .@"return" = try self.enforce_has_type(ret, null) }),
-        }        
+        }
     }
 
     for (block.stmts.items) |stmt| if (stmt == .decl) {

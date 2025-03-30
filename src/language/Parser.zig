@@ -12,7 +12,7 @@ pub const Container = struct {
         _: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        try writer.print("{s} {{ ", .{ @tagName(self.variant) });
+        try writer.print("{s} {{ ", .{@tagName(self.variant)});
 
         for (self.fields.items) |field| try writer.print("{}, ", .{field});
 
@@ -155,7 +155,7 @@ pub const Property = struct {
         _: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        try writer.print("{}.{s}", .{self.container.*, self.property});
+        try writer.print("{}.{s}", .{ self.container.*, self.property });
     }
 };
 
