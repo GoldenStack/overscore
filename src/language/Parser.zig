@@ -108,7 +108,7 @@ pub const Expr = union(enum) {
     container: Container,
     ident: tokenizer.Token,
     block: Block,
-    number: u128,
+    number: u32,
     parentheses: *Expr,
     unique: Unique,
     property: Property,
@@ -537,10 +537,10 @@ pub fn read_statement(self: *@This()) ParsingError!Stmt {
     };
 }
 
-pub fn read_number(self: *@This()) ParsingError!u128 {
+pub fn read_number(self: *@This()) ParsingError!u32 {
     const token = try self.expect(.number);
 
-    return std.fmt.parseUnsigned(u128, token.value, 10) catch self.fail(.{ .number_too_large = token.value });
+    return std.fmt.parseUnsigned(u32, token.value, 10) catch self.fail(.{ .number_too_large = token.value });
 }
 
 fn read_iterated_until(self: *@This(), comptime maybe_sep: ?tokenizer.Token.Tag, end: tokenizer.Token.Tag, context: anytype, reader: fn (*@This(), @TypeOf(context)) ParsingError!void) !void {

@@ -36,6 +36,11 @@ pub const Type = union(enum) {
     /// coercible to the type `unique struct { u32 }`).
     unique: *TypedExpr,
 
+    /// An integer type. For now, integers are always unsigned 32-bit integers,
+    /// but in the future they will ideally be ranged, similar to the proposal
+    /// for Zig.
+    integer,
+
     /// A type.
     ///
     /// When the value of an expression is a type, the type of the expression is
@@ -62,6 +67,7 @@ pub const Type = union(enum) {
             },
             .container => |container| try writer.print("{}", .{container}),
             .unique => |unique| try writer.print("unique {}", .{unique.*}),
+            .integer => try writer.writeAll("integer"),
             .type => try writer.writeAll("type"),
         }
     }
@@ -192,7 +198,7 @@ pub const Expr = union(enum) {
     container: Container,
     ident: usize,
     block: Block,
-    number: u128,
+    number: u32,
     type: Type,
     property: Property,
 
