@@ -2,18 +2,8 @@ const std = @import("std");
 const Parser = @import("Parser.zig");
 const tokenizer = @import("tokenizer.zig");
 
-/// The tag for types.
-pub const TypeTag = enum {
-    empty,
-    unit,
-    function,
-    container,
-    unique,
-    type,
-};
-
 /// Possible fully-evaluated type expressions.
-pub const Type = union(TypeTag) {
+pub const Type = union(enum) {
     /// The empty type. This has no inhabitants, and is thus equivalent to the
     /// concept of `noreturn`. This is equivalent to `sum {}`.
     empty,
@@ -196,18 +186,7 @@ pub const TypedExpr = struct {
     }
 };
 
-pub const ExprTag = enum {
-    function,
-    call,
-    container,
-    ident,
-    block,
-    number,
-    type,
-    property,
-};
-
-pub const Expr = union(ExprTag) {
+pub const Expr = union(enum) {
     function: Function,
     call: Call,
     container: Container,
@@ -304,12 +283,7 @@ pub const Block = struct {
     }
 };
 
-pub const StmtTag = enum {
-    decl,
-    @"return",
-};
-
-pub const Stmt = union(StmtTag) {
+pub const Stmt = union(enum) {
     decl: Decl,
     @"return": TypedExpr,
 
@@ -326,17 +300,8 @@ pub const Stmt = union(StmtTag) {
     }
 };
 
-/// Every possible error that can occur when compiling.
-pub const Error = enum {
-    redeclared_identifier,
-    unknown_identifier,
-    expected_homogenous_fields,
-    duplicate_tag,
-    expected_different_tagged_status,
-};
-
 /// The context for errors that occur while compiling.
-pub const ErrorContext = union(Error) {
+pub const ErrorContext = union(enum) {
     redeclared_identifier: struct {
         declared: tokenizer.Token,
         redeclared: tokenizer.Token,

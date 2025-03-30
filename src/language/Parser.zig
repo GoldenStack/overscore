@@ -102,19 +102,7 @@ pub const Mutability = enum {
     variable,
 };
 
-pub const ExprTag = enum {
-    function,
-    call,
-    container,
-    ident,
-    block,
-    number,
-    parentheses,
-    unique,
-    property,
-};
-
-pub const Expr = union(ExprTag) {
+pub const Expr = union(enum) {
     function: Function,
     call: Call,
     container: Container,
@@ -228,12 +216,7 @@ pub const Block = struct {
     }
 };
 
-pub const StmtTag = enum {
-    decl,
-    @"return",
-};
-
-pub const Stmt = union(StmtTag) {
+pub const Stmt = union(enum) {
     decl: Decl,
     @"return": Expr,
 
@@ -250,14 +233,8 @@ pub const Stmt = union(StmtTag) {
     }
 };
 
-/// Every possible error that can occur while parsing.
-pub const Error = enum {
-    expected_tag,
-    number_too_large,
-};
-
 /// The context for an error that can occur while parsing.
-pub const ErrorContext = union(Error) {
+pub const ErrorContext = union(enum) {
     expected_tag: struct {
         expected: []const tokenizer.Token.Tag,
         found: tokenizer.Token.Tag,
