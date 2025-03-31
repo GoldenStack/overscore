@@ -166,7 +166,7 @@ pub const ContainerDecl = struct {
 pub const Decl = struct {
     mutability: Parser.Mutability,
     name: tokenizer.Token,
-    value: Expr,
+    value: TypedExpr,
 
     pub fn format(
         self: @This(),
@@ -179,7 +179,7 @@ pub const Decl = struct {
 };
 
 pub const TypedExpr = struct {
-    type: ?Type,
+    type: ?Type = null,
     value: Expr,
 
     pub fn format(
@@ -436,31 +436,57 @@ fn semantics_container(self: *@This(), container: Parser.Container) CompilerErro
     };
 }
 
-fn semantics_expr(self: *@This(), expr: Parser.Expr) CompilerError!Expr {
+fn semantics_expr_ptr(self: *@This(), expr: *Parser.Expr) CompilerError!*TypedExpr {
+    const ptr = try self.allocator.create(TypedExpr);
+    ptr.* = try self.semantics_expr(expr.*);
+    return ptr;
+}
+
+fn semantics_expr(self: *@This(), expr: Parser.Expr) CompilerError!TypedExpr {
     return switch (expr) {
-        .function => |function| try self.semantics_function(function),
-        .call => |call| .{ .call = try self.semantics_call(call) },
-        .container => |container| .{ .container = try self.semantics_container(container) },
-        .ident => |ident| .{ .ident = self.names.get(ident) orelse return self.fail(.{
+        .function => |function| {
+            if (function.body == null) {
+                return .{
+                    .type = .type,
+                    .value = .{ .type = try self.semantics_function_type(function) },
+                };
+            } else {
+                return .{ .value = .{ .function = try self.semantics_function_declaration(function) } };
+            }
+        },
+        .call => |call| .{ .value = .{ .call = try self.semantics_call(call) } },
+        .container => |container| .{
+            .type = .type,
+            .value = .{ .container = try self.semantics_container(container) },
+        },
+        .ident => |ident| .{ .value = .{ .ident = self.names.get(ident) orelse return self.fail(.{
             .unknown_identifier = ident,
-        }) },
-        .block => |block| .{ .block = try self.semantics_block(block) },
-        .number => |number| .{ .number = number },
+        }) } },
+        .block => |block| .{ .value = .{ .block = try self.semantics_block(block) } },
+        .number => |number| .{
+            .type = .integer,
+            .value = .{ .number = number },
+        },
         .parentheses => |parens| try self.semantics_expr(parens.*),
-        .unique => |unique| .{ .type = .{ .unique = try self.box(TypedExpr, try self.enforce_has_type(unique.value.*, .type)) } },
-        .property => |property| .{ .property = .{
-            .container = try self.box(TypedExpr, try self.enforce_has_type(property.container.*, null)),
+        .unique => |unique| .{
+            .type = .type,
+            .value = .{ .type = .{
+                .unique = try self.semantics_expr_ptr(unique.value),
+            } },
+        },
+        .property => |property| .{ .value = .{ .property = .{
+            .container = try self.semantics_expr_ptr(property.container),
             .property = property.property,
-        } },
+        } } },
     };
 }
 
 fn semantics_call(self: *@This(), call: Parser.Call) CompilerError!Call {
-    const ptr = try self.box(TypedExpr, try self.enforce_has_type(call.function.*, null));
+    const ptr = try self.semantics_expr_ptr(call.function);
 
     var args = std.ArrayList(TypedExpr).init(self.allocator);
     for (call.arguments.items) |arg| {
-        try args.append(try self.enforce_has_type(arg, null));
+        try args.append(try self.semantics_expr(arg));
     }
 
     return .{
@@ -469,40 +495,44 @@ fn semantics_call(self: *@This(), call: Parser.Call) CompilerError!Call {
     };
 }
 
-fn semantics_function(self: *@This(), function: Parser.Function) CompilerError!Expr {
-    if (function.body) |body| { // This is a function declaration
-        // 1. Dump names into namespace without evaluating
-        for (function.parameters.items) |item| {
-            if (item == .tagged) {
-                // TODO: This induces name errors before correct tagged errors.
-                _ = try self.name_add(item.tagged.name);
-            }
+/// Assumes the function has a body
+fn semantics_function_declaration(self: *@This(), function: Parser.Function) CompilerError!Function {
+    // 1. Dump names into namespace without evaluating
+    for (function.parameters.items) |item| {
+        if (item == .tagged) {
+            // TODO: This induces name errors before correct tagged errors.
+            _ = try self.name_add(item.tagged.name);
         }
-
-        // 2. Evaluate names and return value
-        const params = try self.enforce_tagged_fields(function.parameters);
-        const ret = try self.box(TypedExpr, try self.enforce_has_type(function.@"return".*, .type));
-
-        // 3. Evaluate function body
-        const block = try self.semantics_block(body);
-
-        // 4. Clean up parameters in namespace
-        for (params.items) |param| _ = self.names.remove(param.name);
-
-        // 5. Return values
-        return .{ .function = .{
-            .parameters = params,
-            .@"return" = ret,
-            .body = block,
-        } };
-    } else { // This is a function type
-        const fields = try self.enforce_untagged_fields(function.parameters);
-
-        return .{ .type = .{ .function = .{
-            .parameters = fields,
-            .@"return" = try self.box(TypedExpr, try self.enforce_has_type(function.@"return".*, .type)),
-        } } };
     }
+
+    // 2. Evaluate names and return value
+    const params = try self.enforce_tagged_fields(function.parameters);
+    const ret = try self.semantics_expr_ptr(function.@"return");
+
+    // 3. Evaluate function body
+    const body = try self.semantics_block(function.body.?);
+
+    // 4. Clean up parameters in namespace
+    for (params.items) |param| _ = self.names.remove(param.name);
+
+    // 5. Return values
+    return .{
+        .parameters = params,
+        .@"return" = ret,
+        .body = body,
+    };
+}
+
+/// Assumes the function does not have a body
+fn semantics_function_type(self: *@This(), function: Parser.Function) CompilerError!Type {
+    const fields = try self.enforce_untagged_fields(function.parameters);
+
+    return .{
+        .function = .{
+            .parameters = fields,
+            .@"return" = try self.semantics_expr_ptr(function.@"return"),
+        },
+    };
 }
 
 fn semantics_block(self: *@This(), block: Parser.Block) CompilerError!Block {
@@ -520,7 +550,9 @@ fn semantics_block(self: *@This(), block: Parser.Block) CompilerError!Block {
 
                 try stmts.append(.{ .decl = ptr.* });
             },
-            .@"return" => |ret| try stmts.append(.{ .@"return" = try self.enforce_has_type(ret, null) }),
+            .@"return" => |ret| try stmts.append(.{
+                .@"return" = try self.semantics_expr(ret),
+            }),
         }
     }
 
@@ -538,7 +570,7 @@ fn name_add(self: *@This(), name: tokenizer.Token) CompilerError!struct { usize,
             .redeclared = name,
         } });
     } else {
-        const ptr = try self.box(Decl, undefined);
+        const ptr = try self.allocator.create(Decl);
 
         const index = self.namespace.items.len;
         try self.names.put(name, index);
@@ -546,12 +578,6 @@ fn name_add(self: *@This(), name: tokenizer.Token) CompilerError!struct { usize,
 
         return .{ index, ptr };
     }
-}
-
-fn box(self: *@This(), comptime T: type, value: T) CompilerError!*T {
-    const ptr = try self.allocator.create(T);
-    ptr.* = value;
-    return ptr;
 }
 
 fn homogenize_fields(self: *@This(), fields: std.ArrayList(Parser.Field), expected: ?Parser.TaggedStatus, default: Parser.TaggedStatus) CompilerError!Fields {
@@ -581,7 +607,7 @@ fn enforce_untagged_fields(self: *@This(), fields: std.ArrayList(Parser.Field)) 
 
     for (fields.items) |item| {
         switch (item) {
-            .untagged => |untagged| try list.append(try self.enforce_has_type(untagged, .type)),
+            .untagged => |untagged| try list.append(try self.semantics_expr(untagged)),
             .tagged => |tagged| return self.fail(.{ .expected_homogenous_fields = .{
                 .untagged_example = fields.items[0].untagged,
                 .tagged_example = tagged,
@@ -621,18 +647,11 @@ fn enforce_tagged_fields(self: *@This(), fields: std.ArrayList(Parser.Field)) Co
 
                 try list.append(.{
                     .name = tagged.name,
-                    .value = try self.enforce_has_type(tagged.value, .type),
+                    .value = try self.semantics_expr(tagged.value),
                 });
             },
         }
     }
 
     return list;
-}
-
-fn enforce_has_type(self: *@This(), expr: Parser.Expr, @"type": ?Type) CompilerError!TypedExpr {
-    return .{
-        .type = @"type",
-        .value = try self.semantics_expr(expr),
-    };
 }
