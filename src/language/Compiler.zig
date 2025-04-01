@@ -51,27 +51,6 @@ pub const Type = union(enum) {
     /// Russell's paradox, likely the only point of unsoundness, but I don't
     /// really care.
     type,
-
-    pub fn format(
-        self: @This(),
-        comptime _: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        switch (self) {
-            .empty => try writer.writeAll("empty"),
-            .unit => try writer.writeAll("unit"),
-            .function => |function| {
-                try writer.writeAll("fn (");
-                for (function.parameters.items) |param| try writer.print("{}, ", .{param});
-                try writer.print(") {}", .{function.@"return"});
-            },
-            .container => |container| try writer.print("{}", .{container}),
-            .unique => |unique| try writer.print("unique {}", .{unique}),
-            .integer => try writer.writeAll("integer"),
-            .type => try writer.writeAll("type"),
-        }
-    }
 };
 
 /// Containers can take four main types:
@@ -94,89 +73,27 @@ pub const Container = struct {
     variant: Parser.ContainerVariant,
     fields: Fields,
     decls: std.ArrayList(Ranged(ContainerDecl)),
-
-    pub fn format(
-        self: @This(),
-        comptime _: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        try writer.print("{s} {{ ", .{@tagName(self.variant)});
-
-        try writer.print("{}", .{self.fields});
-
-        for (self.decls.items) |decl| try writer.print("{} ", .{decl});
-
-        try writer.writeAll("}");
-    }
 };
 
 pub const Fields = union(Parser.TaggedStatus) {
     untagged: std.ArrayList(Ranged(Expr)),
     tagged: std.ArrayList(Ranged(NamedExpr)),
-
-    pub fn format(
-        self: @This(),
-        comptime _: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        switch (self) {
-            .untagged => |fields| {
-                for (fields.items) |field| {
-                    try writer.print("{}, ", .{field});
-                }
-            },
-            .tagged => |fields| {
-                for (fields.items) |field| {
-                    try writer.print("{}, ", .{field});
-                }
-            },
-        }
-    }
 };
 
 pub const NamedExpr = struct {
     name: Ranged(Token),
     value: Ranged(Expr),
-
-    pub fn format(
-        self: @This(),
-        comptime _: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        try writer.print("{s}: {}", .{ self.name.value, self.value });
-    }
 };
 
 pub const ContainerDecl = struct {
     access: Parser.Access,
     decl: Ranged(Decl),
-
-    pub fn format(
-        self: @This(),
-        comptime _: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        try writer.print("{s} {}", .{ @tagName(self.access), self.decl });
-    }
 };
 
 pub const Decl = struct {
     mutability: Parser.Mutability,
     name: Ranged(Token),
     value: Ranged(Expr),
-
-    pub fn format(
-        self: @This(),
-        comptime _: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        try writer.print("{s} {s} = {};", .{ @tagName(self.mutability), self.name.value, self.value });
-    }
 };
 
 pub const Expr = union(enum) {
@@ -198,66 +115,15 @@ pub const Expr = union(enum) {
         container: Ranged(*Expr),
         property: Ranged(Token),
     },
-
-    pub fn format(
-        self: @This(),
-        comptime _: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        switch (self) {
-            .function => |function| {
-                try writer.writeAll("fn (");
-                for (function.parameters.items) |param| try writer.print("{}, ", .{param});
-                try writer.print(") {} {}", .{ function.@"return", function.body });
-            },
-            .call => |call| {
-                try writer.print("{}(", .{call.function});
-                for (call.arguments.items) |argument| try writer.print("{}, ", .{argument});
-                try writer.writeAll(")");
-            },
-            .container => |container| try writer.print("{}", .{container}),
-            .ident => |index| try writer.print("[{}]", .{index}),
-            .block => |block| try writer.print("{}", .{block}),
-            .number => |number| try writer.print("{}", .{number}),
-            .type => |@"type"| try writer.print("{}", .{@"type"}),
-            .property => |property| try writer.print("{}.{s}", .{ property.container, property.property.value }),
-        }
-    }
 };
 
 pub const Block = struct {
     stmts: std.ArrayList(Ranged(Stmt)),
-
-    pub fn format(
-        self: @This(),
-        comptime _: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        try writer.writeAll("{ ");
-
-        for (self.stmts.items) |stmt| try writer.print("{} ", .{stmt});
-
-        try writer.writeAll("}");
-    }
 };
 
 pub const Stmt = union(enum) {
     decl: Ranged(Decl),
     @"return": Ranged(Expr),
-
-    pub fn format(
-        self: @This(),
-        comptime _: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        switch (self) {
-            .decl => |decl| try writer.print("{}", .{decl}),
-            .@"return" => |ret| try writer.print("return {};", .{ret}),
-        }
-    }
 };
 
 /// The error set of errors that can occur while compiling.
@@ -552,4 +418,130 @@ fn enforce_tagged_fields(self: *@This(), fields: std.ArrayList(Ranged(Parser.Fie
     }
 
     return list;
+}
+
+pub fn print_container(src: []const u8, container: Container, writer: anytype) anyerror!void {
+    try writer.print("{s} {{ ", .{@tagName(container.variant)});
+
+    try print_fields(src, container.fields, writer);
+
+    for (container.decls.items) |decl| {
+        try print_container_decl(src, decl.value, writer);
+        try writer.writeAll(" ");
+    }
+
+    try writer.writeAll("}");
+}
+
+fn print_container_decl(src: []const u8, decl: ContainerDecl, writer: anytype) anyerror!void {
+    try writer.print("{s} ", .{@tagName(decl.access)});
+    try print_decl(src, decl.decl.value, writer);
+}
+
+fn print_decl(src: []const u8, decl: Decl, writer: anytype) anyerror!void {
+    try writer.print("{s} {s} = ", .{ @tagName(decl.mutability), decl.name.range.substr(src) });
+    try print_expr(src, decl.value.value, writer);
+    try writer.writeAll(";");
+}
+
+fn print_fields(src: []const u8, fields: Fields, writer: anytype) anyerror!void {
+    switch (fields) {
+        .untagged => |untagged| {
+            for (untagged.items) |field| {
+                try print_expr(src, field.value, writer);
+                try writer.writeAll(", ");
+            }
+        },
+        .tagged => |tagged| {
+            for (tagged.items) |field| {
+                try print_named_expr(src, field.value, writer);
+                try writer.writeAll(", ");
+            }
+        },
+    }
+}
+
+fn print_named_expr(src: []const u8, named: NamedExpr, writer: anytype) anyerror!void {
+    try writer.print("{s}: ", .{named.name.range.substr(src)});
+    try print_expr(src, named.value.value, writer);
+}
+
+fn print_expr(src: []const u8, expr: Expr, writer: anytype) anyerror!void {
+    switch (expr) {
+        .function => |function| {
+            try writer.writeAll("fn (");
+            for (function.parameters.items) |param| {
+                try print_named_expr(src, param.value, writer);
+                try writer.writeAll(", ");
+            }
+            try writer.writeAll(") ");
+            try print_expr(src, function.@"return".value.*, writer);
+            try writer.writeAll(" ");
+            try print_block(src, function.body.value, writer);
+        },
+        .call => |call| {
+            try print_expr(src, call.function.value.*, writer);
+            try writer.writeAll("(");
+            for (call.arguments.items) |argument| {
+                try print_expr(src, argument.value, writer);
+                try writer.writeAll(", ");
+            }
+            try writer.writeAll(")");
+        },
+        .container => |container| try print_container(src, container.value, writer),
+        .ident => |index| try writer.print("[{}]", .{index}),
+        .block => |block| try print_block(src, block.value, writer),
+        .number => |number| try writer.print("{}", .{number}),
+        .type => |@"type"| try print_type(src, @"type", writer),
+        .property => |property| {
+            try print_expr(src, property.container.value.*, writer);
+            try writer.writeAll(".");
+            try writer.writeAll(property.property.range.substr(src));
+        },
+    }
+}
+
+fn print_type(src: []const u8, @"type": Type, writer: anytype) anyerror!void {
+    switch (@"type") {
+        .empty => try writer.writeAll("empty"),
+        .unit => try writer.writeAll("unit"),
+        .function => |function| {
+            try writer.writeAll("fn (");
+            for (function.parameters.items) |param| {
+                try print_expr(src, param.value, writer);
+                try writer.writeAll(", ");
+            }
+            try writer.writeAll(") ");
+            try print_expr(src, function.@"return".value.*, writer);
+        },
+        .container => |container| try print_container(src, container, writer),
+        .unique => |unique| {
+            try writer.writeAll("unique ");
+            try print_expr(src, unique.value.*, writer);
+        },
+        .integer => try writer.writeAll("integer"),
+        .type => try writer.writeAll("type"),
+    }
+}
+
+fn print_block(src: []const u8, block: Block, writer: anytype) anyerror!void {
+    try writer.writeAll("{ ");
+
+    for (block.stmts.items) |stmt| {
+        try print_stmt(src, stmt.value, writer);
+        try writer.writeAll(" ");
+    }
+
+    try writer.writeAll("}");
+}
+
+fn print_stmt(src: []const u8, stmt: Stmt, writer: anytype) anyerror!void {
+    switch (stmt) {
+        .decl => |decl| try print_decl(src, decl.value, writer),
+        .@"return" => |ret| {
+            try writer.writeAll("return ");
+            try print_expr(src, ret.value, writer);
+            try writer.writeAll(";");
+        },
+    }
 }

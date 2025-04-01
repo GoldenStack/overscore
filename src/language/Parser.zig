@@ -503,8 +503,7 @@ fn print_decl(src: []const u8, decl: Decl, writer: anytype) anyerror!void {
 }
 
 fn print_named_expr(src: []const u8, named: NamedExpr, writer: anytype) anyerror!void {
-    try writer.writeAll(named.name.range.substr(src));
-    try writer.writeAll(": ");
+    try writer.print("{s}: ", .{named.name.range.substr(src)});
     try print_expr(src, named.value.value, writer);
 }
 
@@ -570,6 +569,6 @@ fn print_stmt(src: []const u8, stmt: Stmt, writer: anytype) anyerror!void {
             try writer.writeAll("return ");
             try print_expr(src, ret.value, writer);
             try writer.writeAll(";");
-        }
+        },
     }
 }

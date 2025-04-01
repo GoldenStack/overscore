@@ -41,7 +41,8 @@ pub fn main() !void {
         } else return err;
     };
 
-    std.debug.print("{any}\n", .{compiled});
+    try Compiler.print_container(src, compiled.value, stdout);
+    try stdout.writeByte('\n');
 
     // // Load the assembly and convert it to a slice
     // const assembly = @embedFile("fibonacci.asm");
