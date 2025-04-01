@@ -144,10 +144,24 @@ pub const Error = union(enum) {
         try writer.print("{s}:{}:{}: ", .{ filename, range.start.row, range.start.col });
     }
 
+    fn line_prefix(loc: tokenizer.Location, show_number: bool, writer: anytype) !void {
+        if (show_number) {
+            try writer.print(" {} | ", .{loc.row});
+        } else {
+            const line_print_len = std.math.log10_int(loc.row) + 1;
+
+            for (0..1 + line_print_len + 1) |_| try writer.writeAll(" ");
+            try writer.writeAll("| ");
+        }
+    }
+
     fn point_to(src: []const u8, range: Range, writer: anytype) !void {
         if (range.start.row == range.end.row) {
+            try line_prefix(range.start, true, writer);
             try writer.writeAll(line_around(src, range.start));
             try writer.writeAll("\n");
+
+            try line_prefix(range.start, false, writer);
 
             for (0..range.start.col - 1) |_| try writer.writeAll(" ");
             for (0..range.end.col - range.start.col) |_| try writer.writeAll("^");
@@ -155,17 +169,21 @@ pub const Error = union(enum) {
         } else {
             const first_line = line_around(src, range.start);
 
+            try line_prefix(range.start, true, writer);
             try writer.writeAll(first_line);
             try writer.writeAll("\n");
 
+            try line_prefix(range.start, false, writer);
             for (0..range.start.col - 1) |_| try writer.writeAll(" ");
             try writer.writeAll("^");
             for (range.start.col - 1..first_line.len -| 1) |_| try writer.writeAll("~");
             try writer.writeAll("\n");
-            
+
+            try line_prefix(range.end, true, writer);
             try writer.writeAll(line_around(src, range.end));
             try writer.writeAll("\n");
 
+            try line_prefix(range.end, false, writer);
             for (0..range.end.col - 1 -| 1) |_| try writer.writeAll("~");
             try writer.writeAll("^\n");
         }
