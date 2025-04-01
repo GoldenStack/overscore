@@ -11,6 +11,8 @@ pub fn main() !void {
     // defer _ = gpa.deinit();
     // const allocator = gpa.allocator();
 
+    const stdout = std.io.getStdOut().writer();
+
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
@@ -22,20 +24,19 @@ pub fn main() !void {
 
     const container = parser.read_root() catch |err| {
         if (err == error.ParsingError) {
-            const out = std.io.getStdOut().writer();
-            try parser.error_context.?.display("example.os", src, out);
+            try parser.error_context.?.display("example.os", src, stdout);
             return;
         } else return err;
     };
 
-    std.debug.print("{any}\n", .{container});
+    try Parser.print_container(src, container.value, stdout);
+    try stdout.writeByte('\n');
 
     // Compile it!
     var compiler = Compiler.init(src, allocator);
     const compiled = compiler.compile(container) catch |err| {
         if (err == error.CompilerError) {
-            const out = std.io.getStdOut().writer();
-            try compiler.error_context.?.display("example.os", src, out);
+            try compiler.error_context.?.display("example.os", src, stdout);
             return;
         } else return err;
     };
