@@ -24,7 +24,6 @@ pub fn main() !void {
         if (err == error.ParsingError) {
             const out = std.io.getStdOut().writer();
             try parser.error_context.?.display("example.os", src, out);
-
             return;
         } else return err;
     };
@@ -35,7 +34,8 @@ pub fn main() !void {
     var compiler = Compiler.init(src, allocator);
     const compiled = compiler.compile(container) catch |err| {
         if (err == error.CompilerError) {
-            std.debug.print("Error: {?}\n", .{compiler.error_context});
+            const out = std.io.getStdOut().writer();
+            try compiler.error_context.?.display("example.os", src, out);
             return;
         } else return err;
     };

@@ -537,8 +537,8 @@ fn enforce_tagged_fields(self: *@This(), fields: std.ArrayList(Ranged(Parser.Fie
                 for (list.items) |field| {
                     if (std.mem.eql(u8, field.value.name.range.substr(self.src), tagged.name.range.substr(self.src))) {
                         return self.fail(.{ .duplicate_tag = .{
-                            field.value.name,
-                            tagged.name,
+                            .declared = field.value.name,
+                            .redeclared = tagged.name,
                         } });
                     }
                 }
