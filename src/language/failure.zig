@@ -1,24 +1,26 @@
 const std = @import("std");
 const tokenizer = @import("tokenizer.zig");
+const Ranged = tokenizer.Ranged;
+const Token = tokenizer.Token;
 
 pub const Error = union(enum) {
     /// We expected one of several tags, but found an incorrect one.
     expected_tag: struct {
-        expected: []const tokenizer.Token.Tag,
-        found: tokenizer.Token,
+        expected: []const Token,
+        found: Ranged(Token),
     },
 
     /// A number literal was too large.
-    number_too_large: tokenizer.Token,
+    number_too_large: Ranged(Token),
 
     /// An identifier was declared in a context in which it already exists.
     redeclared_identifier: struct {
-        declared: tokenizer.Token,
-        redeclared: tokenizer.Token,
+        declared: Ranged(Token),
+        redeclared: Ranged(Token),
     },
 
     /// An identifier was used but it wasn't declared.
-    unknown_identifier: tokenizer.Token,
+    unknown_identifier: Ranged(Token),
 
     /// Expected entirely tagged or entirely untagged fields, but found a mixture.
     expected_homogenous_fields: struct {
@@ -27,7 +29,7 @@ pub const Error = union(enum) {
     },
 
     /// A tag was declared twice in the same container or function.
-    duplicate_tag: struct { tokenizer.Token, tokenizer.Token },
+    duplicate_tag: struct { Ranged(Token), Ranged(Token) },
 
     /// Expected only untagged fields, but found a tagged field.
     expected_untagged_fields: struct {
@@ -58,7 +60,7 @@ pub const Error = union(enum) {
                     },
                 }
 
-                try writer.print(", but found {}", .{value.found.tag});
+                try writer.print(", but found {}", .{value.found.value});
             },
             .number_too_large => |number| try writer.print("number \"{s}\" too large to store", .{number}),
             .redeclared_identifier => |red| try writer.print("redeclaration of identifier '{s}'", .{red.redeclared.value}),

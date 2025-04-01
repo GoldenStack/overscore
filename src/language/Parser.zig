@@ -2,6 +2,7 @@ const std = @import("std");
 const tokenizer = @import("tokenizer.zig");
 const Error = @import("failure.zig").Error;
 const Ranged = tokenizer.Ranged;
+const Token = tokenizer.Token;
 
 const Parser = @This();
 
@@ -54,7 +55,7 @@ pub const Field = union(TaggedStatus) {
 };
 
 pub const NamedExpr = struct {
-    name: tokenizer.Token,
+    name: Ranged(Token),
     value: Ranged(Expr),
 
     pub fn format(
@@ -83,7 +84,7 @@ pub const ContainerDecl = struct {
 
 pub const Decl = struct {
     mutability: Mutability,
-    name: tokenizer.Token,
+    name: Ranged(Token),
     value: Ranged(Expr),
 
     pub fn format(
@@ -117,14 +118,14 @@ pub const Expr = union(enum) {
         arguments: std.ArrayList(Ranged(Expr)),
     },
     container: Ranged(Container),
-    ident: tokenizer.Token,
+    ident: Ranged(Token),
     block: Ranged(Block),
     number: u32,
     parentheses: *Ranged(Expr),
     unique: *Ranged(Expr),
     property: struct {
         container: *Ranged(Expr),
-        property: tokenizer.Token,
+        property: Ranged(Token),
     },
 
     pub fn format(
@@ -196,10 +197,11 @@ pub const ParsingError = error{
     OutOfMemory,
 };
 
+src: [:0]const u8,
 tokens: tokenizer.Tokenizer,
 allocator: std.mem.Allocator,
 
-next_token: ?tokenizer.Token = null,
+next_token: ?Ranged(Token) = null,
 
 /// The context for whatever error may have occurred. If any functions on this
 /// type return error.ParsingError, this value is significant. Otherwise, it may
@@ -208,6 +210,7 @@ error_context: ?Error = null,
 
 pub fn init(tokens: tokenizer.Tokenizer, allocator: std.mem.Allocator) @This() {
     return .{
+        .src = tokens.src,
         .tokens = tokens,
         .allocator = allocator,
     };
@@ -224,7 +227,7 @@ pub fn read_root(self: *@This()) ParsingError!Ranged(Container) {
 pub fn read_container(self: *@This()) ParsingError!Container {
     const token = try self.expect_many(&.{ .sum, .product });
 
-    const variant: ContainerVariant = switch (token.tag) {
+    const variant: ContainerVariant = switch (token.value) {
         .sum => .sum,
         .product => .product,
         else => unreachable,
@@ -248,7 +251,7 @@ pub fn read_container_contents(self: *@This(), variant: ContainerVariant) Parsin
 
     const read = struct {
         fn read(parser: *Parser, context: *Container) ParsingError!void {
-            switch (parser.peek().tag) {
+            switch (parser.peek().value) {
                 .@"pub", .@"const", .@"var" => {
                     try context.decls.append(try Ranged(ContainerDecl).wrap(parser, read_container_decl));
                 },
@@ -256,7 +259,7 @@ pub fn read_container_contents(self: *@This(), variant: ContainerVariant) Parsin
                     try context.fields.append(try Ranged(Field).wrap(parser, read_field));
 
                     // This makes the last comma mandatory in file containers
-                    if (parser.peek().tag != .@"}") _ = try parser.expect(.@",");
+                    if (parser.peek().value != .@"}") _ = try parser.expect(.@",");
                 },
             }
         }
@@ -268,7 +271,7 @@ pub fn read_container_contents(self: *@This(), variant: ContainerVariant) Parsin
 }
 
 pub fn read_container_decl(self: *@This()) ParsingError!ContainerDecl {
-    const access: Access = if (self.peek().tag == .@"pub") .public else .private;
+    const access: Access = if (self.peek().value == .@"pub") .public else .private;
     if (access == .public) _ = self.next();
 
     return .{
@@ -280,7 +283,7 @@ pub fn read_container_decl(self: *@This()) ParsingError!ContainerDecl {
 pub fn read_decl(self: *@This()) ParsingError!Decl {
     const token = try self.expect_many(&.{ .@"const", .@"var" });
 
-    const mutability: Mutability = if (token.tag == .@"const") .constant else .variable;
+    const mutability: Mutability = if (token.value == .@"const") .constant else .variable;
 
     const name = try self.expect(.ident);
 
@@ -308,7 +311,7 @@ pub fn read_expr(self: *@This()) ParsingError!Ranged(Expr) {
 
     // Handle non-prefix operators
     while (true) {
-        info = switch (self.peek().tag) {
+        info = switch (self.peek().value) {
             .@"(" => try info.map_extend(self, read_parameters),
             .@"." => try info.map_extend(self, read_property),
             else => break,
@@ -319,7 +322,7 @@ pub fn read_expr(self: *@This()) ParsingError!Ranged(Expr) {
 }
 
 fn read_expr_raw(self: *@This()) ParsingError!Expr {
-    return switch (self.peek().tag) {
+    return switch (self.peek().value) {
         .@"fn" => try self.read_function(),
         .sum, .product => .{ .container = try Ranged(Container).wrap(self, read_container) },
         .ident => .{ .ident = self.next() },
@@ -397,7 +400,7 @@ pub fn read_function(self: *@This()) ParsingError!Expr {
 
     const ret = try self.read_expr_ptr();
 
-    const body = if (self.peek().tag == .@"{")
+    const body = if (self.peek().value == .@"{")
         try Ranged(Block).wrap(self, read_block)
     else
         null;
@@ -430,7 +433,7 @@ pub fn read_block(self: *@This()) ParsingError!Block {
 pub fn read_field(self: *@This()) ParsingError!Field {
     const expr = try self.read_expr();
 
-    if (self.peek().tag == .@":") { // Tagged
+    if (self.peek().value == .@":") { // Tagged
         if (expr.value == .ident) {
             _ = self.next(); // Read the colon
 
@@ -457,7 +460,7 @@ pub fn read_field(self: *@This()) ParsingError!Field {
 }
 
 pub fn read_stmt(self: *@This()) ParsingError!Stmt {
-    return switch (self.peek().tag) {
+    return switch (self.peek().value) {
         .@"return" => {
             _ = self.next();
 
@@ -474,10 +477,10 @@ pub fn read_stmt(self: *@This()) ParsingError!Stmt {
 pub fn read_number(self: *@This()) ParsingError!u32 {
     const token = try self.expect(.number);
 
-    return std.fmt.parseUnsigned(u32, token.value, 10) catch self.fail(.{ .number_too_large = token });
+    return std.fmt.parseUnsigned(u32, token.range.substr(self.src), 10) catch self.fail(.{ .number_too_large = token });
 }
 
-fn read_iterated_until(self: *@This(), comptime maybe_sep: ?tokenizer.Token.Tag, end: tokenizer.Token.Tag, context: anytype, reader: fn (*@This(), @TypeOf(context)) ParsingError!void) !void {
+fn read_iterated_until(self: *@This(), comptime maybe_sep: ?Token, end: Token, context: anytype, reader: fn (*@This(), @TypeOf(context)) ParsingError!void) !void {
     // We just started reading, so we don't need a separator
     var sep_last_iter = true;
 
@@ -485,7 +488,7 @@ fn read_iterated_until(self: *@This(), comptime maybe_sep: ?tokenizer.Token.Tag,
 
         // Exit if the next token doesn't exist or if it's `end`
         const token = self.peek();
-        if (token.tag == .eof or token.tag == end) return;
+        if (token.value == .eof or token.value == end) return;
 
         // If there wasn't a separator, fail, having expected one
         // This check is placed after the exits so that a separator is optional
@@ -498,7 +501,7 @@ fn read_iterated_until(self: *@This(), comptime maybe_sep: ?tokenizer.Token.Tag,
         if (maybe_sep == null) continue;
 
         // Read the next token if it's the separator
-        if (self.peek().tag == maybe_sep) {
+        if (self.peek().value == maybe_sep) {
             _ = self.next();
             sep_last_iter = true;
         } else sep_last_iter = false;
@@ -511,7 +514,7 @@ pub fn fail(self: *@This(), @"error": Error) error{ParsingError} {
     return error.ParsingError;
 }
 
-pub fn fail_expected(self: *@This(), comptime tags: []const tokenizer.Token.Tag) error{ParsingError} {
+pub fn fail_expected(self: *@This(), comptime tags: []const Token) error{ParsingError} {
     return self.fail(.{ .expected_tag = .{
         .expected = tags,
         .found = self.peek(),
@@ -519,13 +522,13 @@ pub fn fail_expected(self: *@This(), comptime tags: []const tokenizer.Token.Tag)
 }
 
 /// Reads a token, returning an error if it's not equal to the given tag.
-pub fn expect(self: *@This(), comptime tag: tokenizer.Token.Tag) !tokenizer.Token {
-    return self.expect_many(&.{tag});
+pub fn expect(self: *@This(), comptime token: Token) !Ranged(Token) {
+    return self.expect_many(&.{token});
 }
 
 /// Reads a token, returning an error if it's not one of the given tags.
-pub fn expect_many(self: *@This(), comptime tags: []const tokenizer.Token.Tag) !tokenizer.Token {
-    const next_tag = self.peek().tag;
+pub fn expect_many(self: *@This(), comptime tags: []const Token) !Ranged(Token) {
+    const next_tag = self.peek().value;
 
     inline for (tags) |tag| {
         if (tag == next_tag) return self.next();
@@ -535,7 +538,7 @@ pub fn expect_many(self: *@This(), comptime tags: []const tokenizer.Token.Tag) !
 /// Returns the next token from the backing token iterator without advancing the
 /// iterator itself. This value is cached, so peeking does not require
 /// re-reading.
-pub fn peek(self: *@This()) tokenizer.Token {
+pub fn peek(self: *@This()) Ranged(Token) {
     // Return the cached token if possible
     if (self.next_token) |token| return token;
 
@@ -552,7 +555,7 @@ pub fn peek(self: *@This()) tokenizer.Token {
 }
 
 /// Reads the next token from the backing token iterator.
-pub fn next(self: *@This()) tokenizer.Token {
+pub fn next(self: *@This()) Ranged(Token) {
     // Return the cached token if possible
     if (self.next_token) |token| {
         self.tokens.loc = token.range.end;
@@ -564,7 +567,7 @@ pub fn next(self: *@This()) tokenizer.Token {
     while (true) {
         const token = self.tokens.next();
         // Comments mean nothing for now
-        if (token.tag != .comment) return token;
+        if (token.value != .comment) return token;
     }
 }
 

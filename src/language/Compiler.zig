@@ -3,6 +3,7 @@ const Parser = @import("Parser.zig");
 const tokenizer = @import("tokenizer.zig");
 const Error = @import("failure.zig").Error;
 const Ranged = tokenizer.Ranged;
+const Token = tokenizer.Token;
 
 /// Possible fully-evaluated type expressions.
 pub const Type = union(enum) {
@@ -136,7 +137,7 @@ pub const Fields = union(Parser.TaggedStatus) {
 };
 
 pub const NamedExpr = struct {
-    name: tokenizer.Token,
+    name: Ranged(Token),
     value: Ranged(Expr),
 
     pub fn format(
@@ -165,7 +166,7 @@ pub const ContainerDecl = struct {
 
 pub const Decl = struct {
     mutability: Parser.Mutability,
-    name: tokenizer.Token,
+    name: Ranged(Token),
     value: Ranged(Expr),
 
     pub fn format(
@@ -195,7 +196,7 @@ pub const Expr = union(enum) {
     type: Type,
     property: struct {
         container: Ranged(*Expr),
-        property: tokenizer.Token,
+        property: Ranged(Token),
     },
 
     pub fn format(
@@ -265,6 +266,7 @@ pub const CompilerError = error{
     OutOfMemory,
 };
 
+src: [:0]const u8,
 allocator: std.mem.Allocator,
 
 /// The context for whatever error may have occurred. If any functions on this
@@ -275,11 +277,14 @@ error_context: ?Error = null,
 namespace: std.ArrayList(*Ranged(Decl)),
 names: TokenHashMap(usize), // Maps to index in namespace
 
-pub fn init(allocator: std.mem.Allocator) @This() {
+pub fn init(src: [:0]const u8, allocator: std.mem.Allocator) @This() {
     return .{
+        .src = src,
         .allocator = allocator,
         .namespace = std.ArrayList(*Ranged(Decl)).init(allocator),
-        .names = TokenHashMap(usize).init(allocator),
+        .names = TokenHashMap(usize).initContext(allocator, .{
+            .src = src,
+        }),
     };
 }
 
@@ -289,15 +294,17 @@ pub fn init(allocator: std.mem.Allocator) @This() {
 /// `ArrayHashMap` once again.
 fn TokenHashMap(comptime V: type) type {
     const Context = struct {
-        pub fn hash(_: @This(), token: tokenizer.Token) u64 {
-            return std.hash_map.hashString(token.value);
+        src: [:0]const u8,
+
+        pub fn hash(self: @This(), token: Ranged(Token)) u64 {
+            return std.hash_map.hashString(token.range.substr(self.src));
         }
-        pub fn eql(_: @This(), a: tokenizer.Token, b: tokenizer.Token) bool {
-            return std.mem.eql(u8, a.value, b.value);
+        pub fn eql(self: @This(), a: Ranged(Token), b: Ranged(Token)) bool {
+            return std.mem.eql(u8, a.range.substr(self.src), b.range.substr(self.src));
         }
     };
 
-    return std.HashMap(tokenizer.Token, V, Context, std.hash_map.default_max_load_percentage);
+    return std.HashMap(Ranged(Token), V, Context, std.hash_map.default_max_load_percentage);
 }
 
 fn fail(self: *@This(), @"error": Error) error{CompilerError} {
@@ -456,7 +463,7 @@ fn semantics_block(self: *@This(), block: Parser.Block) CompilerError!Block {
     return .{ .stmts = stmts };
 }
 
-fn name_add(self: *@This(), name: tokenizer.Token) CompilerError!struct { usize, *Ranged(Decl) } {
+fn name_add(self: *@This(), name: Ranged(Token)) CompilerError!struct { usize, *Ranged(Decl) } {
     if (self.names.getEntry(name)) |entry| {
         return self.fail(.{ .redeclared_identifier = .{
             .declared = entry.key_ptr.*,
@@ -528,7 +535,7 @@ fn enforce_tagged_fields(self: *@This(), fields: std.ArrayList(Ranged(Parser.Fie
             } }),
             .tagged => |tagged| {
                 for (list.items) |field| {
-                    if (std.mem.eql(u8, field.value.name.value, tagged.name.value)) {
+                    if (std.mem.eql(u8, field.value.name.range.substr(self.src), tagged.name.range.substr(self.src))) {
                         return self.fail(.{ .duplicate_tag = .{
                             field.value.name,
                             tagged.name,

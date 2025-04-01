@@ -32,7 +32,7 @@ pub fn main() !void {
     std.debug.print("{any}\n", .{container});
 
     // Compile it!
-    var compiler = Compiler.init(allocator);
+    var compiler = Compiler.init(src, allocator);
     const compiled = compiler.compile(container) catch |err| {
         if (err == error.CompilerError) {
             std.debug.print("Error: {?}\n", .{compiler.error_context});

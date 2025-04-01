@@ -21,6 +21,10 @@ pub const Range = struct {
     start: Location,
     end: Location,
 
+    pub fn substr(self: @This(), src: []const u8) []const u8 {
+        return src[self.start.pos..self.end.pos];
+    }
+
     pub fn format(
         self: @This(),
         comptime _: []const u8,
@@ -79,9 +83,13 @@ pub fn Ranged(T: type) type {
         fn MapErrorPayload(mapper: type, mapping: fn (type) type) type {
             const return_type = @typeInfo(mapper).@"fn".return_type.?;
 
-            const error_union = @typeInfo(return_type).error_union;
+            if (@typeInfo(return_type) == .error_union) {
+                const error_union = @typeInfo(return_type).error_union;
 
-            return error_union.error_set!mapping(error_union.payload);
+                return error_union.error_set!mapping(error_union.payload);
+            } else {
+                return mapping(return_type);
+            }
         }
 
         pub fn format(self: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
@@ -90,54 +98,35 @@ pub fn Ranged(T: type) type {
     };
 }
 
-/// A token. This contains a tag, a raw value, and its position in the source
-/// string.
-pub const Token = struct {
-    tag: Tag,
-    value: []const u8,
+pub const Token = enum {
+    // Special characters
+    @"{",
+    @"}",
+    @"(",
+    @")",
+    @"=",
+    @";",
+    @":",
+    @",",
+    @".",
 
-    range: Range,
+    // Kewords
+    @"pub",
+    @"const",
+    @"var",
+    unique,
+    product,
+    sum,
+    @"fn",
+    @"return",
 
-    /// A token tag. This contains all of the possible unique meanings for tokens.
-    pub const Tag = enum {
-        // Special characters
-        @"{",
-        @"}",
-        @"(",
-        @")",
-        @"=",
-        @";",
-        @":",
-        @",",
-        @".",
+    // General language constructs
+    ident,
+    number,
+    comment,
 
-        // Kewords
-        @"pub",
-        @"const",
-        @"var",
-        unique,
-        product,
-        sum,
-        @"fn",
-        @"return",
-
-        // General language constructs
-        ident,
-        number,
-        comment,
-
-        // Meta-tokens
-        eof,
-
-        pub fn format(
-            self: @This(),
-            comptime _: []const u8,
-            _: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
-            try writer.writeAll(@tagName(self));
-        }
-    };
+    // Meta-tokens
+    eof,
 
     pub fn format(
         self: @This(),
@@ -145,7 +134,7 @@ pub const Token = struct {
         _: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        try writer.print("Token.{s} \"{s}\" {}", .{ self.tag, self.value, self.range });
+        try writer.writeAll(@tagName(self));
     }
 };
 
@@ -188,7 +177,7 @@ pub const Tokenizer = struct {
         return char;
     }
 
-    fn next_tag(self: *@This()) Token.Tag {
+    fn next_tag(self: *@This()) Token {
         return switch (self.next_char()) {
             // Fast paths for singular character tokens
             0 => .eof,
@@ -235,19 +224,23 @@ pub const Tokenizer = struct {
     }
 
     /// Reads the next token from this iterator.
-    pub fn next(self: *@This()) Token {
+    pub fn next(self: *@This()) Ranged(Token) {
         self.skip_while(std.ascii.isWhitespace);
 
         const start = self.loc;
-
         const tag = self.next_tag();
-
         const end = self.loc;
 
-        const value = self.src[start.pos..end.pos];
+        var token = Ranged(Token){
+            .value = tag,
+            .range = .{
+                .start = start,
+                .end = end,
+            },
+        };
 
         // Multi-character alphabetic tokens.
-        const tags = std.StaticStringMap(Token.Tag).initComptime(.{
+        const tags = std.StaticStringMap(Token).initComptime(.{
             .{ "pub", .@"pub" },
             .{ "const", .@"const" },
             .{ "var", .@"var" },
@@ -258,12 +251,10 @@ pub const Tokenizer = struct {
             .{ "return", .@"return" },
         });
 
-        return .{ .tag = switch (tag) {
-            .ident => tags.get(value) orelse tag,
-            else => tag,
-        }, .value = value, .range = .{
-            .start = start,
-            .end = end,
-        } };
+        if (token.value == .ident) if (tags.get(token.range.substr(self.src))) |new_token| {
+            token.value = new_token;
+        };
+
+        return token;
     }
 };
