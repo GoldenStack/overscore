@@ -1,13 +1,14 @@
 const std = @import("std");
 const tokenizer = @import("tokenizer.zig");
 const Error = @import("failure.zig").Error;
+const Ranged = tokenizer.Ranged;
 
 const Parser = @This();
 
 pub const Container = struct {
     variant: ContainerVariant,
-    fields: std.ArrayList(Range(Field)),
-    decls: std.ArrayList(Range(ContainerDecl)),
+    fields: std.ArrayList(Ranged(Field)),
+    decls: std.ArrayList(Ranged(ContainerDecl)),
 
     pub fn format(
         self: @This(),
@@ -36,7 +37,7 @@ pub const TaggedStatus = enum {
 };
 
 pub const Field = union(TaggedStatus) {
-    untagged: Range(Expr),
+    untagged: Ranged(Expr),
     tagged: NamedExpr,
 
     pub fn format(
@@ -54,7 +55,7 @@ pub const Field = union(TaggedStatus) {
 
 pub const NamedExpr = struct {
     name: tokenizer.Token,
-    value: Range(Expr),
+    value: Ranged(Expr),
 
     pub fn format(
         self: @This(),
@@ -68,7 +69,7 @@ pub const NamedExpr = struct {
 
 pub const ContainerDecl = struct {
     access: Access,
-    decl: Range(Decl),
+    decl: Ranged(Decl),
 
     pub fn format(
         self: @This(),
@@ -83,7 +84,7 @@ pub const ContainerDecl = struct {
 pub const Decl = struct {
     mutability: Mutability,
     name: tokenizer.Token,
-    value: Range(Expr),
+    value: Ranged(Expr),
 
     pub fn format(
         self: @This(),
@@ -107,22 +108,22 @@ pub const Mutability = enum {
 
 pub const Expr = union(enum) {
     function: struct {
-        parameters: std.ArrayList(Range(Field)),
-        @"return": *Range(Expr),
-        body: ?Range(Block),
+        parameters: std.ArrayList(Ranged(Field)),
+        @"return": *Ranged(Expr),
+        body: ?Ranged(Block),
     },
     call: struct {
-        function: *Range(Expr),
-        arguments: std.ArrayList(Range(Expr)),
+        function: *Ranged(Expr),
+        arguments: std.ArrayList(Ranged(Expr)),
     },
-    container: Range(Container),
+    container: Ranged(Container),
     ident: tokenizer.Token,
-    block: Range(Block),
+    block: Ranged(Block),
     number: u32,
-    parentheses: *Range(Expr),
-    unique: *Range(Expr),
+    parentheses: *Ranged(Expr),
+    unique: *Ranged(Expr),
     property: struct {
-        container: *Range(Expr),
+        container: *Ranged(Expr),
         property: tokenizer.Token,
     },
 
@@ -156,7 +157,7 @@ pub const Expr = union(enum) {
 };
 
 pub const Block = struct {
-    stmts: std.ArrayList(Range(Stmt)),
+    stmts: std.ArrayList(Ranged(Stmt)),
 
     pub fn format(
         self: @This(),
@@ -174,7 +175,7 @@ pub const Block = struct {
 
 pub const Stmt = union(enum) {
     decl: Decl,
-    @"return": Range(Expr),
+    @"return": Ranged(Expr),
 
     pub fn format(
         self: @This(),
@@ -212,8 +213,8 @@ pub fn init(tokens: tokenizer.Tokenizer, allocator: std.mem.Allocator) @This() {
     };
 }
 
-pub fn read_root(self: *@This()) ParsingError!Range(Container) {
-    return Range(Container).wrap(self, struct {
+pub fn read_root(self: *@This()) ParsingError!Ranged(Container) {
+    return Ranged(Container).wrap(self, struct {
         fn read(parser: *Parser) ParsingError!Container {
             return parser.read_container_contents(.product);
         }
@@ -241,18 +242,18 @@ pub fn read_container(self: *@This()) ParsingError!Container {
 pub fn read_container_contents(self: *@This(), variant: ContainerVariant) ParsingError!Container {
     var container: Container = .{
         .variant = variant,
-        .fields = std.ArrayList(Range(Field)).init(self.allocator),
-        .decls = std.ArrayList(Range(ContainerDecl)).init(self.allocator),
+        .fields = std.ArrayList(Ranged(Field)).init(self.allocator),
+        .decls = std.ArrayList(Ranged(ContainerDecl)).init(self.allocator),
     };
 
     const read = struct {
         fn read(parser: *Parser, context: *Container) ParsingError!void {
             switch (parser.peek().tag) {
                 .@"pub", .@"const", .@"var" => {
-                    try context.decls.append(try Range(ContainerDecl).wrap(parser, read_container_decl));
+                    try context.decls.append(try Ranged(ContainerDecl).wrap(parser, read_container_decl));
                 },
                 else => {
-                    try context.fields.append(try Range(Field).wrap(parser, read_field));
+                    try context.fields.append(try Ranged(Field).wrap(parser, read_field));
 
                     // This makes the last comma mandatory in file containers
                     if (parser.peek().tag != .@"}") _ = try parser.expect(.@",");
@@ -272,7 +273,7 @@ pub fn read_container_decl(self: *@This()) ParsingError!ContainerDecl {
 
     return .{
         .access = access,
-        .decl = try Range(Decl).wrap(self, read_decl),
+        .decl = try Ranged(Decl).wrap(self, read_decl),
     };
 }
 
@@ -296,20 +297,20 @@ pub fn read_decl(self: *@This()) ParsingError!Decl {
     };
 }
 
-pub fn read_expr_ptr(self: *@This()) ParsingError!*Range(Expr) {
-    const ptr = try self.allocator.create(Range(Expr));
+pub fn read_expr_ptr(self: *@This()) ParsingError!*Ranged(Expr) {
+    const ptr = try self.allocator.create(Ranged(Expr));
     ptr.* = try self.read_expr();
     return ptr;
 }
 
-pub fn read_expr(self: *@This()) ParsingError!Range(Expr) {
-    var info = try Range(Expr).wrap(self, read_expr_raw);
+pub fn read_expr(self: *@This()) ParsingError!Ranged(Expr) {
+    var info = try Ranged(Expr).wrap(self, read_expr_raw);
 
     // Handle non-prefix operators
     while (true) {
         info = switch (self.peek().tag) {
-            .@"(" => try info.extend(Expr, self, read_parameters),
-            .@"." => try info.extend(Expr, self, read_property),
+            .@"(" => try info.map_extend(self, read_parameters),
+            .@"." => try info.map_extend(self, read_property),
             else => break,
         };
     }
@@ -320,9 +321,9 @@ pub fn read_expr(self: *@This()) ParsingError!Range(Expr) {
 fn read_expr_raw(self: *@This()) ParsingError!Expr {
     return switch (self.peek().tag) {
         .@"fn" => try self.read_function(),
-        .sum, .product => .{ .container = try Range(Container).wrap(self, read_container) },
+        .sum, .product => .{ .container = try Ranged(Container).wrap(self, read_container) },
         .ident => .{ .ident = self.next() },
-        .@"{" => .{ .block = try Range(Block).wrap(self, read_block) },
+        .@"{" => .{ .block = try Ranged(Block).wrap(self, read_block) },
         .number => .{ .number = try self.read_number() },
         .@"(" => .{ .parentheses = parens: {
             _ = self.next();
@@ -341,11 +342,11 @@ fn read_expr_raw(self: *@This()) ParsingError!Expr {
     };
 }
 
-pub fn read_property(self: *@This(), container: Range(Expr)) ParsingError!Expr {
+pub fn read_property(self: *@This(), container: Ranged(Expr)) ParsingError!Expr {
     _ = try self.expect(.@".");
     const property = try self.expect(.ident);
 
-    const ptr = try self.allocator.create(Range(Expr));
+    const ptr = try self.allocator.create(Ranged(Expr));
     ptr.* = container;
 
     return .{ .property = .{
@@ -354,13 +355,13 @@ pub fn read_property(self: *@This(), container: Range(Expr)) ParsingError!Expr {
     } };
 }
 
-pub fn read_parameters(self: *@This(), function: Range(Expr)) ParsingError!Expr {
+pub fn read_parameters(self: *@This(), function: Ranged(Expr)) ParsingError!Expr {
     _ = try self.expect(.@"(");
 
-    var args = std.ArrayList(Range(Expr)).init(self.allocator);
+    var args = std.ArrayList(Ranged(Expr)).init(self.allocator);
 
     const read = struct {
-        fn read(parser: *Parser, context: *std.ArrayList(Range(Expr))) ParsingError!void {
+        fn read(parser: *Parser, context: *std.ArrayList(Ranged(Expr))) ParsingError!void {
             try context.append(try parser.read_expr());
         }
     }.read;
@@ -369,7 +370,7 @@ pub fn read_parameters(self: *@This(), function: Range(Expr)) ParsingError!Expr 
 
     _ = try self.expect(.@")");
 
-    const ptr = try self.allocator.create(Range(Expr));
+    const ptr = try self.allocator.create(Ranged(Expr));
     ptr.* = function;
 
     return .{ .call = .{
@@ -382,11 +383,11 @@ pub fn read_function(self: *@This()) ParsingError!Expr {
     _ = try self.expect(.@"fn");
     _ = try self.expect(.@"(");
 
-    var params = std.ArrayList(Range(Field)).init(self.allocator);
+    var params = std.ArrayList(Ranged(Field)).init(self.allocator);
 
     const read = struct {
-        fn read(parser: *Parser, context: *std.ArrayList(Range(Field))) ParsingError!void {
-            try context.append(try Range(Field).wrap(parser, read_field));
+        fn read(parser: *Parser, context: *std.ArrayList(Ranged(Field))) ParsingError!void {
+            try context.append(try Ranged(Field).wrap(parser, read_field));
         }
     }.read;
 
@@ -397,7 +398,7 @@ pub fn read_function(self: *@This()) ParsingError!Expr {
     const ret = try self.read_expr_ptr();
 
     const body = if (self.peek().tag == .@"{")
-        try Range(Block).wrap(self, read_block)
+        try Ranged(Block).wrap(self, read_block)
     else
         null;
 
@@ -411,11 +412,11 @@ pub fn read_function(self: *@This()) ParsingError!Expr {
 pub fn read_block(self: *@This()) ParsingError!Block {
     _ = try self.expect(.@"{");
 
-    var stmts = std.ArrayList(Range(Stmt)).init(self.allocator);
+    var stmts = std.ArrayList(Ranged(Stmt)).init(self.allocator);
 
     const read = struct {
-        fn read(parser: *Parser, context: *std.ArrayList(Range(Stmt))) ParsingError!void {
-            try context.append(try Range(Stmt).wrap(parser, read_stmt));
+        fn read(parser: *Parser, context: *std.ArrayList(Ranged(Stmt))) ParsingError!void {
+            try context.append(try Ranged(Stmt).wrap(parser, read_stmt));
         }
     }.read;
 
@@ -567,61 +568,6 @@ pub fn next(self: *@This()) tokenizer.Token {
     }
 }
 
-pub fn Range(T: type) type {
-    return struct {
-        range: tokenizer.Range,
-        value: T,
-
-        pub fn wrap(parser: *Parser, read: fn (*Parser) ParsingError!T) ParsingError!@This() {
-            const start = parser.tokens.loc;
-
-            const value = try read(parser);
-
-            return .{
-                .range = .{
-                    .start = start,
-                    .end = parser.tokens.loc,
-                },
-                .value = value,
-            };
-        }
-        
-        pub fn map(self: @This(), context: anytype, mapping: anytype) MapErrorSuccess(@TypeOf(mapping), Range) {
-            return .{
-                .range = self.range,
-                .value = try mapping(context, self.value),
-            };
-        }
-
-        fn MapErrorSuccess(mapper: type, mapping: fn(type) type) type {
-            const return_type = @typeInfo(mapper).@"fn".return_type.?;
-
-            const error_union = @typeInfo(return_type).error_union;
-
-            return error_union.error_set!mapping(error_union.payload);
-        }
-
-        pub fn swap(self: @This(), new_value: anytype) Range(@TypeOf(new_value)) {
-            return .{
-                .range = self.range,
-                .value = new_value,
-            };
-        }
-
-        pub fn extend(self: @This(), N: type, parser: *Parser, read: fn (*Parser, @This()) ParsingError!N) ParsingError!Range(N) {
-            const value = try read(parser, self);
-
-            return .{
-                .range = .{
-                    .start = self.range.start,
-                    .end = parser.tokens.loc,
-                },
-                .value = value,
-            };
-        }
-
-        pub fn format(self: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-            try writer.print("{}", .{self.value});
-        }
-    };
+pub fn location(self: *@This()) tokenizer.Location {
+    return self.tokens.loc;
 }

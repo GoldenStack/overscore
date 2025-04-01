@@ -20,7 +20,7 @@ pub const Location = struct {
 pub const Range = struct {
     start: Location,
     end: Location,
-    
+
     pub fn format(
         self: @This(),
         comptime _: []const u8,
@@ -30,6 +30,65 @@ pub const Range = struct {
         try writer.print("from {} to {}", .{ self.start, self.end });
     }
 };
+
+pub fn Ranged(T: type) type {
+    return struct {
+        range: Range,
+        value: T,
+
+        pub fn wrap(context: anytype, read_fn: anytype) MapErrorPayload(@TypeOf(read_fn), Ranged) {
+            const start = context.location();
+
+            const value = try read_fn(context);
+
+            return .{
+                .range = .{
+                    .start = start,
+                    .end = context.location(),
+                },
+                .value = value,
+            };
+        }
+
+        pub fn swap(self: @This(), new_value: anytype) Ranged(@TypeOf(new_value)) {
+            return .{
+                .range = self.range,
+                .value = new_value,
+            };
+        }
+
+        pub fn map(self: @This(), context: anytype, map_fn: anytype) MapErrorPayload(@TypeOf(map_fn), Ranged) {
+            return .{
+                .range = self.range,
+                .value = try map_fn(context, self.value),
+            };
+        }
+
+        pub fn map_extend(self: @This(), context: anytype, read_fn: anytype) MapErrorPayload(@TypeOf(read_fn), Ranged) {
+            const value = try read_fn(context, self);
+
+            return .{
+                .range = .{
+                    .start = self.range.start,
+                    .end = context.location(),
+                },
+                .value = value,
+            };
+        }
+
+        fn MapErrorPayload(mapper: type, mapping: fn (type) type) type {
+            const return_type = @typeInfo(mapper).@"fn".return_type.?;
+
+            const error_union = @typeInfo(return_type).error_union;
+
+            return error_union.error_set!mapping(error_union.payload);
+        }
+
+        pub fn format(self: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+            try writer.print("{}", .{self.value});
+        }
+    };
+}
 
 /// A token. This contains a tag, a raw value, and its position in the source
 /// string.
@@ -199,18 +258,12 @@ pub const Tokenizer = struct {
             .{ "return", .@"return" },
         });
 
-        return .{
-            .tag = switch (tag) {
-                .ident => tags.get(value) orelse tag,
-                else => tag,
-            },
-
-            .value = value,
-
-            .range = .{
-                .start = start,
-                .end = end,
-            }
-        };
+        return .{ .tag = switch (tag) {
+            .ident => tags.get(value) orelse tag,
+            else => tag,
+        }, .value = value, .range = .{
+            .start = start,
+            .end = end,
+        } };
     }
 };

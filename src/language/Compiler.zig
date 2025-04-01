@@ -2,7 +2,7 @@ const std = @import("std");
 const Parser = @import("Parser.zig");
 const tokenizer = @import("tokenizer.zig");
 const Error = @import("failure.zig").Error;
-const Range = Parser.Range;
+const Ranged = tokenizer.Ranged;
 
 /// Possible fully-evaluated type expressions.
 pub const Type = union(enum) {
@@ -20,8 +20,8 @@ pub const Type = union(enum) {
     ///
     /// A function signature works like this: `fn(x: i32, y: i32) i32`.
     function: struct {
-        parameters: std.ArrayList(Range(Expr)),
-        @"return": Range(*Expr),
+        parameters: std.ArrayList(Ranged(Expr)),
+        @"return": Ranged(*Expr),
     },
 
     /// A container. See docs for `Container` for more specifics.
@@ -36,7 +36,7 @@ pub const Type = union(enum) {
     ///
     /// This does not necessarily affect coercion (i.e. `struct { 5 }` being
     /// coercible to the type `unique struct { u32 }`).
-    unique: Range(*Expr),
+    unique: Ranged(*Expr),
 
     /// An integer type. For now, integers are always unsigned 32-bit integers,
     /// but in the future they will ideally be ranged, similar to the proposal
@@ -92,7 +92,7 @@ pub const Type = union(enum) {
 pub const Container = struct {
     variant: Parser.ContainerVariant,
     fields: Fields,
-    decls: std.ArrayList(Range(ContainerDecl)),
+    decls: std.ArrayList(Ranged(ContainerDecl)),
 
     pub fn format(
         self: @This(),
@@ -111,8 +111,8 @@ pub const Container = struct {
 };
 
 pub const Fields = union(Parser.TaggedStatus) {
-    untagged: std.ArrayList(Range(Expr)),
-    tagged: std.ArrayList(Range(NamedExpr)),
+    untagged: std.ArrayList(Ranged(Expr)),
+    tagged: std.ArrayList(Ranged(NamedExpr)),
 
     pub fn format(
         self: @This(),
@@ -137,7 +137,7 @@ pub const Fields = union(Parser.TaggedStatus) {
 
 pub const NamedExpr = struct {
     name: tokenizer.Token,
-    value: Range(Expr),
+    value: Ranged(Expr),
 
     pub fn format(
         self: @This(),
@@ -151,7 +151,7 @@ pub const NamedExpr = struct {
 
 pub const ContainerDecl = struct {
     access: Parser.Access,
-    decl: Range(Decl),
+    decl: Ranged(Decl),
 
     pub fn format(
         self: @This(),
@@ -166,7 +166,7 @@ pub const ContainerDecl = struct {
 pub const Decl = struct {
     mutability: Parser.Mutability,
     name: tokenizer.Token,
-    value: Range(Expr),
+    value: Ranged(Expr),
 
     pub fn format(
         self: @This(),
@@ -180,21 +180,21 @@ pub const Decl = struct {
 
 pub const Expr = union(enum) {
     function: struct {
-        parameters: std.ArrayList(Range(NamedExpr)),
-        @"return": Range(*Expr),
-        body: Range(Block),
+        parameters: std.ArrayList(Ranged(NamedExpr)),
+        @"return": Ranged(*Expr),
+        body: Ranged(Block),
     },
     call: struct {
-        function: Range(*Expr),
-        arguments: std.ArrayList(Range(Expr)),
+        function: Ranged(*Expr),
+        arguments: std.ArrayList(Ranged(Expr)),
     },
-    container: Range(Container),
+    container: Ranged(Container),
     ident: usize,
-    block: Range(Block),
+    block: Ranged(Block),
     number: u32,
     type: Type,
     property: struct {
-        container: Range(*Expr),
+        container: Ranged(*Expr),
         property: tokenizer.Token,
     },
 
@@ -226,7 +226,7 @@ pub const Expr = union(enum) {
 };
 
 pub const Block = struct {
-    stmts: std.ArrayList(Range(Stmt)),
+    stmts: std.ArrayList(Ranged(Stmt)),
 
     pub fn format(
         self: @This(),
@@ -243,8 +243,8 @@ pub const Block = struct {
 };
 
 pub const Stmt = union(enum) {
-    decl: Range(Decl),
-    @"return": Range(Expr),
+    decl: Ranged(Decl),
+    @"return": Ranged(Expr),
 
     pub fn format(
         self: @This(),
@@ -272,13 +272,13 @@ allocator: std.mem.Allocator,
 /// may contain anything.
 error_context: ?Error = null,
 
-namespace: std.ArrayList(*Range(Decl)),
+namespace: std.ArrayList(*Ranged(Decl)),
 names: TokenHashMap(usize), // Maps to index in namespace
 
 pub fn init(allocator: std.mem.Allocator) @This() {
     return .{
         .allocator = allocator,
-        .namespace = std.ArrayList(*Range(Decl)).init(allocator),
+        .namespace = std.ArrayList(*Ranged(Decl)).init(allocator),
         .names = TokenHashMap(usize).init(allocator),
     };
 }
@@ -305,12 +305,12 @@ fn fail(self: *@This(), @"error": Error) error{CompilerError} {
     return error.CompilerError;
 }
 
-pub fn compile(self: *@This(), container: Range(Parser.Container)) CompilerError!Range(Container) {
+pub fn compile(self: *@This(), container: Ranged(Parser.Container)) CompilerError!Ranged(Container) {
     return container.map(self, semantics_container);
 }
 
 fn semantics_container(self: *@This(), container: Parser.Container) CompilerError!Container {
-    var decls = std.ArrayList(Range(ContainerDecl)).init(self.allocator);
+    var decls = std.ArrayList(Ranged(ContainerDecl)).init(self.allocator);
     for (container.decls.items) |decl| _ = try self.name_add(decl.value.decl.value.name);
 
     for (container.decls.items) |container_decl| {
@@ -351,8 +351,7 @@ fn semantics_expr_ptr(self: *@This(), expr: Parser.Expr) CompilerError!*Expr {
 fn semantics_expr(self: *@This(), expr: Parser.Expr) CompilerError!Expr {
     return switch (expr) {
         .function => |function| {
-            return try if (function.body == null) self.semantics_function_type(expr)
-                else self.semantics_function_declaration(expr);
+            return try if (function.body == null) self.semantics_function_type(expr) else self.semantics_function_declaration(expr);
         },
         .call => try self.semantics_call(expr),
         .container => |container| .{ .container = try container.map(self, semantics_container) },
@@ -374,9 +373,9 @@ fn semantics_expr(self: *@This(), expr: Parser.Expr) CompilerError!Expr {
 fn semantics_call(self: *@This(), expr: Parser.Expr) CompilerError!Expr {
     const call = expr.call;
 
-    const ptr = try call.function.map(self, semantics_expr_ptr); 
+    const ptr = try call.function.map(self, semantics_expr_ptr);
 
-    var args = std.ArrayList(Range(Expr)).init(self.allocator);
+    var args = std.ArrayList(Ranged(Expr)).init(self.allocator);
     for (call.arguments.items) |arg| {
         try args.append(try arg.map(self, semantics_expr));
     }
@@ -423,16 +422,14 @@ fn semantics_function_type(self: *@This(), expr: Parser.Expr) CompilerError!Expr
 
     const fields = try self.enforce_untagged_fields(function.parameters);
 
-    return .{ .type = .{
-        .function = .{
-            .parameters = fields,
-            .@"return" = try function.@"return".map(self, semantics_expr_ptr),
-        } }
-    };
+    return .{ .type = .{ .function = .{
+        .parameters = fields,
+        .@"return" = try function.@"return".map(self, semantics_expr_ptr),
+    } } };
 }
 
 fn semantics_block(self: *@This(), block: Parser.Block) CompilerError!Block {
-    var stmts = std.ArrayList(Range(Stmt)).init(self.allocator);
+    var stmts = std.ArrayList(Ranged(Stmt)).init(self.allocator);
 
     for (block.stmts.items) |stmt| {
         switch (stmt.value) {
@@ -459,14 +456,14 @@ fn semantics_block(self: *@This(), block: Parser.Block) CompilerError!Block {
     return .{ .stmts = stmts };
 }
 
-fn name_add(self: *@This(), name: tokenizer.Token) CompilerError!struct { usize, *Range(Decl) } {
+fn name_add(self: *@This(), name: tokenizer.Token) CompilerError!struct { usize, *Ranged(Decl) } {
     if (self.names.getEntry(name)) |entry| {
         return self.fail(.{ .redeclared_identifier = .{
             .declared = entry.key_ptr.*,
             .redeclared = name,
         } });
     } else {
-        const ptr = try self.allocator.create(Range(Decl));
+        const ptr = try self.allocator.create(Ranged(Decl));
 
         const index = self.namespace.items.len;
         try self.names.put(name, index);
@@ -476,11 +473,11 @@ fn name_add(self: *@This(), name: tokenizer.Token) CompilerError!struct { usize,
     }
 }
 
-fn homogenize_fields(self: *@This(), fields: std.ArrayList(Range(Parser.Field)), expected: ?Parser.TaggedStatus, default: Parser.TaggedStatus) CompilerError!Fields {
+fn homogenize_fields(self: *@This(), fields: std.ArrayList(Ranged(Parser.Field)), expected: ?Parser.TaggedStatus, default: Parser.TaggedStatus) CompilerError!Fields {
     if (fields.items.len == 0) {
         return switch (expected orelse default) {
-            .untagged => .{ .untagged = std.ArrayList(Range(Expr)).init(self.allocator) },
-            .tagged => .{ .tagged = std.ArrayList(Range(NamedExpr)).init(self.allocator) },
+            .untagged => .{ .untagged = std.ArrayList(Ranged(Expr)).init(self.allocator) },
+            .tagged => .{ .tagged = std.ArrayList(Ranged(NamedExpr)).init(self.allocator) },
         };
     }
 
@@ -491,8 +488,8 @@ fn homogenize_fields(self: *@This(), fields: std.ArrayList(Range(Parser.Field)),
 }
 
 /// Expects at least one item in `fields` and that the first item is untagged.
-fn enforce_untagged_fields(self: *@This(), fields: std.ArrayList(Range(Parser.Field))) CompilerError!std.ArrayList(Range(Expr)) {
-    var list = std.ArrayList(Range(Expr)).init(self.allocator);
+fn enforce_untagged_fields(self: *@This(), fields: std.ArrayList(Ranged(Parser.Field))) CompilerError!std.ArrayList(Ranged(Expr)) {
+    var list = std.ArrayList(Ranged(Expr)).init(self.allocator);
 
     if (fields.items.len > 0 and fields.items[0].value != .untagged) {
         return self.fail(.{ .expected_untagged_fields = .{
@@ -514,8 +511,8 @@ fn enforce_untagged_fields(self: *@This(), fields: std.ArrayList(Range(Parser.Fi
 }
 
 /// Expects at least one item in `fields` and that the first item is tagged.
-fn enforce_tagged_fields(self: *@This(), fields: std.ArrayList(Range(Parser.Field))) CompilerError!std.ArrayList(Range(NamedExpr)) {
-    var list = std.ArrayList(Range(NamedExpr)).init(self.allocator);
+fn enforce_tagged_fields(self: *@This(), fields: std.ArrayList(Ranged(Parser.Field))) CompilerError!std.ArrayList(Ranged(NamedExpr)) {
+    var list = std.ArrayList(Ranged(NamedExpr)).init(self.allocator);
 
     if (fields.items.len > 0 and fields.items[0].value != .tagged) {
         return self.fail(.{ .expected_tagged_fields = .{
