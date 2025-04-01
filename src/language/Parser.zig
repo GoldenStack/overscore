@@ -1,10 +1,13 @@
 const std = @import("std");
 const tokenizer = @import("tokenizer.zig");
+const Error = @import("failure.zig").Error;
+
+const Parser = @This();
 
 pub const Container = struct {
     variant: ContainerVariant,
-    fields: std.ArrayList(Field),
-    decls: std.ArrayList(ContainerDecl),
+    fields: std.ArrayList(Range(Field)),
+    decls: std.ArrayList(Range(ContainerDecl)),
 
     pub fn format(
         self: @This(),
@@ -33,7 +36,7 @@ pub const TaggedStatus = enum {
 };
 
 pub const Field = union(TaggedStatus) {
-    untagged: Expr,
+    untagged: Range(Expr),
     tagged: NamedExpr,
 
     pub fn format(
@@ -51,7 +54,7 @@ pub const Field = union(TaggedStatus) {
 
 pub const NamedExpr = struct {
     name: tokenizer.Token,
-    value: Expr,
+    value: Range(Expr),
 
     pub fn format(
         self: @This(),
@@ -65,7 +68,7 @@ pub const NamedExpr = struct {
 
 pub const ContainerDecl = struct {
     access: Access,
-    decl: Decl,
+    decl: Range(Decl),
 
     pub fn format(
         self: @This(),
@@ -80,7 +83,7 @@ pub const ContainerDecl = struct {
 pub const Decl = struct {
     mutability: Mutability,
     name: tokenizer.Token,
-    value: Expr,
+    value: Range(Expr),
 
     pub fn format(
         self: @This(),
@@ -103,15 +106,25 @@ pub const Mutability = enum {
 };
 
 pub const Expr = union(enum) {
-    function: Function,
-    call: Call,
-    container: Container,
+    function: struct {
+        parameters: std.ArrayList(Range(Field)),
+        @"return": *Range(Expr),
+        body: ?Range(Block),
+    },
+    call: struct {
+        function: *Range(Expr),
+        arguments: std.ArrayList(Range(Expr)),
+    },
+    container: Range(Container),
     ident: tokenizer.Token,
-    block: Block,
+    block: Range(Block),
     number: u32,
-    parentheses: *Expr,
-    unique: Unique,
-    property: Property,
+    parentheses: *Range(Expr),
+    unique: *Range(Expr),
+    property: struct {
+        container: *Range(Expr),
+        property: tokenizer.Token,
+    },
 
     pub fn format(
         self: @This(),
@@ -120,87 +133,30 @@ pub const Expr = union(enum) {
         writer: anytype,
     ) !void {
         switch (self) {
-            .function => |function| try writer.print("{}", .{function}),
-            .call => |call| try writer.print("{}", .{call}),
+            .function => |function| {
+                try writer.writeAll("fn (");
+                for (function.parameters.items) |param| try writer.print("{}, ", .{param});
+                try writer.print(") {}", .{function.@"return"});
+                if (function.body) |block| try writer.print(" {}", .{block});
+            },
+            .call => |call| {
+                try writer.print("{}(", .{call.function});
+                for (call.arguments.items) |argument| try writer.print("{}, ", .{argument});
+                try writer.writeAll(")");
+            },
             .container => |container| try writer.print("{}", .{container}),
             .ident => |token| try writer.print("{s}", .{token.value}),
             .block => |block| try writer.print("{}", .{block}),
             .number => |number| try writer.print("{}", .{number}),
             .parentheses => |parens| try writer.print("({})", .{parens}),
-            .unique => |unique| try writer.print("{}", .{unique}),
-            .property => |property| try writer.print("{}", .{property}),
+            .unique => |unique| try writer.print("unique {}", .{unique}),
+            .property => |property| try writer.print("{}.{s}", .{ property.container, property.property }),
         }
     }
 };
 
-pub const Property = struct {
-    container: *Expr,
-    property: tokenizer.Token,
-
-    pub fn format(
-        self: @This(),
-        comptime _: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        try writer.print("{}.{s}", .{ self.container.*, self.property });
-    }
-};
-
-pub const Unique = struct {
-    value: *Expr,
-
-    pub fn format(
-        self: @This(),
-        comptime _: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        try writer.print("unique {}", .{self.value.*});
-    }
-};
-
-pub const Function = struct {
-    parameters: std.ArrayList(Field),
-    @"return": *Expr,
-    body: ?Block,
-
-    pub fn format(
-        self: @This(),
-        comptime _: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        try writer.writeAll("fn (");
-
-        for (self.parameters.items) |param| try writer.print("{}, ", .{param});
-
-        try writer.print(") {}", .{self.@"return"});
-
-        if (self.body) |block| try writer.print(" {}", .{block});
-    }
-};
-
-pub const Call = struct {
-    function: *Expr,
-    arguments: std.ArrayList(Expr),
-
-    pub fn format(
-        self: @This(),
-        comptime _: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        try writer.print("{}(", .{self.function});
-
-        for (self.arguments.items) |argument| try writer.print("{}, ", .{argument});
-
-        try writer.writeAll(")");
-    }
-};
-
 pub const Block = struct {
-    stmts: std.ArrayList(Stmt),
+    stmts: std.ArrayList(Range(Stmt)),
 
     pub fn format(
         self: @This(),
@@ -218,7 +174,7 @@ pub const Block = struct {
 
 pub const Stmt = union(enum) {
     decl: Decl,
-    @"return": Expr,
+    @"return": Range(Expr),
 
     pub fn format(
         self: @This(),
@@ -229,44 +185,6 @@ pub const Stmt = union(enum) {
         switch (self) {
             .decl => |decl| try writer.print("{}", .{decl}),
             .@"return" => |ret| try writer.print("return {};", .{ret}),
-        }
-    }
-};
-
-/// The context for an error that can occur while parsing.
-pub const ErrorContext = union(enum) {
-    expected_tag: struct {
-        expected: []const tokenizer.Token.Tag,
-        found: tokenizer.Token.Tag,
-    },
-    number_too_large: []const u8,
-
-    pub fn format(
-        self: @This(),
-        comptime _: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
-        switch (self) {
-            .expected_tag => |value| {
-                const expected = value.expected;
-
-                switch (expected.len) {
-                    0 => @panic("Expected at least one argument to expect"),
-                    1 => try writer.print("Expected {}", .{expected[0]}),
-                    2 => try writer.print("Expected {} or {}", .{ expected[0], expected[1] }),
-                    else => {
-                        for (0.., expected) |index, tag| {
-                            if (index != 0) try writer.writeAll(", ");
-
-                            try writer.print("{}", .{tag});
-                        }
-                    },
-                }
-
-                try writer.print(", found {}", .{value.found});
-            },
-            .number_too_large => |number| try writer.print("Number \"{s}\" too large to store ", .{number}),
         }
     }
 };
@@ -285,7 +203,7 @@ next_token: ?tokenizer.Token = null,
 /// The context for whatever error may have occurred. If any functions on this
 /// type return error.ParsingError, this value is significant. Otherwise, it may
 /// contain anything.
-error_context: ?ErrorContext = null,
+error_context: ?Error = null,
 
 pub fn init(tokens: tokenizer.Tokenizer, allocator: std.mem.Allocator) @This() {
     return .{
@@ -294,8 +212,12 @@ pub fn init(tokens: tokenizer.Tokenizer, allocator: std.mem.Allocator) @This() {
     };
 }
 
-pub fn read_root(self: *@This()) ParsingError!Container {
-    return self.read_container_contents(.product);
+pub fn read_root(self: *@This()) ParsingError!Range(Container) {
+    return Range(Container).wrap(self, struct {
+        fn read(parser: *Parser) ParsingError!Container {
+            return parser.read_container_contents(.product);
+        }
+    }.read);
 }
 
 pub fn read_container(self: *@This()) ParsingError!Container {
@@ -319,17 +241,18 @@ pub fn read_container(self: *@This()) ParsingError!Container {
 pub fn read_container_contents(self: *@This(), variant: ContainerVariant) ParsingError!Container {
     var container: Container = .{
         .variant = variant,
-        .decls = std.ArrayList(ContainerDecl).init(self.allocator),
-        .fields = std.ArrayList(Field).init(self.allocator),
+        .fields = std.ArrayList(Range(Field)).init(self.allocator),
+        .decls = std.ArrayList(Range(ContainerDecl)).init(self.allocator),
     };
 
-    const Parser = @This();
     const read = struct {
         fn read(parser: *Parser, context: *Container) ParsingError!void {
             switch (parser.peek().tag) {
-                .@"pub", .@"const", .@"var" => try context.decls.append(try parser.read_container_decl()),
+                .@"pub", .@"const", .@"var" => {
+                    try context.decls.append(try Range(ContainerDecl).wrap(parser, read_container_decl));
+                },
                 else => {
-                    try context.fields.append(try parser.read_field());
+                    try context.fields.append(try Range(Field).wrap(parser, read_field));
 
                     // This makes the last comma mandatory in file containers
                     if (parser.peek().tag != .@"}") _ = try parser.expect(.@",");
@@ -349,7 +272,7 @@ pub fn read_container_decl(self: *@This()) ParsingError!ContainerDecl {
 
     return .{
         .access = access,
-        .decl = try self.read_decl(),
+        .decl = try Range(Decl).wrap(self, read_decl),
     };
 }
 
@@ -366,67 +289,78 @@ pub fn read_decl(self: *@This()) ParsingError!Decl {
 
     _ = try self.expect(.@";");
 
-    return .{ .mutability = mutability, .name = name, .value = value };
+    return .{
+        .mutability = mutability,
+        .name = name,
+        .value = value,
+    };
 }
 
-pub fn read_expr(self: *@This()) ParsingError!Expr {
-    var expr: Expr = switch (self.peek().tag) {
-        .@"fn" => .{ .function = try self.read_function() },
-        .sum, .product => .{ .container = try self.read_container() },
+pub fn read_expr_ptr(self: *@This()) ParsingError!*Range(Expr) {
+    const ptr = try self.allocator.create(Range(Expr));
+    ptr.* = try self.read_expr();
+    return ptr;
+}
+
+pub fn read_expr(self: *@This()) ParsingError!Range(Expr) {
+    var info = try Range(Expr).wrap(self, read_expr_raw);
+
+    // Handle non-prefix operators
+    while (true) {
+        info = switch (self.peek().tag) {
+            .@"(" => try info.extend(Expr, self, read_parameters),
+            .@"." => try info.extend(Expr, self, read_property),
+            else => break,
+        };
+    }
+
+    return info;
+}
+
+fn read_expr_raw(self: *@This()) ParsingError!Expr {
+    return switch (self.peek().tag) {
+        .@"fn" => try self.read_function(),
+        .sum, .product => .{ .container = try Range(Container).wrap(self, read_container) },
         .ident => .{ .ident = self.next() },
-        .@"{" => .{ .block = try self.read_block() },
+        .@"{" => .{ .block = try Range(Block).wrap(self, read_block) },
         .number => .{ .number = try self.read_number() },
         .@"(" => .{ .parentheses = parens: {
             _ = self.next();
 
-            const boxed = try self.box(try self.read_expr());
+            const expr = try self.read_expr_ptr();
 
             _ = try self.expect(.@")");
-            break :parens boxed;
+            break :parens expr;
         } },
-        .unique => .{ .unique = .{ .value = unique: {
+        .unique => .{ .unique = unique: {
             _ = self.next();
 
-            break :unique try self.box(try self.read_expr());
-        } } },
+            break :unique try self.read_expr_ptr();
+        } },
         else => return self.fail_expected(&.{ .@"fn", .unique, .sum, .product, .ident, .@"{", .number, .unique }),
     };
-
-    // Handle non-prefix operators
-    while (true) {
-        expr = switch (self.peek().tag) {
-            .@"(" => .{ .call = try self.read_parameters(expr) },
-            .@"." => .{ .property = try self.read_property(expr) },
-            else => return expr,
-        };
-    }
 }
 
-fn box(self: *@This(), expr: Expr) ParsingError!*Expr {
-    const ptr = try self.allocator.create(Expr);
-    ptr.* = expr;
-    return ptr;
-}
-
-pub fn read_property(self: *@This(), container: Expr) ParsingError!Property {
+pub fn read_property(self: *@This(), container: Range(Expr)) ParsingError!Expr {
     _ = try self.expect(.@".");
     const property = try self.expect(.ident);
 
-    return .{
-        .container = try self.box(container),
+    const ptr = try self.allocator.create(Range(Expr));
+    ptr.* = container;
+
+    return .{ .property = .{
+        .container = ptr,
         .property = property,
-    };
+    } };
 }
 
-pub fn read_parameters(self: *@This(), function: Expr) ParsingError!Call {
+pub fn read_parameters(self: *@This(), function: Range(Expr)) ParsingError!Expr {
     _ = try self.expect(.@"(");
 
-    const Parser = @This();
-
-    var args = std.ArrayList(Expr).init(self.allocator);
+    var args = std.ArrayList(Range(Expr)).init(self.allocator);
 
     const read = struct {
-        fn read(parser: *Parser, context: *std.ArrayList(Expr)) ParsingError!void {
+        fn read(parser: *Parser, context: *std.ArrayList(Range(Expr))) ParsingError!void {
             try context.append(try parser.read_expr());
         }
     }.read;
@@ -435,23 +369,24 @@ pub fn read_parameters(self: *@This(), function: Expr) ParsingError!Call {
 
     _ = try self.expect(.@")");
 
-    return .{
-        .function = try self.box(function),
+    const ptr = try self.allocator.create(Range(Expr));
+    ptr.* = function;
+
+    return .{ .call = .{
+        .function = ptr,
         .arguments = args,
-    };
+    } };
 }
 
-pub fn read_function(self: *@This()) ParsingError!Function {
+pub fn read_function(self: *@This()) ParsingError!Expr {
     _ = try self.expect(.@"fn");
     _ = try self.expect(.@"(");
 
-    const Parser = @This();
-
-    var params = std.ArrayList(Field).init(self.allocator);
+    var params = std.ArrayList(Range(Field)).init(self.allocator);
 
     const read = struct {
-        fn read(parser: *Parser, context: *std.ArrayList(Field)) ParsingError!void {
-            try context.append(try parser.read_field());
+        fn read(parser: *Parser, context: *std.ArrayList(Range(Field))) ParsingError!void {
+            try context.append(try Range(Field).wrap(parser, read_field));
         }
     }.read;
 
@@ -459,30 +394,28 @@ pub fn read_function(self: *@This()) ParsingError!Function {
 
     _ = try self.expect(.@")");
 
-    const ret = try self.box(try self.read_expr());
+    const ret = try self.read_expr_ptr();
 
     const body = if (self.peek().tag == .@"{")
-        try self.read_block()
+        try Range(Block).wrap(self, read_block)
     else
         null;
 
-    return .{
+    return .{ .function = .{
         .parameters = params,
         .@"return" = ret,
         .body = body,
-    };
+    } };
 }
 
 pub fn read_block(self: *@This()) ParsingError!Block {
     _ = try self.expect(.@"{");
 
-    const Parser = @This();
-
-    var stmts = std.ArrayList(Stmt).init(self.allocator);
+    var stmts = std.ArrayList(Range(Stmt)).init(self.allocator);
 
     const read = struct {
-        fn read(parser: *Parser, context: *std.ArrayList(Stmt)) ParsingError!void {
-            try context.append(try parser.read_statement());
+        fn read(parser: *Parser, context: *std.ArrayList(Range(Stmt))) ParsingError!void {
+            try context.append(try Range(Stmt).wrap(parser, read_stmt));
         }
     }.read;
 
@@ -497,12 +430,12 @@ pub fn read_field(self: *@This()) ParsingError!Field {
     const expr = try self.read_expr();
 
     if (self.peek().tag == .@":") { // Tagged
-        if (expr == .ident) {
+        if (expr.value == .ident) {
             _ = self.next(); // Read the colon
 
             const value = try self.read_expr();
             return .{ .tagged = .{
-                .name = expr.ident,
+                .name = expr.value.ident,
                 .value = value,
             } };
         } else return self.fail_expected(&.{.ident});
@@ -522,7 +455,7 @@ pub fn read_field(self: *@This()) ParsingError!Field {
     };
 }
 
-pub fn read_statement(self: *@This()) ParsingError!Stmt {
+pub fn read_stmt(self: *@This()) ParsingError!Stmt {
     return switch (self.peek().tag) {
         .@"return" => {
             _ = self.next();
@@ -540,7 +473,7 @@ pub fn read_statement(self: *@This()) ParsingError!Stmt {
 pub fn read_number(self: *@This()) ParsingError!u32 {
     const token = try self.expect(.number);
 
-    return std.fmt.parseUnsigned(u32, token.value, 10) catch self.fail(.{ .number_too_large = token.value });
+    return std.fmt.parseUnsigned(u32, token.value, 10) catch self.fail(.{ .number_too_large = token });
 }
 
 fn read_iterated_until(self: *@This(), comptime maybe_sep: ?tokenizer.Token.Tag, end: tokenizer.Token.Tag, context: anytype, reader: fn (*@This(), @TypeOf(context)) ParsingError!void) !void {
@@ -572,7 +505,7 @@ fn read_iterated_until(self: *@This(), comptime maybe_sep: ?tokenizer.Token.Tag,
 }
 
 /// Fails, storing the given error context and returning an error.
-pub fn fail(self: *@This(), @"error": ErrorContext) error{ParsingError} {
+pub fn fail(self: *@This(), @"error": Error) error{ParsingError} {
     self.error_context = @"error";
     return error.ParsingError;
 }
@@ -580,7 +513,7 @@ pub fn fail(self: *@This(), @"error": ErrorContext) error{ParsingError} {
 pub fn fail_expected(self: *@This(), comptime tags: []const tokenizer.Token.Tag) error{ParsingError} {
     return self.fail(.{ .expected_tag = .{
         .expected = tags,
-        .found = self.peek().tag,
+        .found = self.peek(),
     } });
 }
 
@@ -612,7 +545,7 @@ pub fn peek(self: *@This()) tokenizer.Token {
     const token = self.next();
 
     self.next_token = token;
-    self.tokens.loc = token.start;
+    self.tokens.loc = token.range.start;
 
     return token;
 }
@@ -621,7 +554,7 @@ pub fn peek(self: *@This()) tokenizer.Token {
 pub fn next(self: *@This()) tokenizer.Token {
     // Return the cached token if possible
     if (self.next_token) |token| {
-        self.tokens.loc = token.end;
+        self.tokens.loc = token.range.end;
         self.next_token = null;
         return token;
     }
@@ -632,4 +565,63 @@ pub fn next(self: *@This()) tokenizer.Token {
         // Comments mean nothing for now
         if (token.tag != .comment) return token;
     }
+}
+
+pub fn Range(T: type) type {
+    return struct {
+        range: tokenizer.Range,
+        value: T,
+
+        pub fn wrap(parser: *Parser, read: fn (*Parser) ParsingError!T) ParsingError!@This() {
+            const start = parser.tokens.loc;
+
+            const value = try read(parser);
+
+            return .{
+                .range = .{
+                    .start = start,
+                    .end = parser.tokens.loc,
+                },
+                .value = value,
+            };
+        }
+        
+        pub fn map(self: @This(), context: anytype, mapping: anytype) MapErrorSuccess(@TypeOf(mapping), Range) {
+            return .{
+                .range = self.range,
+                .value = try mapping(context, self.value),
+            };
+        }
+
+        fn MapErrorSuccess(mapper: type, mapping: fn(type) type) type {
+            const return_type = @typeInfo(mapper).@"fn".return_type.?;
+
+            const error_union = @typeInfo(return_type).error_union;
+
+            return error_union.error_set!mapping(error_union.payload);
+        }
+
+        pub fn swap(self: @This(), new_value: anytype) Range(@TypeOf(new_value)) {
+            return .{
+                .range = self.range,
+                .value = new_value,
+            };
+        }
+
+        pub fn extend(self: @This(), N: type, parser: *Parser, read: fn (*Parser, @This()) ParsingError!N) ParsingError!Range(N) {
+            const value = try read(parser, self);
+
+            return .{
+                .range = .{
+                    .start = self.range.start,
+                    .end = parser.tokens.loc,
+                },
+                .value = value,
+            };
+        }
+
+        pub fn format(self: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+            try writer.print("{}", .{self.value});
+        }
+    };
 }

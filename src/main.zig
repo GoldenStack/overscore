@@ -21,22 +21,9 @@ pub fn main() !void {
     var parser = Parser.init(tokens, allocator);
 
     const container = parser.read_root() catch |err| {
-        const loc = parser.tokens.loc;
-
         if (err == error.ParsingError) {
-            std.debug.print("Error at {}: {any}\n", .{ loc, parser.error_context });
-
-            // Find the current line
-            const lineStart = if (std.mem.lastIndexOfScalar(u8, src[0..loc.pos], '\n')) |idx| idx + 1 else 0;
-            const lineEnd = std.mem.indexOfScalarPos(u8, src, loc.pos, '\n') orelse src.len;
-
-            const currentLine = src[lineStart..lineEnd];
-
-            std.debug.print("> {s}\n", .{currentLine});
-            const nextlen = parser.peek().value.len;
-            for (0..2 + loc.col - 1) |_| std.debug.print(" ", .{});
-            for (0..nextlen) |_| std.debug.print("^", .{});
-            std.debug.print("\n", .{});
+            const out = std.io.getStdOut().writer();
+            try parser.error_context.?.display("example.os", src, out);
 
             return;
         } else return err;
@@ -48,7 +35,8 @@ pub fn main() !void {
     var compiler = Compiler.init(allocator);
     const compiled = compiler.compile(container) catch |err| {
         if (err == error.CompilerError) {
-            std.debug.print("Error: {any}\n", .{compiler.error_context});
+            std.debug.print("Error: {?}\n", .{compiler.error_context});
+            return;
         } else return err;
     };
 

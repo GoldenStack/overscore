@@ -17,14 +17,27 @@ pub const Location = struct {
     }
 };
 
+pub const Range = struct {
+    start: Location,
+    end: Location,
+    
+    pub fn format(
+        self: @This(),
+        comptime _: []const u8,
+        _: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        try writer.print("from {} to {}", .{ self.start, self.end });
+    }
+};
+
 /// A token. This contains a tag, a raw value, and its position in the source
 /// string.
 pub const Token = struct {
     tag: Tag,
     value: []const u8,
 
-    start: Location,
-    end: Location,
+    range: Range,
 
     /// A token tag. This contains all of the possible unique meanings for tokens.
     pub const Tag = enum {
@@ -73,7 +86,7 @@ pub const Token = struct {
         _: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        try writer.print("Token.{s} \"{s}\" from {} to {}", .{ self.tag, self.value, self.start, self.end });
+        try writer.print("Token.{s} \"{s}\" {}", .{ self.tag, self.value, self.range });
     }
 };
 
@@ -194,8 +207,10 @@ pub const Tokenizer = struct {
 
             .value = value,
 
-            .start = start,
-            .end = end,
+            .range = .{
+                .start = start,
+                .end = end,
+            }
         };
     }
 };
