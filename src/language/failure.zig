@@ -145,12 +145,29 @@ pub const Error = union(enum) {
     }
 
     fn point_to(src: []const u8, range: Range, writer: anytype) !void {
-        // TODO: Handle multiple lines
-        try writer.writeAll(line_around(src, range.start));
-        try writer.writeAll("\n");
+        if (range.start.row == range.end.row) {
+            try writer.writeAll(line_around(src, range.start));
+            try writer.writeAll("\n");
 
-        for (0..range.start.col - 1) |_| try writer.writeAll(" ");
-        for (0..range.end.col - range.start.col) |_| try writer.writeAll("^");
-        try writer.writeAll("\n");
+            for (0..range.start.col - 1) |_| try writer.writeAll(" ");
+            for (0..range.end.col - range.start.col) |_| try writer.writeAll("^");
+            try writer.writeAll("\n");
+        } else {
+            const first_line = line_around(src, range.start);
+
+            try writer.writeAll(first_line);
+            try writer.writeAll("\n");
+
+            for (0..range.start.col - 1) |_| try writer.writeAll(" ");
+            try writer.writeAll("^");
+            for (range.start.col - 1..first_line.len -| 1) |_| try writer.writeAll("~");
+            try writer.writeAll("\n");
+            
+            try writer.writeAll(line_around(src, range.end));
+            try writer.writeAll("\n");
+
+            for (0..range.end.col - 1 -| 1) |_| try writer.writeAll("~");
+            try writer.writeAll("^\n");
+        }
     }
 };
