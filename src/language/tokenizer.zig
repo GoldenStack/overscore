@@ -100,15 +100,15 @@ pub fn Ranged(T: type) type {
 
 pub const Token = enum {
     // Special characters
-    @"{",
-    @"}",
-    @"(",
-    @")",
-    @"=",
-    @";",
-    @":",
-    @",",
-    @".",
+    opening_curly_bracket,
+    closing_curly_bracket,
+    opening_parentheses,
+    closing_parentheses,
+    equals,
+    semicolon,
+    colon,
+    comma,
+    period,
 
     // Kewords
     @"pub",
@@ -181,15 +181,15 @@ pub const Tokenizer = struct {
         return switch (self.next_char()) {
             // Fast paths for singular character tokens
             0 => .eof,
-            '{' => .@"{",
-            '}' => .@"}",
-            '(' => .@"(",
-            ')' => .@")",
-            '=' => .@"=",
-            ';' => .@";",
-            ':' => .@":",
-            ',' => .@",",
-            '.' => .@".",
+            '{' => .opening_curly_bracket,
+            '}' => .closing_curly_bracket,
+            '(' => .opening_parentheses,
+            ')' => .closing_parentheses,
+            '=' => .equals,
+            ';' => .semicolon,
+            ':' => .colon,
+            ',' => .comma,
+            '.' => .period,
 
             // Less fast paths for multi-character non-alphabetic tokens
             '/' => {

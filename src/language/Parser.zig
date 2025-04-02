@@ -126,11 +126,11 @@ pub fn read_container(self: *@This()) ParsingError!Container {
         else => unreachable,
     };
 
-    _ = try self.expect(.@"{");
+    _ = try self.expect(.opening_curly_bracket);
 
     const container = try self.read_container_contents(variant);
 
-    _ = try self.expect(.@"}");
+    _ = try self.expect(.closing_curly_bracket);
 
     return container;
 }
@@ -152,13 +152,13 @@ pub fn read_container_contents(self: *@This(), variant: ContainerVariant) Parsin
                     try context.fields.append(try Ranged(Field).wrap(parser, read_field));
 
                     // This makes the last comma mandatory in file containers
-                    if (parser.peek().value != .@"}") _ = try parser.expect(.@",");
+                    if (parser.peek().value != .closing_curly_bracket) _ = try parser.expect(.comma);
                 },
             }
         }
     }.read;
 
-    try self.read_iterated_until(null, .@"}", &container, read);
+    try self.read_iterated_until(null, .closing_curly_bracket, &container, read);
 
     return container;
 }
@@ -180,11 +180,11 @@ pub fn read_decl(self: *@This()) ParsingError!Decl {
 
     const name = try self.expect(.ident);
 
-    _ = try self.expect(.@"=");
+    _ = try self.expect(.equals);
 
     const value = try self.read_expr();
 
-    _ = try self.expect(.@";");
+    _ = try self.expect(.semicolon);
 
     return .{
         .mutability = mutability,
@@ -205,8 +205,8 @@ pub fn read_expr(self: *@This()) ParsingError!Ranged(Expr) {
     // Handle non-prefix operators
     while (true) {
         info = switch (self.peek().value) {
-            .@"(" => try info.map_extend(self, read_parameters),
-            .@"." => try info.map_extend(self, read_property),
+            .opening_parentheses => try info.map_extend(self, read_parameters),
+            .period => try info.map_extend(self, read_property),
             else => break,
         };
     }
@@ -219,14 +219,14 @@ fn read_expr_raw(self: *@This()) ParsingError!Expr {
         .@"fn" => try self.read_function(),
         .sum, .product => .{ .container = try Ranged(Container).wrap(self, read_container) },
         .ident => .{ .ident = self.next() },
-        .@"{" => .{ .block = try Ranged(Block).wrap(self, read_block) },
+        .opening_curly_bracket => .{ .block = try Ranged(Block).wrap(self, read_block) },
         .number => .{ .number = try self.read_number() },
-        .@"(" => .{ .parentheses = parens: {
+        .opening_parentheses => .{ .parentheses = parens: {
             _ = self.next();
 
             const expr = try self.read_expr_ptr();
 
-            _ = try self.expect(.@")");
+            _ = try self.expect(.closing_parentheses);
             break :parens expr;
         } },
         .unique => .{ .unique = unique: {
@@ -234,12 +234,12 @@ fn read_expr_raw(self: *@This()) ParsingError!Expr {
 
             break :unique try self.read_expr_ptr();
         } },
-        else => return self.fail_expected(&.{ .@"fn", .unique, .sum, .product, .ident, .@"{", .number, .unique }),
+        else => return self.fail_expected(&.{ .@"fn", .unique, .sum, .product, .ident, .opening_curly_bracket, .number, .unique }),
     };
 }
 
 pub fn read_property(self: *@This(), container: Ranged(Expr)) ParsingError!Expr {
-    _ = try self.expect(.@".");
+    _ = try self.expect(.period);
     const property = try self.expect(.ident);
 
     const ptr = try self.allocator.create(Ranged(Expr));
@@ -252,7 +252,7 @@ pub fn read_property(self: *@This(), container: Ranged(Expr)) ParsingError!Expr 
 }
 
 pub fn read_parameters(self: *@This(), function: Ranged(Expr)) ParsingError!Expr {
-    _ = try self.expect(.@"(");
+    _ = try self.expect(.opening_parentheses);
 
     var args = std.ArrayList(Ranged(Expr)).init(self.allocator);
 
@@ -262,9 +262,9 @@ pub fn read_parameters(self: *@This(), function: Ranged(Expr)) ParsingError!Expr
         }
     }.read;
 
-    try self.read_iterated_until(.@",", .@")", &args, read);
+    try self.read_iterated_until(.comma, .closing_parentheses, &args, read);
 
-    _ = try self.expect(.@")");
+    _ = try self.expect(.closing_parentheses);
 
     const ptr = try self.allocator.create(Ranged(Expr));
     ptr.* = function;
@@ -277,7 +277,7 @@ pub fn read_parameters(self: *@This(), function: Ranged(Expr)) ParsingError!Expr
 
 pub fn read_function(self: *@This()) ParsingError!Expr {
     _ = try self.expect(.@"fn");
-    _ = try self.expect(.@"(");
+    _ = try self.expect(.opening_parentheses);
 
     var params = std.ArrayList(Ranged(Field)).init(self.allocator);
 
@@ -287,13 +287,13 @@ pub fn read_function(self: *@This()) ParsingError!Expr {
         }
     }.read;
 
-    try self.read_iterated_until(.@",", .@")", &params, read);
+    try self.read_iterated_until(.comma, .closing_parentheses, &params, read);
 
-    _ = try self.expect(.@")");
+    _ = try self.expect(.closing_parentheses);
 
     const ret = try self.read_expr_ptr();
 
-    const body = if (self.peek().value == .@"{")
+    const body = if (self.peek().value == .opening_curly_bracket)
         try Ranged(Block).wrap(self, read_block)
     else
         null;
@@ -306,7 +306,7 @@ pub fn read_function(self: *@This()) ParsingError!Expr {
 }
 
 pub fn read_block(self: *@This()) ParsingError!Block {
-    _ = try self.expect(.@"{");
+    _ = try self.expect(.opening_curly_bracket);
 
     var stmts = std.ArrayList(Ranged(Stmt)).init(self.allocator);
 
@@ -316,9 +316,9 @@ pub fn read_block(self: *@This()) ParsingError!Block {
         }
     }.read;
 
-    try self.read_iterated_until(null, .@"}", &stmts, read);
+    try self.read_iterated_until(null, .closing_curly_bracket, &stmts, read);
 
-    _ = try self.expect(.@"}");
+    _ = try self.expect(.closing_curly_bracket);
 
     return .{ .stmts = stmts };
 }
@@ -326,7 +326,7 @@ pub fn read_block(self: *@This()) ParsingError!Block {
 pub fn read_field(self: *@This()) ParsingError!Field {
     const expr = try self.read_expr();
 
-    if (self.peek().value == .@":") { // Tagged
+    if (self.peek().value == .colon) { // Tagged
         if (expr.value == .ident) {
             _ = self.next(); // Read the colon
 
@@ -342,7 +342,7 @@ pub fn read_field(self: *@This()) ParsingError!Field {
 
     const name = try self.expect(.ident);
 
-    _ = try self.expect(.@":");
+    _ = try self.expect(.colon);
 
     const value = try self.read_expr();
 
@@ -359,7 +359,7 @@ pub fn read_stmt(self: *@This()) ParsingError!Stmt {
 
             const expr = try self.read_expr();
 
-            _ = try self.expect(.@";");
+            _ = try self.expect(.semicolon);
 
             return .{ .@"return" = expr };
         },
