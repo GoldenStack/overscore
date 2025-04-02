@@ -22,9 +22,17 @@ pub const Array = 2;
 pub const u128 = 2;
 
 pub const Void = {
-    const x = sum {};
-    const y = sum {};
+    const unique = 2;
+    const identifier = 250;
+    const identifier2 = 505050;
 };
+
+//const unique = product {};
+
+//var x456 = product { Y, a:   
+
+
+//Y   };
 
 pub const BeepBeep = fn (x: Person) Age {
     return x.age;
@@ -40,8 +48,8 @@ pub const unit = product {};
 pub const Ip = sum { u32, Array };
 pub const Ip2 = sum { v4: u32, v6: u128 };
 
-pub const UniqueStruct = unique product { X, Y };
-//const UniqueNull = unique empty;
+pub const DistinctStruct = distinct product { X, Y };
+//const DistinctNull = distinct empty;
 
 pub const X = (fn(a: u32, b: u32) u32 {
     const _ = ((((((((Void))))))));

@@ -28,16 +28,17 @@ pub const Type = union(enum) {
     /// A container. See docs for `Container` for more specifics.
     container: Container,
 
-    /// A unique wrapper around a type.
+    /// A wrapper around a type that makes it distinct from other types with
+    /// identical structural equality..
     ///
-    /// Since all types are, by default, equal by structure (i.e. `struct { u32
-    /// } == struct { u32 }`), a unique type simply removes equality by
-    /// identity, so, for example, `unique struct { u32 } != unique struct { u32
-    /// }`.
+    /// Since all types are, by default, equal by structure (i.e. `product { u32
+    /// } == struct { u32 }`), a distinct type simply disrupts structural
+    /// equality rules, so, for example, `distinct struct { u32 } != distinct
+    /// struct { u32 }`.
     ///
-    /// This does not necessarily affect coercion (i.e. `struct { 5 }` being
-    /// coercible to the type `unique struct { u32 }`).
-    unique: Ranged(*Expr),
+    /// This does not necessarily affect coercion (i.e. `product { 5 }` being
+    /// coercible to the type `distinct product { u32 }`).
+    distinct: Ranged(*Expr),
 
     /// An integer type. For now, integers are always unsigned 32-bit integers,
     /// but in the future they will ideally be ranged, similar to the proposal
@@ -234,7 +235,7 @@ fn semantics_expr(self: *@This(), expr: Parser.Expr) CompilerError!Expr {
         .block => |block| .{ .block = try block.map(self, semantics_block) },
         .number => |number| .{ .number = number },
         .parentheses => |parens| try self.semantics_expr(parens.*.value),
-        .unique => |unique| .{ .type = .{ .unique = try unique.map(self, semantics_expr_ptr) } },
+        .distinct => |distinct| .{ .type = .{ .distinct = try distinct.map(self, semantics_expr_ptr) } },
         .property => |property| .{ .property = .{
             .container = try property.container.map(self, semantics_expr_ptr),
             .property = property.property,
@@ -515,9 +516,9 @@ fn print_type(src: []const u8, @"type": Type, writer: anytype) anyerror!void {
             try print_expr(src, function.@"return".value.*, writer);
         },
         .container => |container| try print_container(src, container, writer),
-        .unique => |unique| {
-            try writer.writeAll("unique ");
-            try print_expr(src, unique.value.*, writer);
+        .distinct => |distinct| {
+            try writer.writeAll("distinct ");
+            try print_expr(src, distinct.value.*, writer);
         },
         .integer => try writer.writeAll("integer"),
         .type => try writer.writeAll("type"),

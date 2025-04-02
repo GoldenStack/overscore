@@ -68,7 +68,7 @@ pub const Expr = union(enum) {
     block: Ranged(Block),
     number: u32,
     parentheses: *Ranged(Expr),
-    unique: *Ranged(Expr),
+    distinct: *Ranged(Expr),
     property: struct {
         container: *Ranged(Expr),
         property: Ranged(Token),
@@ -229,12 +229,12 @@ fn read_expr_raw(self: *@This()) ParsingError!Expr {
             _ = try self.expect(.closing_parentheses);
             break :parens expr;
         } },
-        .unique => .{ .unique = unique: {
+        .distinct => .{ .distinct = distinct: {
             _ = self.next();
 
-            break :unique try self.read_expr_ptr();
+            break :distinct try self.read_expr_ptr();
         } },
-        else => return self.fail_expected(&.{ .@"fn", .unique, .sum, .product, .ident, .opening_curly_bracket, .number, .unique }),
+        else => return self.fail_expected(&.{ .@"fn", .distinct, .sum, .product, .ident, .opening_curly_bracket, .number }),
     };
 }
 
@@ -541,9 +541,9 @@ fn print_expr(src: []const u8, expr: Expr, writer: anytype) anyerror!void {
             try print_expr(src, parens.value, writer);
             try writer.writeAll(")");
         },
-        .unique => |unique| {
-            try writer.writeAll("unique ");
-            try print_expr(src, unique.value, writer);
+        .distinct => |distinct| {
+            try writer.writeAll("distinct ");
+            try print_expr(src, distinct.value, writer);
         },
         .property => |property| {
             try print_expr(src, property.container.value, writer);
