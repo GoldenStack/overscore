@@ -4,6 +4,17 @@ const Ranged = tokenizer.Ranged;
 const Token = tokenizer.Token;
 const Range = tokenizer.Range;
 
+const Esc = "\x1B";
+const Csi = Esc ++ "[";
+
+const Bold = Csi ++ "1m";
+const Unbold = Csi ++ "22m";
+
+const Reset = Csi ++ "0m";
+
+const Red = Csi ++ "31m";
+const Cyan = Csi ++ "36m";
+
 pub const Error = union(enum) {
     /// We expected one of several tags, but found an incorrect one.
     expected_tag: struct {
@@ -50,8 +61,8 @@ pub const Error = union(enum) {
             .expected_tag => |exp| {
                 const expected = exp.expected;
 
-                try prefix(filename, exp.found.range, writer);
-                try writer.writeAll("error: expected ");
+                try prefix(filename, exp.found.range, .err, writer);
+                try writer.writeAll("expected ");
 
                 switch (expected.len) {
                     0 => @panic("expected at least one argument to expect"),
@@ -66,64 +77,64 @@ pub const Error = union(enum) {
                     },
                 }
 
-                try writer.print(", but found {}\n", .{exp.found.value});
+                try writer.print(", but found {}\n" ++ Unbold, .{exp.found.value});
                 try point_to(src, exp.found.range, writer);
             },
             .number_too_large => |number| {
-                try prefix(filename, number.range, writer);
-                try writer.print("number \"{s}\" too large to store\n", .{number.range.substr(src)});
+                try prefix(filename, number.range, .err, writer);
+                try writer.print("number \"{s}\" too large to store\n" ++ Unbold, .{number.range.substr(src)});
                 try point_to(src, number.range, writer);
             },
             .redeclared_identifier => |red| {
-                try prefix(filename, red.redeclared.range, writer);
-                try writer.print("error: redeclaration of identifier '{s}'\n", .{red.redeclared.range.substr(src)});
+                try prefix(filename, red.redeclared.range, .err, writer);
+                try writer.print("redeclaration of identifier '{s}'\n" ++ Unbold, .{red.redeclared.range.substr(src)});
                 try point_to(src, red.redeclared.range, writer);
 
-                try prefix(filename, red.declared.range, writer);
-                try writer.writeAll("note: identifier initially declared here\n");
+                try prefix(filename, red.declared.range, .note, writer);
+                try writer.writeAll("identifier initially declared here\n" ++ Unbold);
                 try point_to(src, red.declared.range, writer);
             },
             .unknown_identifier => |unknown| {
-                try prefix(filename, unknown.range, writer);
-                try writer.print("error: use of undeclared identifier '{s}'\n", .{unknown.range.substr(src)});
+                try prefix(filename, unknown.range, .err, writer);
+                try writer.print("use of undeclared identifier '{s}'\n" ++ Unbold, .{unknown.range.substr(src)});
                 try point_to(src, unknown.range, writer);
             },
             .expected_homogenous_fields => |exp| {
                 if (exp.tagged_example.start.pos > exp.untagged_example.start.pos) {
-                    try prefix(filename, exp.tagged_example, writer);
-                    try writer.writeAll("error: tagged field declared after untagged field was declared in the same container\n");
+                    try prefix(filename, exp.tagged_example, .err, writer);
+                    try writer.writeAll("tagged field declared after untagged field was declared in the same container\n" ++ Unbold);
                     try point_to(src, exp.tagged_example, writer);
 
-                    try prefix(filename, exp.untagged_example, writer);
-                    try writer.writeAll("note: untagged field was declared here\n");
+                    try prefix(filename, exp.untagged_example, .note, writer);
+                    try writer.writeAll("untagged field was declared here\n" ++ Unbold);
                     try point_to(src, exp.untagged_example, writer);
                 } else {
-                    try prefix(filename, exp.untagged_example, writer);
-                    try writer.writeAll("error: untagged field declared after tagged field was declared in the same container\n");
+                    try prefix(filename, exp.untagged_example, .err, writer);
+                    try writer.writeAll("untagged field declared after tagged field was declared in the same container\n" ++ Unbold);
                     try point_to(src, exp.untagged_example, writer);
 
-                    try prefix(filename, exp.tagged_example, writer);
-                    try writer.writeAll("note: tagged field was declared here\n");
+                    try prefix(filename, exp.tagged_example, .note, writer);
+                    try writer.writeAll("tagged field was declared here\n" ++ Unbold);
                     try point_to(src, exp.tagged_example, writer);
                 }
             },
             .duplicate_tag => |dup| {
-                try prefix(filename, dup.redeclared.range, writer);
-                try writer.print("error: redeclaration of tag '{s}'\n", .{dup.redeclared.range.substr(src)});
+                try prefix(filename, dup.redeclared.range, .err, writer);
+                try writer.print("redeclaration of tag '{s}'\n" ++ Unbold, .{dup.redeclared.range.substr(src)});
                 try point_to(src, dup.redeclared.range, writer);
 
-                try prefix(filename, dup.declared.range, writer);
-                try writer.writeAll("note: tag initially declared here\n");
+                try prefix(filename, dup.declared.range, .note, writer);
+                try writer.writeAll("tag initially declared here\n" ++ Unbold);
                 try point_to(src, dup.declared.range, writer);
             },
             .expected_untagged_fields => |exp| {
-                try prefix(filename, exp.counterexample, writer);
-                try writer.writeAll("error: expected untagged fields, but found a tagged one\n");
+                try prefix(filename, exp.counterexample, .err, writer);
+                try writer.writeAll("expected untagged fields, but found a tagged one\n" ++ Unbold);
                 try point_to(src, exp.counterexample, writer);
             },
             .expected_tagged_fields => |exp| {
-                try prefix(filename, exp.counterexample, writer);
-                try writer.writeAll("error: expected tagged fields, but found an untagged one\n");
+                try prefix(filename, exp.counterexample, .err, writer);
+                try writer.writeAll("expected tagged fields, but found an untagged one\n" ++ Unbold);
                 try point_to(src, exp.counterexample, writer);
             },
         }
@@ -140,8 +151,18 @@ pub const Error = union(enum) {
         return src[start..end];
     }
 
-    fn prefix(filename: []const u8, range: Range, writer: anytype) !void {
-        try writer.print("{s}:{}:{}: ", .{ filename, range.start.row, range.start.col });
+    const DisplayType = enum {
+        err,
+        note,
+    };
+
+    fn prefix(filename: []const u8, range: Range, display_type: DisplayType, writer: anytype) !void {
+        const format = switch (display_type) {
+            .err => Red ++ "error",
+            .note => Cyan ++ "note",
+        };
+
+        try writer.print(Bold ++ "{s}:{}:{}: {s}: " ++ Reset ++ Bold, .{ filename, range.start.row, range.start.col, format });
     }
 
     fn line_prefix(loc: tokenizer.Location, show_number: bool, writer: anytype) !void {
