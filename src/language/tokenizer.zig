@@ -41,13 +41,13 @@ pub fn Ranged(T: type) type {
         value: T,
 
         pub fn wrap(context: anytype, read_fn: anytype) MapErrorPayload(@TypeOf(read_fn), Ranged) {
-            const start = context.location();
+            const start: Ranged(Token) = context.peek();
 
             const value = try read_fn(context);
 
             return .{
                 .range = .{
-                    .start = start,
+                    .start = start.range.start,
                     .end = context.location(),
                 },
                 .value = value,

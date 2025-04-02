@@ -439,10 +439,11 @@ pub fn peek(self: *@This()) Ranged(Token) {
     // This could be structured so that next() depends on peek(), but this would
     // mean that there's always hidden and unnecessary backtracking, which is
     // not ideal.
+    const start = self.location();
     const token = self.next();
 
     self.next_token = token;
-    self.tokens.loc = token.range.start;
+    self.tokens.loc = start;
 
     return token;
 }
