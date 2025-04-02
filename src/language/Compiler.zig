@@ -229,7 +229,7 @@ fn semantics_expr(self: *@This(), expr: Parser.Expr) CompilerError!Expr {
         .call => try self.semantics_call(expr),
         .container => |container| .{ .container = try container.map(self, semantics_container) },
         .ident => |ident| .{ .ident = self.names.get(ident) orelse return self.fail(.{
-            .unknown_identifier = ident,
+            .unknown_identifier = ident.range,
         }) },
         .block => |block| .{ .block = try block.map(self, semantics_block) },
         .number => |number| .{ .number = number },
@@ -332,8 +332,8 @@ fn semantics_block(self: *@This(), block: Parser.Block) CompilerError!Block {
 fn name_add(self: *@This(), name: Ranged(Token)) CompilerError!struct { usize, *Ranged(Decl) } {
     if (self.names.getEntry(name)) |entry| {
         return self.fail(.{ .redeclared_identifier = .{
-            .declared = entry.key_ptr.*,
-            .redeclared = name,
+            .declared = entry.key_ptr.*.range,
+            .redeclared = name.range,
         } });
     } else {
         const ptr = try self.allocator.create(Ranged(Decl));
@@ -403,8 +403,8 @@ fn enforce_tagged_fields(self: *@This(), fields: std.ArrayList(Ranged(Parser.Fie
                 for (list.items) |field| {
                     if (std.mem.eql(u8, field.value.name.range.substr(self.src), tagged.name.range.substr(self.src))) {
                         return self.fail(.{ .duplicate_tag = .{
-                            .declared = field.value.name,
-                            .redeclared = tagged.name,
+                            .declared = field.value.name.range,
+                            .redeclared = tagged.name.range,
                         } });
                     }
                 }

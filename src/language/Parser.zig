@@ -370,7 +370,7 @@ pub fn read_stmt(self: *@This()) ParsingError!Stmt {
 pub fn read_number(self: *@This()) ParsingError!u32 {
     const token = try self.expect(.number);
 
-    return std.fmt.parseUnsigned(u32, token.range.substr(self.src), 10) catch self.fail(.{ .number_too_large = token });
+    return std.fmt.parseUnsigned(u32, token.range.substr(self.src), 10) catch self.fail(.{ .number_too_large = token.range });
 }
 
 fn read_iterated_until(self: *@This(), comptime maybe_sep: ?Token, end: Token, context: anytype, reader: fn (*@This(), @TypeOf(context)) ParsingError!void) !void {

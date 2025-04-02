@@ -23,37 +23,37 @@ pub const Error = union(enum) {
     },
 
     /// A number literal was too large.
-    number_too_large: Ranged(Token),
+    number_too_large: Range,
 
     /// An identifier was declared in a context in which it already exists.
     redeclared_identifier: struct {
-        declared: Ranged(Token),
-        redeclared: Ranged(Token),
+        declared: Range,
+        redeclared: Range,
     },
 
     /// An identifier was used but it wasn't declared.
-    unknown_identifier: Ranged(Token),
+    unknown_identifier: Range,
 
     /// Expected entirely tagged or entirely untagged fields, but found a mixture.
     expected_homogenous_fields: struct {
-        untagged_example: tokenizer.Range,
-        tagged_example: tokenizer.Range,
+        untagged_example: Range,
+        tagged_example: Range,
     },
 
     /// A tag was declared twice in the same container or function.
     duplicate_tag: struct {
-        declared: Ranged(Token),
-        redeclared: Ranged(Token),
+        declared: Range,
+        redeclared: Range,
     },
 
     /// Expected only untagged fields, but found a tagged field.
     expected_untagged_fields: struct {
-        counterexample: tokenizer.Range,
+        counterexample: Range,
     },
 
     /// Expected only tagged fields, but found an untagged field.
     expected_tagged_fields: struct {
-        counterexample: tokenizer.Range,
+        counterexample: Range,
     },
 
     pub fn display(self: @This(), filename: []const u8, src: []const u8, writer: anytype) !void {
@@ -81,23 +81,23 @@ pub const Error = union(enum) {
                 try point_to(src, exp.found.range, writer);
             },
             .number_too_large => |number| {
-                try prefix(filename, number.range, .err, writer);
-                try writer.print("number \"{s}\" too large to store\n" ++ Unbold, .{number.range.substr(src)});
-                try point_to(src, number.range, writer);
+                try prefix(filename, number, .err, writer);
+                try writer.print("number \"{s}\" too large to store\n" ++ Unbold, .{number.substr(src)});
+                try point_to(src, number, writer);
             },
             .redeclared_identifier => |red| {
-                try prefix(filename, red.redeclared.range, .err, writer);
-                try writer.print("redeclaration of identifier '{s}'\n" ++ Unbold, .{red.redeclared.range.substr(src)});
-                try point_to(src, red.redeclared.range, writer);
+                try prefix(filename, red.redeclared, .err, writer);
+                try writer.print("redeclaration of identifier '{s}'\n" ++ Unbold, .{red.redeclared.substr(src)});
+                try point_to(src, red.redeclared, writer);
 
-                try prefix(filename, red.declared.range, .note, writer);
+                try prefix(filename, red.declared, .note, writer);
                 try writer.writeAll("identifier initially declared here\n" ++ Unbold);
-                try point_to(src, red.declared.range, writer);
+                try point_to(src, red.declared, writer);
             },
             .unknown_identifier => |unknown| {
-                try prefix(filename, unknown.range, .err, writer);
-                try writer.print("use of undeclared identifier '{s}'\n" ++ Unbold, .{unknown.range.substr(src)});
-                try point_to(src, unknown.range, writer);
+                try prefix(filename, unknown, .err, writer);
+                try writer.print("use of undeclared identifier '{s}'\n" ++ Unbold, .{unknown.substr(src)});
+                try point_to(src, unknown, writer);
             },
             .expected_homogenous_fields => |exp| {
                 if (exp.tagged_example.start.pos > exp.untagged_example.start.pos) {
@@ -119,13 +119,13 @@ pub const Error = union(enum) {
                 }
             },
             .duplicate_tag => |dup| {
-                try prefix(filename, dup.redeclared.range, .err, writer);
-                try writer.print("redeclaration of tag '{s}'\n" ++ Unbold, .{dup.redeclared.range.substr(src)});
-                try point_to(src, dup.redeclared.range, writer);
+                try prefix(filename, dup.redeclared, .err, writer);
+                try writer.print("redeclaration of tag '{s}'\n" ++ Unbold, .{dup.redeclared.substr(src)});
+                try point_to(src, dup.redeclared, writer);
 
-                try prefix(filename, dup.declared.range, .note, writer);
+                try prefix(filename, dup.declared, .note, writer);
                 try writer.writeAll("tag initially declared here\n" ++ Unbold);
-                try point_to(src, dup.declared.range, writer);
+                try point_to(src, dup.declared, writer);
             },
             .expected_untagged_fields => |exp| {
                 try prefix(filename, exp.counterexample, .err, writer);
