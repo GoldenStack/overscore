@@ -9,6 +9,8 @@ var Person = product {
     age: Age,
 };
 
+pub const Two = if 0 then 1 else 2;
+
 person: 2,
 abc: 2,
 //person,

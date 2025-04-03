@@ -119,6 +119,9 @@ pub const Token = enum {
     sum,
     @"fn",
     @"return",
+    @"if",
+    then,
+    @"else",
 
     // General language constructs
     ident,
@@ -249,6 +252,9 @@ pub const Tokenizer = struct {
             .{ "sum", .sum },
             .{ "fn", .@"fn" },
             .{ "return", .@"return" },
+            .{ "if", .@"if" },
+            .{ "then", .then },
+            .{ "else", .@"else" },
         });
 
         if (token.value == .ident) if (tags.get(token.range.substr(self.src))) |new_token| {

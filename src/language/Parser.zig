@@ -73,6 +73,11 @@ pub const Expr = union(enum) {
         container: *Ranged(Expr),
         property: Ranged(Token),
     },
+    @"if": struct {
+        condition: *Ranged(Expr),
+        then: *Ranged(Expr),
+        @"else": ?*Ranged(Expr),
+    },
 };
 
 pub const Block = struct {
@@ -234,8 +239,32 @@ fn read_expr_raw(self: *@This()) ParsingError!Expr {
 
             break :distinct try self.read_expr_ptr();
         } },
+        .@"if" => try self.read_if(),
         else => return self.fail_expected(&.{ .@"fn", .distinct, .sum, .product, .ident, .opening_curly_bracket, .number, .opening_parentheses }),
     };
+}
+
+pub fn read_if(self: *@This()) ParsingError!Expr {
+    _ = try self.expect(.@"if");
+
+    const condition = try self.read_expr_ptr();
+
+    _ = try self.expect(.then);
+
+    const then = try self.read_expr_ptr();
+
+    const @"else" = if (self.peek().value == .@"else") value: {
+        _ = try self.expect(.@"else");
+
+        break :value try self.read_expr_ptr();
+    } else null;
+
+    return .{ .@"if" = .{
+        .condition = condition,
+        .then = then,
+        .@"else" = @"else",
+    } };
+
 }
 
 pub fn read_property(self: *@This(), container: Ranged(Expr)) ParsingError!Expr {
@@ -549,6 +578,16 @@ fn print_expr(src: []const u8, expr: Expr, writer: anytype) anyerror!void {
             try print_expr(src, property.container.value, writer);
             try writer.print(" {s}", .{property.property.range.substr(src)});
         },
+        .@"if" => |i| {
+            try writer.writeAll("if ");
+            try print_expr(src, i.condition.value, writer);
+            try writer.writeAll(" then ");
+            try print_expr(src, i.then.value, writer);
+            if (i.@"else") |value| {
+                try writer.writeAll(" else ");
+                try print_expr(src, value.value, writer);
+            }
+        }
     }
 }
 

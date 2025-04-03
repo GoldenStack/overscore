@@ -116,6 +116,11 @@ pub const Expr = union(enum) {
         container: Ranged(*Expr),
         property: Ranged(Token),
     },
+    @"if": struct {
+        condition: Ranged(*Expr),
+        then: Ranged(*Expr),
+        @"else": ?Ranged(*Expr),
+    },
 };
 
 pub const Block = struct {
@@ -234,11 +239,16 @@ fn semantics_expr(self: *@This(), expr: Parser.Expr) CompilerError!Expr {
         }) },
         .block => |block| .{ .block = try block.map(self, semantics_block) },
         .number => |number| .{ .number = number },
-        .parentheses => |parens| try self.semantics_expr(parens.*.value),
+        .parentheses => |parens| try self.semantics_expr(parens.value),
         .distinct => |distinct| .{ .type = .{ .distinct = try distinct.map(self, semantics_expr_ptr) } },
         .property => |property| .{ .property = .{
             .container = try property.container.map(self, semantics_expr_ptr),
             .property = property.property,
+        } },
+        .@"if" => |i| .{ .@"if" = .{
+            .condition = try i.condition.map(self, semantics_expr_ptr),
+            .then = try i.then.map(self, semantics_expr_ptr),
+            .@"else" = if (i.@"else") |value| try value.map(self, semantics_expr_ptr) else null,
         } },
     };
 }
@@ -498,6 +508,16 @@ fn print_expr(src: []const u8, expr: Expr, writer: anytype) anyerror!void {
             try print_expr(src, property.container.value.*, writer);
             try writer.writeAll(".");
             try writer.writeAll(property.property.range.substr(src));
+        },
+        .@"if" => |i| {
+            try writer.writeAll("if ");
+            try print_expr(src, i.condition.value.*, writer);
+            try writer.writeAll(" then ");
+            try print_expr(src, i.then.value.*, writer);
+            if (i.@"else") |value| {
+                try writer.writeAll(" else ");
+                try print_expr(src, value.value.*, writer);
+            }
         },
     }
 }
