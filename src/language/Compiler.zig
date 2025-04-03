@@ -121,6 +121,14 @@ pub const Expr = union(enum) {
         then: Ranged(*Expr),
         @"else": ?Ranged(*Expr),
     },
+    do_while: struct {
+        do: Ranged(*Expr),
+        @"while": Ranged(*Expr),
+    },
+    while_do: struct {
+        do: Ranged(*Expr),
+        @"while": Ranged(*Expr),
+    },
 };
 
 pub const Block = struct {
@@ -249,6 +257,14 @@ fn semantics_expr(self: *@This(), expr: Parser.Expr) CompilerError!Expr {
             .condition = try i.condition.map(self, semantics_expr_ptr),
             .then = try i.then.map(self, semantics_expr_ptr),
             .@"else" = if (i.@"else") |value| try value.map(self, semantics_expr_ptr) else null,
+        } },
+        .do_while => |do_while| .{ .do_while = .{
+            .do = try do_while.do.map(self, semantics_expr_ptr),
+            .@"while" = try do_while.@"while".map(self, semantics_expr_ptr),
+        } },
+        .while_do => |while_do| .{ .while_do = .{
+            .@"while" = try while_do.@"while".map(self, semantics_expr_ptr),
+            .do = try while_do.do.map(self, semantics_expr_ptr),
         } },
     };
 }
@@ -518,6 +534,18 @@ fn print_expr(src: []const u8, expr: Expr, writer: anytype) anyerror!void {
                 try writer.writeAll(" else ");
                 try print_expr(src, value.value.*, writer);
             }
+        },
+        .do_while => |do_while| {
+            try writer.writeAll("do ");
+            try print_expr(src, do_while.do.value.*, writer);
+            try writer.writeAll(" while ");
+            try print_expr(src, do_while.@"while".value.*, writer);
+        },
+        .while_do => |while_do| {
+            try writer.writeAll("while ");
+            try print_expr(src, while_do.@"while".value.*, writer);
+            try writer.writeAll(" do ");
+            try print_expr(src, while_do.do.value.*, writer);
         },
     }
 }

@@ -27,6 +27,9 @@ pub const Void = {
     const unique = 2;
     const identifier = 250;
     const identifier2 = 505050;
+
+    const a = do {} while 0;
+    const b = while 0 do {};
 };
 
 //const unique = product {};

@@ -78,6 +78,14 @@ pub const Expr = union(enum) {
         then: *Ranged(Expr),
         @"else": ?*Ranged(Expr),
     },
+    do_while: struct {
+        do: *Ranged(Expr),
+        @"while": *Ranged(Expr),
+    },
+    while_do: struct {
+        do: *Ranged(Expr),
+        @"while": *Ranged(Expr),
+    },
 };
 
 pub const Block = struct {
@@ -240,8 +248,40 @@ fn read_expr_raw(self: *@This()) ParsingError!Expr {
             break :distinct try self.read_expr_ptr();
         } },
         .@"if" => try self.read_if(),
-        else => return self.fail_expected(&.{ .@"fn", .distinct, .sum, .product, .ident, .opening_curly_bracket, .number, .opening_parentheses }),
+        .do => try self.read_do_while(),
+        .@"while" => try self.read_while_do(),
+        else => return self.fail_expected(&.{ .@"fn", .distinct, .sum, .product, .ident, .opening_curly_bracket, .number, .opening_parentheses, .@"if", .do, .@"while" }),
     };
+}
+
+pub fn read_do_while(self: *@This()) ParsingError!Expr {
+    _ = try self.expect(.do);
+
+    const do = try self.read_expr_ptr();
+
+    _ = try self.expect(.@"while");
+
+    const @"while" = try self.read_expr_ptr();
+
+    return .{ .do_while = .{
+        .do = do,
+        .@"while" = @"while",
+    } };
+}
+
+pub fn read_while_do(self: *@This()) ParsingError!Expr {
+    _ = try self.expect(.@"while");
+
+    const @"while" = try self.read_expr_ptr();
+    
+    _ = try self.expect(.do);
+
+    const do = try self.read_expr_ptr();
+
+    return .{ .while_do = .{
+        .do = do,
+        .@"while" = @"while",
+    } };
 }
 
 pub fn read_if(self: *@This()) ParsingError!Expr {
@@ -587,7 +627,19 @@ fn print_expr(src: []const u8, expr: Expr, writer: anytype) anyerror!void {
                 try writer.writeAll(" else ");
                 try print_expr(src, value.value, writer);
             }
-        }
+        },
+        .do_while => |do_while| {
+            try writer.writeAll("do ");
+            try print_expr(src, do_while.do.value, writer);
+            try writer.writeAll(" while ");
+            try print_expr(src, do_while.@"while".value, writer);
+        },
+        .while_do => |while_do| {
+            try writer.writeAll("while ");
+            try print_expr(src, while_do.@"while".value, writer);
+            try writer.writeAll(" do ");
+            try print_expr(src, while_do.do.value, writer);
+        },
     }
 }
 
