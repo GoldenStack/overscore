@@ -234,7 +234,7 @@ fn read_expr_raw(self: *@This()) ParsingError!Expr {
 
             break :distinct try self.read_expr_ptr();
         } },
-        else => return self.fail_expected(&.{ .@"fn", .distinct, .sum, .product, .ident, .opening_curly_bracket, .number }),
+        else => return self.fail_expected(&.{ .@"fn", .distinct, .sum, .product, .ident, .opening_curly_bracket, .number, .opening_parentheses }),
     };
 }
 
