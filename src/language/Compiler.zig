@@ -19,7 +19,7 @@ pub const Type = union(enum) {
     /// sort of "lazy" evaluation, because functions are not (and usually can
     /// not) be eagerly evaluated.
     ///
-    /// A function signature works like this: `fn(x: i32, y: i32) i32`.
+    /// A function signature works like this: `fn(i32, i32) i32`.
     function: struct {
         parameters: std.ArrayList(Ranged(Expr)),
         @"return": Ranged(*Expr),
