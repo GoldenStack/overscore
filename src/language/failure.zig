@@ -151,12 +151,7 @@ pub const Error = union(enum) {
         return src[start..end];
     }
 
-    const DisplayType = enum {
-        err,
-        note,
-    };
-
-    fn prefix(filename: []const u8, range: Range, display_type: DisplayType, writer: anytype) !void {
+    fn prefix(filename: []const u8, range: Range, display_type: enum { err, note }, writer: anytype) !void {
         const format = switch (display_type) {
             .err => Red ++ "error",
             .note => Cyan ++ "note",
@@ -165,47 +160,57 @@ pub const Error = union(enum) {
         try writer.print(Bold ++ "{s}:{}:{}: {s}: " ++ Reset ++ Bold, .{ filename, range.start.row, range.start.col, format });
     }
 
-    fn line_prefix(loc: tokenizer.Location, show_number: bool, writer: anytype) !void {
-        if (show_number) {
-            try writer.print(" {} | ", .{loc.row});
-        } else {
-            const line_print_len = std.math.log10_int(loc.row) + 1;
+    fn line_prefix(loc: tokenizer.Location, display_type: enum { line, blank, continued }, writer: anytype) !void {
+        const line_print_len = std.math.log10_int(loc.row) + 1;
 
-            for (0..1 + line_print_len + 1) |_| try writer.writeAll(" ");
-            try writer.writeAll("| ");
+        switch (display_type) {
+            .line => try writer.print(" {} | ", .{loc.row}),
+            .blank => {
+                try writer.writeByteNTimes(' ', 1 + line_print_len + 1);
+                try writer.writeAll("| ");
+            },
+            .continued => {
+                const number_of_periods = @min(3, line_print_len);
+
+                try writer.writeByteNTimes(' ', 1 + line_print_len - number_of_periods);
+                try writer.writeByteNTimes('.', number_of_periods);
+                try writer.writeAll(" | ");
+            },
         }
     }
 
     fn point_to(src: []const u8, range: Range, writer: anytype) !void {
-        if (range.start.row == range.end.row) {
-            try line_prefix(range.start, true, writer);
+        const lines_diff = range.end.row -| range.start.row;
+
+        if (lines_diff == 0) {
+            try line_prefix(range.start, .line, writer);
             try writer.writeAll(line_around(src, range.start));
             try writer.writeAll("\n");
 
-            try line_prefix(range.start, false, writer);
+            try line_prefix(range.start, .blank, writer);
 
-            for (0..range.start.col - 1) |_| try writer.writeAll(" ");
-            for (0..range.end.col - range.start.col) |_| try writer.writeAll("^");
+            try writer.writeByteNTimes(' ', range.start.col - 1);
+            try writer.writeByteNTimes('^', range.end.col - range.start.col);
             try writer.writeAll("\n");
         } else {
             const first_line = line_around(src, range.start);
 
-            try line_prefix(range.start, true, writer);
+            try line_prefix(range.start, .line, writer);
             try writer.writeAll(first_line);
             try writer.writeAll("\n");
 
-            try line_prefix(range.start, false, writer);
-            for (0..range.start.col - 1) |_| try writer.writeAll(" ");
+            try line_prefix(range.start, if (lines_diff > 1) .continued else .blank, writer);
+            try writer.writeByteNTimes(' ', range.start.col - 1);
             try writer.writeAll("^");
-            for (range.start.col - 1..first_line.len -| 1) |_| try writer.writeAll("~");
+            try writer.writeByteNTimes('~', (first_line.len -| 1) - (range.start.col - 1));
             try writer.writeAll("\n");
 
-            try line_prefix(range.end, true, writer);
+            try line_prefix(range.end, .line, writer);
             try writer.writeAll(line_around(src, range.end));
             try writer.writeAll("\n");
 
-            try line_prefix(range.end, false, writer);
-            for (0..range.end.col - 1 -| 1) |_| try writer.writeAll("~");
+            try line_prefix(range.end, .blank, writer);
+            try writer.writeByteNTimes('~', range.end.col - 1 -| 1);
             try writer.writeAll("^\n");
         }
     }
