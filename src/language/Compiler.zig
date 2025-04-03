@@ -129,6 +129,7 @@ pub const Expr = union(enum) {
         do: Ranged(*Expr),
         @"while": Ranged(*Expr),
     },
+    @"return": Ranged(*Expr),
 };
 
 pub const Block = struct {
@@ -137,7 +138,7 @@ pub const Block = struct {
 
 pub const Stmt = union(enum) {
     decl: Ranged(Decl),
-    @"return": Ranged(Expr),
+    expr: Ranged(Expr),
 };
 
 /// The error set of errors that can occur while compiling.
@@ -266,6 +267,7 @@ fn semantics_expr(self: *@This(), expr: Parser.Expr) CompilerError!Expr {
             .@"while" = try while_do.@"while".map(self, semantics_expr_ptr),
             .do = try while_do.do.map(self, semantics_expr_ptr),
         } },
+        .@"return" => |ret| .{ .@"return" = try ret.map(self, semantics_expr_ptr) },
     };
 }
 
@@ -334,23 +336,23 @@ fn semantics_block(self: *@This(), block: Parser.Block) CompilerError!Block {
     for (block.stmts.items) |stmt| {
         switch (stmt.value) {
             .decl => |decl| {
-                _, const ptr = try self.name_add(decl.name);
+                _, const ptr = try self.name_add(decl.value.name);
                 ptr.* = stmt.swap(Decl{
-                    .mutability = decl.mutability,
-                    .name = decl.name,
-                    .value = try decl.value.map(self, semantics_expr),
+                    .mutability = decl.value.mutability,
+                    .name = decl.value.name,
+                    .value = try decl.value.value.map(self, semantics_expr),
                 });
 
                 try stmts.append(stmt.swap(Stmt{ .decl = ptr.* }));
             },
-            .@"return" => |ret| try stmts.append(stmt.swap(Stmt{
-                .@"return" = try ret.map(self, semantics_expr),
+            .expr => |expr| try stmts.append(stmt.swap(Stmt{
+                .expr = try expr.map(self, semantics_expr),
             })),
         }
     }
 
     for (block.stmts.items) |stmt| if (stmt.value == .decl) {
-        _ = self.names.remove(stmt.value.decl.name);
+        _ = self.names.remove(stmt.value.decl.value.name);
     };
 
     return .{ .stmts = stmts };
@@ -547,6 +549,10 @@ fn print_expr(src: []const u8, expr: Expr, writer: anytype) anyerror!void {
             try writer.writeAll(" do ");
             try print_expr(src, while_do.do.value.*, writer);
         },
+        .@"return" => |ret| {
+            try writer.writeAll("return ");
+            try print_expr(src, ret.value.*, writer);
+        },
     }
 }
 
@@ -587,10 +593,9 @@ fn print_block(src: []const u8, block: Block, writer: anytype) anyerror!void {
 fn print_stmt(src: []const u8, stmt: Stmt, writer: anytype) anyerror!void {
     switch (stmt) {
         .decl => |decl| try print_decl(src, decl.value, writer),
-        .@"return" => |ret| {
-            try writer.writeAll("return ");
-            try print_expr(src, ret.value, writer);
-            try writer.writeAll(";");
+        .expr => |expr| {
+            try print_expr(src, expr.value, writer);
+            try writer.writeByte(';');
         },
     }
 }

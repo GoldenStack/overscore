@@ -86,6 +86,7 @@ pub const Expr = union(enum) {
         do: *Ranged(Expr),
         @"while": *Ranged(Expr),
     },
+    @"return": *Ranged(Expr),
 };
 
 pub const Block = struct {
@@ -93,8 +94,8 @@ pub const Block = struct {
 };
 
 pub const Stmt = union(enum) {
-    decl: Decl,
-    @"return": Ranged(Expr),
+    decl: Ranged(Decl),
+    expr: Ranged(Expr),
 };
 
 /// The error set of errors that can occur while parsing.
@@ -250,7 +251,11 @@ fn read_expr_raw(self: *@This()) ParsingError!Expr {
         .@"if" => try self.read_if(),
         .do => try self.read_do_while(),
         .@"while" => try self.read_while_do(),
-        else => return self.fail_expected(&.{ .@"fn", .distinct, .sum, .product, .ident, .opening_curly_bracket, .number, .opening_parentheses, .@"if", .do, .@"while" }),
+        .@"return" => {
+            _ = self.next();
+            return .{ .@"return" = try self.read_expr_ptr() };
+        },
+        else => return self.fail_expected(&.{ .@"fn", .distinct, .sum, .product, .ident, .opening_curly_bracket, .number, .opening_parentheses, .@"if", .do, .@"while", .@"return" }),
     };
 }
 
@@ -423,16 +428,12 @@ pub fn read_field(self: *@This()) ParsingError!Field {
 
 pub fn read_stmt(self: *@This()) ParsingError!Stmt {
     return switch (self.peek().value) {
-        .@"return" => {
-            _ = self.next();
-
+        .@"var", .@"const" => .{ .decl = try Ranged(Decl).wrap(self, read_decl) },
+        else => .{ .expr = expr: {
             const expr = try self.read_expr();
-
             _ = try self.expect(.semicolon);
-
-            return .{ .@"return" = expr };
-        },
-        else => .{ .decl = try self.read_decl() },
+            break :expr expr;
+        } },
     };
 }
 
@@ -640,6 +641,11 @@ fn print_expr(src: []const u8, expr: Expr, writer: anytype) anyerror!void {
             try writer.writeAll(" do ");
             try print_expr(src, while_do.do.value, writer);
         },
+        .@"return" => |ret| {
+            try writer.writeAll("return ");
+            try print_expr(src, ret.value, writer);
+            try writer.writeAll(";");
+        },
     }
 }
 
@@ -656,11 +662,10 @@ fn print_block(src: []const u8, block: Block, writer: anytype) anyerror!void {
 
 fn print_stmt(src: []const u8, stmt: Stmt, writer: anytype) anyerror!void {
     switch (stmt) {
-        .decl => |decl| try print_decl(src, decl, writer),
-        .@"return" => |ret| {
-            try writer.writeAll("return ");
-            try print_expr(src, ret.value, writer);
-            try writer.writeAll(";");
+        .decl => |decl| try print_decl(src, decl.value, writer),
+        .expr => |expr| {
+            try print_expr(src, expr.value, writer);
+            try writer.writeByte(';');
         },
     }
 }
