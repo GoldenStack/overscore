@@ -739,7 +739,6 @@ fn print_expr(src: []const u8, expr: Expr, writer: anytype) anyerror!void {
         .@"return" => |ret| {
             try writer.writeAll("return ");
             try print_expr(src, ret.value, writer);
-            try writer.writeAll(";");
         },
     }
 }
