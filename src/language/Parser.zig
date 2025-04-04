@@ -8,7 +8,7 @@ const Parser = @This();
 
 pub const Container = struct {
     variant: ContainerVariant,
-    fields: std.ArrayList(Ranged(Field)),
+    fields: Fields,
     decls: std.ArrayList(Ranged(ContainerDecl)),
 };
 
@@ -22,7 +22,13 @@ pub const TaggedStatus = enum {
     tagged,
 };
 
-pub const Field = union(TaggedStatus) {
+pub const Fields = union(TaggedStatus) {
+    untagged: std.ArrayList(Ranged(Expr)),
+    tagged: std.ArrayList(Ranged(NamedExpr)),
+};
+
+/// Represents a field, while parsing. Not directly used in any AST structure.
+const Field = union(TaggedStatus) {
     untagged: Ranged(Expr),
     tagged: NamedExpr,
 };
@@ -55,7 +61,7 @@ pub const Mutability = enum {
 
 pub const Expr = union(enum) {
     function: struct {
-        parameters: std.ArrayList(Ranged(Field)),
+        parameters: Fields,
         @"return": *Ranged(Expr),
         body: ?Ranged(Block),
     },
@@ -150,14 +156,13 @@ pub fn read_container(self: *@This()) ParsingError!Container {
 }
 
 pub fn read_container_contents(self: *@This(), variant: ContainerVariant) ParsingError!Container {
-    var container: Container = .{
-        .variant = variant,
+    var ctx = .{
         .fields = std.ArrayList(Ranged(Field)).init(self.allocator),
         .decls = std.ArrayList(Ranged(ContainerDecl)).init(self.allocator),
     };
 
     const read = struct {
-        fn read(parser: *Parser, context: *Container) ParsingError!void {
+        fn read(parser: *Parser, context: *@TypeOf(ctx)) ParsingError!void {
             switch (parser.peek().value) {
                 .@"pub", .@"const", .@"var" => {
                     try context.decls.append(try Ranged(ContainerDecl).wrap(parser, read_container_decl));
@@ -172,9 +177,13 @@ pub fn read_container_contents(self: *@This(), variant: ContainerVariant) Parsin
         }
     }.read;
 
-    try self.read_iterated_until(null, .closing_curly_bracket, &container, read);
+    try self.read_iterated_until(null, .closing_curly_bracket, &ctx, read);
 
-    return container;
+    return .{
+        .variant = variant,
+        .fields = try self.homogenize_fields(ctx.fields, null, .untagged),
+        .decls = ctx.decls,
+    };
 }
 
 pub fn read_container_decl(self: *@This()) ParsingError!ContainerDecl {
@@ -373,7 +382,10 @@ pub fn read_function(self: *@This()) ParsingError!Expr {
         null;
 
     return .{ .function = .{
-        .parameters = params,
+        .parameters = try if (body == null)
+            self.enforce_untagged_fields(params)
+        else
+            self.enforce_tagged_fields(params),
         .@"return" = ret,
         .body = body,
     } };
@@ -425,6 +437,79 @@ pub fn read_field(self: *@This()) ParsingError!Field {
         .value = value,
     };
 }
+
+fn homogenize_fields(self: *@This(), fields: std.ArrayList(Ranged(Field)), expected: ?TaggedStatus, default: TaggedStatus) ParsingError!Fields {
+    if (fields.items.len == 0) {
+        return switch (expected orelse default) {
+            .untagged => .{ .untagged = std.ArrayList(Ranged(Expr)).init(self.allocator) },
+            .tagged => .{ .tagged = std.ArrayList(Ranged(NamedExpr)).init(self.allocator) },
+        };
+    }
+
+    return switch (expected orelse @as(TaggedStatus, fields.items[0].value)) {
+        .untagged => try self.enforce_untagged_fields(fields),
+        .tagged => self.enforce_tagged_fields(fields),
+    };
+}
+
+fn enforce_untagged_fields(self: *@This(), fields: std.ArrayList(Ranged(Field))) ParsingError!Fields {
+    var list = std.ArrayList(Ranged(Expr)).init(self.allocator);
+
+    if (fields.items.len > 0 and fields.items[0].value != .untagged) {
+        return self.fail(.{ .expected_untagged_fields = .{
+            .counterexample = fields.items[0].range,
+        } });
+    }
+
+    for (fields.items) |item| {
+        switch (item.value) {
+            .untagged => |untagged| try list.append(untagged),
+            .tagged => return self.fail(.{ .expected_homogenous_fields = .{
+                .untagged_example = fields.items[0].value.untagged.range,
+                .tagged_example = item.range,
+            } }),
+        }
+    }
+
+    return .{ .untagged = list };
+}
+
+fn enforce_tagged_fields(self: *@This(), fields: std.ArrayList(Ranged(Field))) ParsingError!Fields {
+    var list = std.ArrayList(Ranged(NamedExpr)).init(self.allocator);
+
+    if (fields.items.len > 0 and fields.items[0].value != .tagged) {
+        return self.fail(.{ .expected_tagged_fields = .{
+            .counterexample = fields.items[0].range,
+        } });
+    }
+
+    for (fields.items) |item| {
+        switch (item.value) {
+            .untagged => return self.fail(.{ .expected_homogenous_fields = .{
+                .untagged_example = item.range,
+                .tagged_example = fields.items[0].range,
+            } }),
+            .tagged => |tagged| {
+                for (list.items) |field| {
+                    if (std.mem.eql(u8, field.value.name.range.substr(self.src), tagged.name.range.substr(self.src))) {
+                        return self.fail(.{ .duplicate_tag = .{
+                            .declared = field.value.name.range,
+                            .redeclared = tagged.name.range,
+                        } });
+                    }
+                }
+
+                try list.append(item.swap(NamedExpr{
+                    .name = tagged.name,
+                    .value = tagged.value,
+                }));
+            },
+        }
+    }
+
+    return .{ .tagged = list };
+}
+
 
 pub fn read_stmt(self: *@This()) ParsingError!Stmt {
     return switch (self.peek().value) {
@@ -541,11 +626,7 @@ pub fn location(self: *@This()) tokenizer.Location {
 
 pub fn print_container(src: []const u8, container: Container, writer: anytype) anyerror!void {
     try writer.print("{s} {{ ", .{@tagName(container.variant)});
-
-    for (container.fields.items) |field| {
-        try print_field(src, field.value, writer);
-        try writer.writeAll(", ");
-    }
+    try print_fields(src, container.fields, writer);
 
     for (container.decls.items) |decl| {
         try print_container_decl(src, decl.value, writer);
@@ -578,14 +659,28 @@ fn print_named_expr(src: []const u8, named: NamedExpr, writer: anytype) anyerror
     try print_expr(src, named.value.value, writer);
 }
 
+fn print_fields(src: []const u8, fields: Fields, writer: anytype) anyerror!void {
+    switch (fields) {
+        .untagged => |untagged| {
+            for (untagged.items) |field| {
+                try print_expr(src, field.value, writer);
+                try writer.writeAll(", ");
+            }
+        },
+        .tagged => |tagged| {
+            for (tagged.items) |field| {
+                try print_named_expr(src, field.value, writer);
+                try writer.writeAll(", ");
+            }
+        },
+    }
+}
+
 fn print_expr(src: []const u8, expr: Expr, writer: anytype) anyerror!void {
     switch (expr) {
         .function => |function| {
             try writer.writeAll("fn (");
-            for (function.parameters.items) |param| {
-                try print_field(src, param.value, writer);
-                try writer.writeAll(", ");
-            }
+            try print_fields(src, function.parameters, writer);
             try writer.writeAll(") ");
             try print_expr(src, function.@"return".value, writer);
             if (function.body) |block| {

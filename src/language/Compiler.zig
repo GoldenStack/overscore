@@ -219,14 +219,34 @@ fn semantics_container(self: *@This(), container: Parser.Container) CompilerErro
         try decls.append(value);
     }
 
-    const fields = try self.homogenize_fields(container.fields, null, .untagged);
-
     for (container.decls.items) |decl| _ = self.names.remove(decl.value.decl.value.name);
 
     return .{
         .variant = container.variant,
-        .fields = fields,
+        .fields = try self.semantics_fields(container.fields),
         .decls = decls,
+    };
+}
+
+fn semantics_fields(self: *@This(), fields: Parser.Fields) CompilerError!Fields {
+    return switch (fields) {
+        .untagged => |untagged| {
+            var list = std.ArrayList(Ranged(Expr)).init(self.allocator);
+
+            for (untagged.items) |item| try list.append(try item.map(self, semantics_expr));
+
+            return .{ .untagged = list };
+        },
+        .tagged => |tagged| {
+            var list = std.ArrayList(Ranged(NamedExpr)).init(self.allocator);
+
+            for (tagged.items) |item| try list.append(item.swap(NamedExpr{
+                .name = item.value.name,
+                .value = try item.value.value.map(self, semantics_expr),
+            }));
+
+            return .{ .tagged = list };
+        },
     };
 }
 
@@ -293,22 +313,26 @@ fn semantics_function_declaration(self: *@This(), expr: Parser.Expr) CompilerErr
     const function = expr.function;
 
     // 1. Dump names into namespace without evaluating
-    for (function.parameters.items) |item| {
-        if (item.value == .tagged) {
-            // TODO: This induces name errors before correct tagged errors.
-            _ = try self.name_add(item.value.tagged.name);
-        }
+    for (function.parameters.tagged.items) |item| {
+        _ = try self.name_add(item.value.name);
     }
 
     // 2. Evaluate names and return value
-    const params = try self.enforce_tagged_fields(function.parameters);
+    var params = std.ArrayList(Ranged(NamedExpr)).init(self.allocator);
+    for (function.parameters.tagged.items) |item| {
+        try params.append(item.swap(NamedExpr{
+            .name = item.value.name,
+            .value = try item.value.value.map(self, semantics_expr),
+        }));
+    }
+
     const ret = try function.@"return".map(self, semantics_expr_ptr);
 
     // 3. Evaluate function body
     const body = try function.body.?.map(self, semantics_block);
 
     // 4. Clean up parameters in namespace
-    for (params.items) |param| _ = self.names.remove(param.value.name);
+    for (function.parameters.tagged.items) |param| _ = self.names.remove(param.value.name);
 
     // 5. Return values
     return .{ .function = .{
@@ -322,10 +346,13 @@ fn semantics_function_declaration(self: *@This(), expr: Parser.Expr) CompilerErr
 fn semantics_function_type(self: *@This(), expr: Parser.Expr) CompilerError!Expr {
     const function = expr.function;
 
-    const fields = try self.enforce_untagged_fields(function.parameters);
+    var params = std.ArrayList(Ranged(Expr)).init(self.allocator);
+    for (function.parameters.untagged.items) |item| {
+        try params.append(try item.map(self, semantics_expr));
+    }
 
     return .{ .type = .{ .function = .{
-        .parameters = fields,
+        .parameters = params,
         .@"return" = try function.@"return".map(self, semantics_expr_ptr),
     } } };
 }
@@ -373,80 +400,6 @@ fn name_add(self: *@This(), name: Ranged(Token)) CompilerError!struct { usize, *
 
         return .{ index, ptr };
     }
-}
-
-fn homogenize_fields(self: *@This(), fields: std.ArrayList(Ranged(Parser.Field)), expected: ?Parser.TaggedStatus, default: Parser.TaggedStatus) CompilerError!Fields {
-    if (fields.items.len == 0) {
-        return switch (expected orelse default) {
-            .untagged => .{ .untagged = std.ArrayList(Ranged(Expr)).init(self.allocator) },
-            .tagged => .{ .tagged = std.ArrayList(Ranged(NamedExpr)).init(self.allocator) },
-        };
-    }
-
-    return switch (expected orelse @as(Parser.TaggedStatus, fields.items[0].value)) {
-        .untagged => .{ .untagged = try self.enforce_untagged_fields(fields) },
-        .tagged => .{ .tagged = try self.enforce_tagged_fields(fields) },
-    };
-}
-
-/// Expects at least one item in `fields` and that the first item is untagged.
-fn enforce_untagged_fields(self: *@This(), fields: std.ArrayList(Ranged(Parser.Field))) CompilerError!std.ArrayList(Ranged(Expr)) {
-    var list = std.ArrayList(Ranged(Expr)).init(self.allocator);
-
-    if (fields.items.len > 0 and fields.items[0].value != .untagged) {
-        return self.fail(.{ .expected_untagged_fields = .{
-            .counterexample = fields.items[0].range,
-        } });
-    }
-
-    for (fields.items) |item| {
-        switch (item.value) {
-            .untagged => |untagged| try list.append(try untagged.map(self, semantics_expr)),
-            .tagged => return self.fail(.{ .expected_homogenous_fields = .{
-                .untagged_example = fields.items[0].value.untagged.range,
-                .tagged_example = item.range,
-            } }),
-        }
-    }
-
-    return list;
-}
-
-/// Expects at least one item in `fields` and that the first item is tagged.
-fn enforce_tagged_fields(self: *@This(), fields: std.ArrayList(Ranged(Parser.Field))) CompilerError!std.ArrayList(Ranged(NamedExpr)) {
-    var list = std.ArrayList(Ranged(NamedExpr)).init(self.allocator);
-
-    if (fields.items.len > 0 and fields.items[0].value != .tagged) {
-        return self.fail(.{ .expected_tagged_fields = .{
-            .counterexample = fields.items[0].range,
-        } });
-    }
-
-    for (fields.items) |item| {
-        switch (item.value) {
-            .untagged => return self.fail(.{ .expected_homogenous_fields = .{
-                .untagged_example = item.range,
-                .tagged_example = fields.items[0].range,
-            } }),
-            .tagged => |tagged| {
-                for (list.items) |field| {
-                    if (std.mem.eql(u8, field.value.name.range.substr(self.src), tagged.name.range.substr(self.src))) {
-                        return self.fail(.{ .duplicate_tag = .{
-                            .declared = field.value.name.range,
-                            .redeclared = tagged.name.range,
-                        } });
-                    }
-                }
-
-                try list.append(item.swap(NamedExpr{
-                    .name = tagged.name,
-                    .value = try tagged.value.map(self, semantics_expr),
-                }));
-            },
-        }
-    }
-
-    return list;
 }
 
 pub fn print_container(src: []const u8, container: Container, writer: anytype) anyerror!void {
