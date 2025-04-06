@@ -110,7 +110,7 @@ pub const Expr = union(enum) {
     container: Ranged(Container),
     ident: usize,
     block: Ranged(Block),
-    number: u32,
+    word: u32,
     type: Type,
     property: struct {
         container: Ranged(*Expr),
@@ -267,7 +267,7 @@ fn semantics_expr(self: *@This(), expr: Parser.Expr) CompilerError!Expr {
             .unknown_identifier = ident.range,
         }) },
         .block => |block| .{ .block = try block.map(self, semantics_block) },
-        .number => |number| .{ .number = number },
+        .word => |word| .{ .word = word },
         .parentheses => |parens| try self.semantics_expr(parens.value),
         .distinct => |distinct| .{ .type = .{ .distinct = try distinct.map(self, semantics_expr_ptr) } },
         .property => |property| .{ .property = .{
@@ -473,7 +473,7 @@ fn print_expr(src: []const u8, expr: Expr, writer: anytype) anyerror!void {
         .container => |container| try print_container(src, container.value, writer),
         .ident => |index| try writer.print("[{}]", .{index}),
         .block => |block| try print_block(src, block.value, writer),
-        .number => |number| try writer.print("{}", .{number}),
+        .word => |word| try writer.print("{}", .{word}),
         .type => |@"type"| try print_type(src, @"type", writer),
         .property => |property| {
             try print_expr(src, property.container.value.*, writer);

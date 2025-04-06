@@ -72,7 +72,7 @@ pub const Expr = union(enum) {
     container: Ranged(Container),
     ident: Ranged(Token),
     block: Ranged(Block),
-    number: u32,
+    word: u32,
     parentheses: *Ranged(Expr),
     distinct: *Ranged(Expr),
     property: struct {
@@ -243,7 +243,7 @@ fn read_expr_raw(self: *@This()) ParsingError!Expr {
         .sum, .product => .{ .container = try Ranged(Container).wrap(self, read_container) },
         .ident => .{ .ident = self.next() },
         .opening_curly_bracket => .{ .block = try Ranged(Block).wrap(self, read_block) },
-        .number => .{ .number = try self.read_number() },
+        .number => .{ .word = try self.read_number() },
         .opening_parentheses => .{ .parentheses = parens: {
             _ = self.next();
 
@@ -700,7 +700,7 @@ fn print_expr(src: []const u8, expr: Expr, writer: anytype) anyerror!void {
         .container => |container| try print_container(src, container.value, writer),
         .ident => |token| try writer.writeAll(token.range.substr(src)),
         .block => |block| try print_block(src, block.value, writer),
-        .number => |number| try writer.print("{}", .{number}),
+        .word => |word| try writer.print("{}", .{word}),
         .parentheses => |parens| {
             try writer.writeAll("(");
             try print_expr(src, parens.value, writer);

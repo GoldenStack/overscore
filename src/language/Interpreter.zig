@@ -194,7 +194,7 @@ fn eval_expr(self: *@This(), expr: *Ranged(Parser.Expr)) InterpreterError!void {
             expr.* = result.*;
         },
         .function => {}, // Functions are values - nothing to evaluate
-        .number => {}, // Numbers are values - nothing to evaluate
+        .word => {}, // Words are values - nothing to evaluate
         else => @panic("todo"),
     };
 }
