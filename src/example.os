@@ -1,5 +1,17 @@
 
-// Type names here are made up because complex expression parsing doesn't exist yet.
+pub const main = fn () void {
+    const number = second(5, CONSTANT);
+
+    return ((number));
+};
+
+pub const second = fn (first: 5, second: 10) 50 {
+    return second;
+};
+
+const CONSTANT = (7);
+
+} // Uses a parser bug to avoid parsing the rest of the file
 
 pub const zero = empty;
 pub var null = unit;

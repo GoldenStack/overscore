@@ -4,6 +4,7 @@ const Assembler = @import("Assembler.zig");
 const tokenizer = @import("language/tokenizer.zig");
 const Parser = @import("language/Parser.zig");
 const Compiler = @import("language/Compiler.zig");
+const Interpreter = @import("language/Interpreter.zig");
 
 pub fn main() !void {
     // Create an allocator and error if it leaks
@@ -22,7 +23,7 @@ pub fn main() !void {
     const tokens = tokenizer.Tokenizer.init(src);
     var parser = Parser.init(tokens, allocator);
 
-    const container = parser.read_root() catch |err| {
+    var container = parser.read_root() catch |err| {
         if (err == error.ParsingError) {
             try parser.error_context.?.display("example.os", src, stdout);
             return;
@@ -32,17 +33,28 @@ pub fn main() !void {
     try Parser.print_container(src, container.value, stdout);
     try stdout.writeByte('\n');
 
-    // Compile it!
-    var compiler = Compiler.init(src, allocator);
-    const compiled = compiler.compile(container) catch |err| {
-        if (err == error.CompilerError) {
-            try compiler.error_context.?.display("example.os", src, stdout);
+    var interpreter = Interpreter.init(allocator, src);
+    interpreter.eval_main(&container) catch |err| {
+        if (err == error.InterpreterError) {
+            try interpreter.error_context.?.display("example.os", src, stdout);
             return;
         } else return err;
     };
-
-    try Compiler.print_container(src, compiled.value, stdout);
+    
+    try Parser.print_container(src, container.value, stdout);
     try stdout.writeByte('\n');
+
+    // Compile it!
+    // var compiler = Compiler.init(src, allocator);
+    // const compiled = compiler.compile(container) catch |err| {
+    //     if (err == error.CompilerError) {
+    //         try compiler.error_context.?.display("example.os", src, stdout);
+    //         return;
+    //     } else return err;
+    // };
+
+    // try Compiler.print_container(src, compiled.value, stdout);
+    // try stdout.writeByte('\n');
 
     // // Load the assembly and convert it to a slice
     // const assembly = @embedFile("fibonacci.asm");
