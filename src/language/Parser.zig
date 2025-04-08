@@ -6,6 +6,21 @@ const Token = tokenizer.Token;
 
 const Parser = @This();
 
+/// Containers can take four main types:
+///
+/// - The product of multiple types, equivalent to a tuple. For example,
+///   `const Pos = product { word, word }`
+///
+/// - The product of multiple types, including a tag for each type. This is
+///   equivalent to a struct. For example, `const Pos = product { x: word, y: word }`
+///
+/// - The sum of multiple types. This is equivalent to a union, as there is, in
+///   memory, always overlap between multiple types as they're always
+///   represented as bits. For example, `const Ip = sum { word, [4]word }`.
+///
+/// - The sum of multiple types, including a tag for each type. This is
+///   equivalent to a tagged union. For example, `const Ip = sum { v4: word, v6:
+///   word }
 pub const Container = struct {
     variant: ContainerVariant,
     fields: Fields,
@@ -59,22 +74,79 @@ pub const Mutability = enum {
     variable,
 };
 
-pub const Expr = union(enum) {
+/// Type expressions. These cannot be reduced any further, but their constituent
+/// parts (parameters, declarations, values, etc) may need to be. They must be
+/// fully evaluated during compile time.
+pub const Type = union(enum) {
+    /// The function type. Holds a list of unnamed parameters and a return type.
+    /// A function signature looks like `fn (word, word) word`.
     function: struct {
-        parameters: Fields,
+        parameters: std.ArrayList(Ranged(Expr)),
         @"return": *Ranged(Expr),
-        body: ?Ranged(Block),
     },
+
+    /// A container. See docs for `Container` for more specifics.
+    container: Ranged(Container),
+
+    /// A wrapper around a type that makes it distinct from other types with
+    /// identical structural equality..
+    ///
+    /// Since all types are, by default, equal by structure (i.e. `product {
+    /// word } == struct { word }`), a distinct type simply disrupts structural
+    /// equality rules, so, for example, `distinct struct { word } != distinct
+    /// struct { word }`.
+    ///
+    /// This does not necessarily affect coercion (i.e. `product { 0 }` being
+    /// coercible to the type `distinct product { word }`).
+    distinct: *Ranged(Expr),
+
+    /// An integer type, the CPU "word". For now, integers are always unsigned
+    /// 32-bit integers, so they are referred to as words to reflect the
+    /// intention of this to be changed.
+    word,
+
+    /// A type.
+    ///
+    /// When the value of an expression is a type, the type of the expression is
+    /// `type`. This does lead to unsoundness in the type system due to
+    /// Russell's paradox, likely the only point of unsoundness, but I don't
+    /// really care.
+    type,
+};
+
+pub const Expr = union(enum) {
+    /// The primitive value that the CPU can handle, an unsigned 32-bit integer.
+    word: u32,
+
+    /// A function that can be called. This is the only way of representing any
+    /// sort of non-immediate execution/evaluation in the language. A function
+    /// declaration has zero or more named parameters, a return type, and a list
+    /// of statements comprising the body of the function. It does not
+    /// necessarily have a name.
+    ///
+    /// Function declarations look like `fn(a: word, b: word) word { return 0;
+    /// }`.
+    function: struct {
+        parameters: std.ArrayList(Ranged(NamedExpr)),
+        @"return": *Ranged(Expr),
+        body: Ranged(Block), // Only this part is stored at runtime
+    },
+
+    /// A type - see `Type`.
+    ///
+    /// This is not wrapped in a range because the values in `Type` are
+    /// conveniently stored separately, not because there's some special keyword
+    /// indicating that a type expression will follow.
+    type: Type,
+
+    // Composite expressions that are inherently not fully evaluated
     call: struct {
         function: *Ranged(Expr),
         arguments: std.ArrayList(Ranged(Expr)),
     },
-    container: Ranged(Container),
     ident: Ranged(Token),
     block: Ranged(Block),
-    word: u32,
     parentheses: *Ranged(Expr),
-    distinct: *Ranged(Expr),
     property: struct {
         container: *Ranged(Expr),
         property: Ranged(Token),
@@ -92,6 +164,8 @@ pub const Expr = union(enum) {
         do: *Ranged(Expr),
         @"while": *Ranged(Expr),
     },
+
+    // Control flow
     @"return": *Ranged(Expr),
 };
 
@@ -239,8 +313,8 @@ pub fn read_expr(self: *@This()) ParsingError!Ranged(Expr) {
 
 fn read_expr_raw(self: *@This()) ParsingError!Expr {
     return switch (self.peek().value) {
+        .sum, .product, .distinct, .word, .type => .{ .type = try self.read_type() },
         .@"fn" => try self.read_function(),
-        .sum, .product => .{ .container = try Ranged(Container).wrap(self, read_container) },
         .ident => .{ .ident = self.next() },
         .opening_curly_bracket => .{ .block = try Ranged(Block).wrap(self, read_block) },
         .number => .{ .word = try self.read_number() },
@@ -252,11 +326,6 @@ fn read_expr_raw(self: *@This()) ParsingError!Expr {
             _ = try self.expect(.closing_parentheses);
             break :parens expr;
         } },
-        .distinct => .{ .distinct = distinct: {
-            _ = self.next();
-
-            break :distinct try self.read_expr_ptr();
-        } },
         .@"if" => try self.read_if(),
         .do => try self.read_do_while(),
         .@"while" => try self.read_while_do(),
@@ -265,6 +334,26 @@ fn read_expr_raw(self: *@This()) ParsingError!Expr {
             return .{ .@"return" = try self.read_expr_ptr() };
         },
         else => return self.fail_expected(&.{ .@"fn", .distinct, .sum, .product, .ident, .opening_curly_bracket, .number, .opening_parentheses, .@"if", .do, .@"while", .@"return" }),
+    };
+}
+
+/// Reads a type. This does not handle function types; use `read_function` for
+/// that.
+pub fn read_type(self: *@This()) ParsingError!Type {
+    const token = try self.expect_many(&.{ .sum, .product, .distinct, .word, .type });
+
+    return switch (token.value) {
+        .sum, .product => .{ .container = try Ranged(Container).wrap(self, read_container) },
+        .distinct => .{
+            .distinct = distinct: {
+                _ = self.next(); // Skip the "distinct" token
+
+                break :distinct try self.read_expr_ptr();
+            },
+        },
+        .word => .word,
+        .type => .type,
+        else => unreachable,
     };
 }
 
@@ -287,7 +376,7 @@ pub fn read_while_do(self: *@This()) ParsingError!Expr {
     _ = try self.expect(.@"while");
 
     const @"while" = try self.read_expr_ptr();
-    
+
     _ = try self.expect(.do);
 
     const do = try self.read_expr_ptr();
@@ -318,7 +407,6 @@ pub fn read_if(self: *@This()) ParsingError!Expr {
         .then = then,
         .@"else" = @"else",
     } };
-
 }
 
 pub fn read_property(self: *@This(), container: Ranged(Expr)) ParsingError!Expr {
@@ -381,14 +469,18 @@ pub fn read_function(self: *@This()) ParsingError!Expr {
     else
         null;
 
-    return .{ .function = .{
-        .parameters = try if (body == null)
-            self.enforce_untagged_fields(params)
-        else
-            self.enforce_tagged_fields(params),
-        .@"return" = ret,
-        .body = body,
-    } };
+    if (body) |block| {
+        return .{ .function = .{
+            .parameters = try self.enforce_tagged_fields(params),
+            .@"return" = ret,
+            .body = block,
+        } };
+    } else {
+        return .{ .type = .{ .function = .{
+            .parameters = try self.enforce_untagged_fields(params),
+            .@"return" = ret,
+        } } };
+    }
 }
 
 pub fn read_block(self: *@This()) ParsingError!Block {
@@ -447,12 +539,12 @@ fn homogenize_fields(self: *@This(), fields: std.ArrayList(Ranged(Field)), expec
     }
 
     return switch (expected orelse @as(TaggedStatus, fields.items[0].value)) {
-        .untagged => try self.enforce_untagged_fields(fields),
-        .tagged => self.enforce_tagged_fields(fields),
+        .untagged => .{ .untagged = try self.enforce_untagged_fields(fields) },
+        .tagged => .{ .tagged = try self.enforce_tagged_fields(fields) },
     };
 }
 
-fn enforce_untagged_fields(self: *@This(), fields: std.ArrayList(Ranged(Field))) ParsingError!Fields {
+fn enforce_untagged_fields(self: *@This(), fields: std.ArrayList(Ranged(Field))) ParsingError!std.ArrayList(Ranged(Expr)) {
     var list = std.ArrayList(Ranged(Expr)).init(self.allocator);
 
     if (fields.items.len > 0 and fields.items[0].value != .untagged) {
@@ -471,10 +563,10 @@ fn enforce_untagged_fields(self: *@This(), fields: std.ArrayList(Ranged(Field)))
         }
     }
 
-    return .{ .untagged = list };
+    return list;
 }
 
-fn enforce_tagged_fields(self: *@This(), fields: std.ArrayList(Ranged(Field))) ParsingError!Fields {
+fn enforce_tagged_fields(self: *@This(), fields: std.ArrayList(Ranged(Field))) ParsingError!std.ArrayList(Ranged(NamedExpr)) {
     var list = std.ArrayList(Ranged(NamedExpr)).init(self.allocator);
 
     if (fields.items.len > 0 and fields.items[0].value != .tagged) {
@@ -507,9 +599,8 @@ fn enforce_tagged_fields(self: *@This(), fields: std.ArrayList(Ranged(Field))) P
         }
     }
 
-    return .{ .tagged = list };
+    return list;
 }
-
 
 pub fn read_stmt(self: *@This()) ParsingError!Stmt {
     return switch (self.peek().value) {
@@ -678,15 +769,17 @@ fn print_fields(src: []const u8, fields: Fields, writer: anytype) anyerror!void 
 
 fn print_expr(src: []const u8, expr: Expr, writer: anytype) anyerror!void {
     switch (expr) {
+        .type => |@"type"| try print_type(src, @"type", writer),
         .function => |function| {
             try writer.writeAll("fn (");
-            try print_fields(src, function.parameters, writer);
+            for (function.parameters.items) |field| {
+                try print_named_expr(src, field.value, writer);
+                try writer.writeAll(", ");
+            }
             try writer.writeAll(") ");
             try print_expr(src, function.@"return".value, writer);
-            if (function.body) |block| {
-                try writer.writeAll(" ");
-                try print_block(src, block.value, writer);
-            }
+            try writer.writeAll(" ");
+            try print_block(src, function.body.value, writer);
         },
         .call => |call| {
             try print_expr(src, call.function.value, writer);
@@ -697,7 +790,6 @@ fn print_expr(src: []const u8, expr: Expr, writer: anytype) anyerror!void {
             }
             try writer.writeAll(")");
         },
-        .container => |container| try print_container(src, container.value, writer),
         .ident => |token| try writer.writeAll(token.range.substr(src)),
         .block => |block| try print_block(src, block.value, writer),
         .word => |word| try writer.print("{}", .{word}),
@@ -705,10 +797,6 @@ fn print_expr(src: []const u8, expr: Expr, writer: anytype) anyerror!void {
             try writer.writeAll("(");
             try print_expr(src, parens.value, writer);
             try writer.writeAll(")");
-        },
-        .distinct => |distinct| {
-            try writer.writeAll("distinct ");
-            try print_expr(src, distinct.value, writer);
         },
         .property => |property| {
             try print_expr(src, property.container.value, writer);
@@ -740,6 +828,27 @@ fn print_expr(src: []const u8, expr: Expr, writer: anytype) anyerror!void {
             try writer.writeAll("return ");
             try print_expr(src, ret.value, writer);
         },
+    }
+}
+
+fn print_type(src: []const u8, @"type": Type, writer: anytype) anyerror!void {
+    switch (@"type") {
+        .function => |function| {
+            try writer.writeAll("fn (");
+            for (function.parameters.items) |field| {
+                try print_expr(src, field.value, writer);
+                try writer.writeAll(", ");
+            }
+            try writer.writeAll(") ");
+            try print_expr(src, function.@"return".value, writer);
+        },
+        .container => |container| try print_container(src, container.value, writer),
+        .distinct => |distinct| {
+            try writer.writeAll("distinct ");
+            try print_expr(src, distinct.value, writer);
+        },
+        .word => try writer.writeAll("word"),
+        .type => try writer.writeAll("type"),
     }
 }
 

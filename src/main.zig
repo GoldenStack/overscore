@@ -3,7 +3,6 @@ const Cpu = @import("Cpu.zig");
 const Assembler = @import("Assembler.zig");
 const tokenizer = @import("language/tokenizer.zig");
 const Parser = @import("language/Parser.zig");
-const Compiler = @import("language/Compiler.zig");
 const Interpreter = @import("language/Interpreter.zig");
 
 pub fn main() !void {
@@ -43,18 +42,6 @@ pub fn main() !void {
     
     try Parser.print_container(src, container.value, stdout);
     try stdout.writeByte('\n');
-
-    // Compile it!
-    // var compiler = Compiler.init(src, allocator);
-    // const compiled = compiler.compile(container) catch |err| {
-    //     if (err == error.CompilerError) {
-    //         try compiler.error_context.?.display("example.os", src, stdout);
-    //         return;
-    //     } else return err;
-    // };
-
-    // try Compiler.print_container(src, compiled.value, stdout);
-    // try stdout.writeByte('\n');
 
     // // Load the assembly and convert it to a slice
     // const assembly = @embedFile("fibonacci.asm");

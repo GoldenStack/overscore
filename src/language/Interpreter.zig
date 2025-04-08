@@ -6,55 +6,6 @@ const Token = tokenizer.Token;
 const Int = std.math.big.int.Managed;
 const Error = @import("failure.zig").Error;
 
-pub const TypeTag = enum {
-    function,
-    container,
-    distinct,
-    integer,
-    type,
-};
-
-/// Possible fully-evaluated type expressions.
-pub const Type = union(TypeTag) {
-    /// A function that can be called. This is the only way of expressing any
-    /// sort of "lazy" evaluation, because functions are not (and usually can
-    /// not) be eagerly evaluated.
-    ///
-    /// A function signature works like this: `fn(x: i32, y: i32) i32`.
-    function: struct {
-        parameters: std.ArrayList(Ranged(Parser.Expr)),
-        @"return": Ranged(*Parser.Expr),
-    },
-
-    /// A container. See docs for `Container` for more specifics.
-    container: Parser.Container,
-
-    /// A wrapper around a type that makes it distinct from other types with
-    /// identical structural equality..
-    ///
-    /// Since all types are, by default, equal by structure (i.e. `product { u32
-    /// } == struct { u32 }`), a distinct type simply disrupts structural
-    /// equality rules, so, for example, `distinct struct { u32 } != distinct
-    /// struct { u32 }`.
-    ///
-    /// This does not necessarily affect coercion (i.e. `product { 5 }` being
-    /// coercible to the type `distinct product { u32 }`).
-    distinct: Ranged(*Parser.Expr),
-
-    /// An integer type. For now, integers are always unsigned 32-bit integers,
-    /// but in the future they will ideally be ranged, similar to the proposal
-    /// for Zig.
-    integer,
-
-    /// A type.
-    ///
-    /// When the value of an expression is a type, the type of the expression is
-    /// `type`. This does lead to unsoundness in the type system due to
-    /// Russell's paradox, likely the only point of unsoundness, but I don't
-    /// really care.
-    type,
-};
-
 /// The error set of errors that can occur while interpreting.
 pub const InterpreterError = error{
     InterpreterError,
@@ -129,8 +80,8 @@ fn call_function(self: *@This(), function: *Ranged(Parser.Expr), args: *[]Ranged
     if (function.value != .function) @panic("Tried to call non-function");
 
     const func = &function.value.function;
-    const params = &func.parameters.tagged.items;
-    
+    const params = &func.parameters.items;
+
     if (args.len != params.len) @panic("Wrong number of parameters");
 
     // Add to namespace
@@ -141,7 +92,7 @@ fn call_function(self: *@This(), function: *Ranged(Parser.Expr), args: *[]Ranged
 
     var @"return": ?*Ranged(Parser.Expr) = null;
 
-    for (func.body.?.value.stmts.items) |*stmt| {
+    for (func.body.value.stmts.items) |*stmt| {
         const result = try self.eval_stmt(stmt);
         if (result) |value| {
             @"return" = value;
@@ -155,22 +106,16 @@ fn call_function(self: *@This(), function: *Ranged(Parser.Expr), args: *[]Ranged
     }
 
     // TODO: Assert types. Unit types are implied.
-    if (@"return" == null) @panic("Didn't return anything!")
-    else return @"return".?;
+    if (@"return" == null) @panic("Didn't return anything!") else return @"return".?;
 }
 
 fn is_main(self: *@This(), decl: *Parser.Decl) bool {
     if (!std.mem.eql(u8, "main", decl.name.range.substr(self.src))) return false;
-
-    const expr = &decl.value.value;
-
-    if (expr.* != .function) return false;
-    const function = expr.function;
-
-    if (function.body == null) return false;
-    if (function.parameters != .tagged or function.parameters.tagged.items.len != 0) return false;
-
-    return true;
+    
+    return switch (decl.value.value) {
+        .function => |function| function.parameters.items.len == 0,
+        else => false,
+    };
 }
 
 fn eval_stmt(self: *@This(), stmt: *Ranged(Parser.Stmt)) InterpreterError!?*Ranged(Parser.Expr) {
