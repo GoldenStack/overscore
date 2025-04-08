@@ -126,6 +126,8 @@ pub const Expr = union(enum) {
     ///
     /// Function declarations look like `fn(a: word, b: word) word { return 0;
     /// }`.
+    /// 
+    /// ([Zig#1717](https://github.com/ziglang/zig/issues/1717) my beloved)
     function: struct {
         parameters: std.ArrayList(Ranged(NamedExpr)),
         @"return": *Ranged(Expr),
