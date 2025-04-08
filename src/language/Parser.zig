@@ -151,6 +151,8 @@ pub const Expr = union(enum) {
         container: *Ranged(Expr),
         property: Ranged(Token),
     },
+
+    // Control flow
     @"if": struct {
         condition: *Ranged(Expr),
         then: *Ranged(Expr),
@@ -164,8 +166,6 @@ pub const Expr = union(enum) {
         do: *Ranged(Expr),
         @"while": *Ranged(Expr),
     },
-
-    // Control flow
     @"return": *Ranged(Expr),
 };
 
@@ -313,8 +313,13 @@ pub fn read_expr(self: *@This()) ParsingError!Ranged(Expr) {
 
 fn read_expr_raw(self: *@This()) ParsingError!Expr {
     return switch (self.peek().value) {
+        // Read type expressions
         .sum, .product, .distinct, .word, .type => .{ .type = try self.read_type() },
+        // Read function (type expression or function definition)
         .@"fn" => try self.read_function(),
+        // Read control flow
+        .@"if", .do, .@"while", .@"return" => try self.read_control_flow(),
+
         .ident => .{ .ident = self.next() },
         .opening_curly_bracket => .{ .block = try Ranged(Block).wrap(self, read_block) },
         .number => .{ .word = try self.read_number() },
@@ -326,13 +331,6 @@ fn read_expr_raw(self: *@This()) ParsingError!Expr {
             _ = try self.expect(.closing_parentheses);
             break :parens expr;
         } },
-        .@"if" => try self.read_if(),
-        .do => try self.read_do_while(),
-        .@"while" => try self.read_while_do(),
-        .@"return" => {
-            _ = self.next();
-            return .{ .@"return" = try self.read_expr_ptr() };
-        },
         else => return self.fail_expected(&.{ .@"fn", .distinct, .sum, .product, .ident, .opening_curly_bracket, .number, .opening_parentheses, .@"if", .do, .@"while", .@"return" }),
     };
 }
@@ -340,30 +338,36 @@ fn read_expr_raw(self: *@This()) ParsingError!Expr {
 /// Reads a type. This does not handle function types; use `read_function` for
 /// that.
 pub fn read_type(self: *@This()) ParsingError!Type {
-    const token = try self.expect_many(&.{ .sum, .product, .distinct, .word, .type });
-
-    return switch (token.value) {
+    return switch (self.peek().value) {
         .sum, .product => .{ .container = try Ranged(Container).wrap(self, read_container) },
-        .distinct => .{
-            .distinct = distinct: {
-                _ = self.next(); // Skip the "distinct" token
-
-                break :distinct try self.read_expr_ptr();
-            },
+        .distinct => {
+            _ = self.next(); // Skip the "distinct" token
+            return .{ .distinct = try self.read_expr_ptr() };
         },
         .word => .word,
         .type => .type,
-        else => unreachable,
+        else => self.fail_expected(&.{ .sum, .product, .distinct, .word, .type }),
+    };
+}
+
+pub fn read_control_flow(self: *@This()) ParsingError!Expr {
+    return switch (self.peek().value) {
+        .@"if" => try self.read_if(),
+        .do => try self.read_do_while(),
+        .@"while" => try self.read_while_do(),
+        .@"return" => {
+            _ = self.next(); // Skip the "return" token
+            return .{ .@"return" = try self.read_expr_ptr() };
+        },
+        else => self.fail_expected(&.{ .@"if", .do, .@"while", .@"return" }),
     };
 }
 
 pub fn read_do_while(self: *@This()) ParsingError!Expr {
     _ = try self.expect(.do);
-
     const do = try self.read_expr_ptr();
 
     _ = try self.expect(.@"while");
-
     const @"while" = try self.read_expr_ptr();
 
     return .{ .do_while = .{
@@ -374,11 +378,9 @@ pub fn read_do_while(self: *@This()) ParsingError!Expr {
 
 pub fn read_while_do(self: *@This()) ParsingError!Expr {
     _ = try self.expect(.@"while");
-
     const @"while" = try self.read_expr_ptr();
 
     _ = try self.expect(.do);
-
     const do = try self.read_expr_ptr();
 
     return .{ .while_do = .{
@@ -389,16 +391,13 @@ pub fn read_while_do(self: *@This()) ParsingError!Expr {
 
 pub fn read_if(self: *@This()) ParsingError!Expr {
     _ = try self.expect(.@"if");
-
     const condition = try self.read_expr_ptr();
 
     _ = try self.expect(.then);
-
     const then = try self.read_expr_ptr();
 
     const @"else" = if (self.peek().value == .@"else") value: {
         _ = try self.expect(.@"else");
-
         break :value try self.read_expr_ptr();
     } else null;
 

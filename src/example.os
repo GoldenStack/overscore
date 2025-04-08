@@ -2,6 +2,10 @@
 pub const main = fn () void {
     const number = second(5, CONSTANT);
 
+    var ppep = if 1 then { return 2; } else 2;
+    while 1234 do { {}; };
+    do {} while 1234;
+
     return ((number));
 };
 
