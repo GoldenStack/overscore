@@ -6,6 +6,11 @@ const Token = tokenizer.Token;
 const Int = std.math.big.int.Managed;
 const Error = @import("failure.zig").Error;
 
+pub const SideEffect = union(enum) {
+    /// Indicates that a value is being returned from a scope.
+    @"return": *Ranged(Parser.Expr),
+};
+
 /// The error set of errors that can occur while interpreting.
 pub const InterpreterError = error{
     InterpreterError,
@@ -42,12 +47,16 @@ error_context: ?Error = null,
 namespace: TokenHashMap(*Ranged(Parser.Expr)),
 
 pub fn init(allocator: std.mem.Allocator, src: [:0]const u8) @This() {
-    return .{ .src = src, .allocator = allocator, .namespace = TokenHashMap(*Ranged(Parser.Expr)).initContext(allocator, .{
+    return .{
         .src = src,
-    }) };
+        .allocator = allocator,
+        .namespace = TokenHashMap(*Ranged(Parser.Expr)).initContext(allocator, .{
+            .src = src,
+        }),
+    };
 }
 
-pub fn eval_main(self: *@This(), container: *Ranged(Parser.Container)) InterpreterError!void {
+pub fn eval_main(self: *@This(), container: *Ranged(Parser.Container)) InterpreterError!*Ranged(Parser.Expr) {
     var main: ?*Ranged(Parser.Expr) = null;
 
     // Add to namespace
@@ -65,17 +74,19 @@ pub fn eval_main(self: *@This(), container: *Ranged(Parser.Container)) Interpret
     if (main == null) @panic("Couldn't find main");
     var params: []Ranged(Parser.Expr) = &.{};
     const result = try self.call_function(main.?, &params);
-    std.debug.print("Main returned {any}\n", .{result.*});
+    _ = try self.eval_expr(result);
 
     // Remove from namespace
     for (container.value.decls.items) |item| {
         _ = self.namespace.remove(item.value.decl.value.name);
     }
+
+    return result;
 }
 
 fn call_function(self: *@This(), function: *Ranged(Parser.Expr), args: *[]Ranged(Parser.Expr)) InterpreterError!*Ranged(Parser.Expr) {
     // Fully evaluate the function
-    try self.eval_expr(function);
+    if (try self.eval_expr(function)) |result| return result.@"return";
 
     if (function.value != .function) @panic("Tried to call non-function");
 
@@ -90,15 +101,7 @@ fn call_function(self: *@This(), function: *Ranged(Parser.Expr), args: *[]Ranged
         try self.define(param.value.name, arg);
     }
 
-    var @"return": ?*Ranged(Parser.Expr) = null;
-
-    for (func.body.value.stmts.items) |*stmt| {
-        const result = try self.eval_stmt(stmt);
-        if (result) |value| {
-            @"return" = value;
-            break;
-        }
-    }
+    const block_result = try self.eval_block(&func.body);
 
     // Remove from namespace
     for (params.*) |param| {
@@ -106,41 +109,99 @@ fn call_function(self: *@This(), function: *Ranged(Parser.Expr), args: *[]Ranged
     }
 
     // TODO: Assert types. Unit types are implied.
-    if (@"return" == null) @panic("Didn't return anything!") else return @"return".?;
+    if (block_result) |result| {
+        return result.@"return";
+    } else {
+        // TODO: Nothing returned => try return unit value; allow `return;` to also imply unit value return?
+        @panic("Didn't return anything");
+    }
 }
 
 fn is_main(self: *@This(), decl: *Parser.Decl) bool {
     if (!std.mem.eql(u8, "main", decl.name.range.substr(self.src))) return false;
-    
+
     return switch (decl.value.value) {
         .function => |function| function.parameters.items.len == 0,
         else => false,
     };
 }
 
-fn eval_stmt(self: *@This(), stmt: *Ranged(Parser.Stmt)) InterpreterError!?*Ranged(Parser.Expr) {
-    switch (stmt.value) {
-        .decl => |*decl| try self.define(decl.value.name, &decl.value.value),
-        .expr => |*expr| if (expr.value == .@"return") return expr.value.@"return",
+fn eval_expr(self: *@This(), expr: *Ranged(Parser.Expr)) InterpreterError!?SideEffect {
+    return switch (expr.value) {
+        .word => null, // Words are values - nothing to evaluate
+        .function => null, // TODO: Evaluate
+
+        .type => |*@"type"| self.eval_type(@"type"),
+
+        .call => |*call| {
+            const result = try self.call_function(call.function, &call.arguments.items);
+            expr.* = result.*;
+            return null;
+        },
+        .ident => |ident| if (self.namespace.get(ident)) |value| {
+            if (try self.eval_expr(value)) |effect| return effect;
+            expr.* = value.*;
+            return null;
+        } else self.fail(.{ .unknown_identifier = ident.range }),
+        .block => |*block| self.eval_block(block),
+        .parentheses => |value| {
+            if (try self.eval_expr(value)) |effect| return effect;
+            expr.* = value.*; // "Unwrap" the value
+            return null;
+        },
+        .@"if" => |*condition| {
+            if (try self.eval_expr(condition.condition)) |effect| return effect;
+
+            const value = &condition.condition.value;
+
+            if (value.* != .word) @panic("Can only compare against word");
+
+            if (value.word != 0) { // Temporary boolean measures
+                if (try self.eval_expr(condition.then)) |effect| return effect;
+
+                expr.* = condition.then.*;
+            } else if (condition.@"else") |otherwise| {
+                if (try self.eval_expr(otherwise)) |effect| return effect;
+
+                expr.* = otherwise.*;
+            }
+            return null;
+        },
+        .@"return" => |value| {
+            if (try self.eval_expr(value)) |effect| return effect;
+            return .{ .@"return" = value };
+        },
+        else => @panic("todo"),
+    };
+}
+
+// TODO: Block evaluates to void (unit type) until labeled blocks are added
+fn eval_block(self: *@This(), block: *Ranged(Parser.Block)) InterpreterError!?SideEffect {
+    for (block.value.stmts.items) |*stmt| {
+        switch (stmt.value) {
+            .decl => |*decl| {
+                if (try self.eval_expr(&decl.value.value)) |effect| return effect;
+                try self.define(decl.value.name, &decl.value.value);
+            },
+            .expr => |*expr| if (try self.eval_expr(expr)) |effect| return effect,
+        }
+    }
+
+    for (block.value.stmts.items) |*stmt| {
+        if (stmt.value == .decl) {
+            _ = self.namespace.remove(stmt.value.decl.value.name);
+        }
     }
     return null;
 }
 
-fn eval_expr(self: *@This(), expr: *Ranged(Parser.Expr)) InterpreterError!void {
-    return switch (expr.value) {
-        .parentheses => |value| {
-            expr.* = value.*;
-        },
-        .ident => |ident| if (self.namespace.get(ident)) |value| {
-            expr.* = value.*;
-        } else self.fail(.{ .unknown_identifier = ident.range }),
-        .call => |*call| {
-            const result = try self.call_function(call.function, &call.arguments.items);
-            expr.* = result.*;
-        },
-        .function => {}, // Functions are values - nothing to evaluate
-        .word => {}, // Words are values - nothing to evaluate
-        else => @panic("todo"),
+fn eval_type(self: *@This(), @"type": *Parser.Type) InterpreterError!?SideEffect {
+    return switch (@"type".*) {
+        .function => null, // TODO
+        .container => null, // TODO
+        .distinct => |distinct| self.eval_expr(distinct),
+        .word => null, // No information; nothing to evaluate
+        .type => null, // No information; nothing to evaluate
     };
 }
 

@@ -1,15 +1,23 @@
 
 pub const main = fn () void {
-    const number = second(5, CONSTANT);
+    const number = snd(5, CONSTANT);
 
-    var ppep = if 1 then { return 2; } else 2;
-    while 1234 do { {}; };
-    do {} while 1234;
+    const SOMETHING = 0;
+
+    { var ppep = 2; };
+
+    var ppep = if SOMETHING then { return 50; } else { ABC(); };
+    
+    //return ppep;
+    //while 1234 do { {}; };
+    //do {} while 1234;
 
     return ((number));
 };
 
-pub const second = fn (first: 5, second: 10) 50 {
+pub const ABC = fn () void { return 100; };
+
+pub const snd = fn (first: 5, second: 10) 50 {
     return second;
 };
 

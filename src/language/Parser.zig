@@ -768,7 +768,7 @@ fn print_fields(src: []const u8, fields: Fields, writer: anytype) anyerror!void 
     }
 }
 
-fn print_expr(src: []const u8, expr: Expr, writer: anytype) anyerror!void {
+pub fn print_expr(src: []const u8, expr: Expr, writer: anytype) anyerror!void {
     switch (expr) {
         .type => |@"type"| try print_type(src, @"type", writer),
         .function => |function| {

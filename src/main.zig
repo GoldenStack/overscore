@@ -33,14 +33,14 @@ pub fn main() !void {
     try stdout.writeByte('\n');
 
     var interpreter = Interpreter.init(allocator, src);
-    interpreter.eval_main(&container) catch |err| {
+    const result = interpreter.eval_main(&container) catch |err| {
         if (err == error.InterpreterError) {
             try interpreter.error_context.?.display("example.os", src, stdout);
             return;
         } else return err;
     };
-    
-    try Parser.print_container(src, container.value, stdout);
+
+    Parser.print_expr(src, result.value, stdout) catch unreachable;
     try stdout.writeByte('\n');
 
     // // Load the assembly and convert it to a slice
