@@ -92,7 +92,7 @@ next_token: ?Ranged(Token) = null,
 /// contain anything.
 error_context: ?failure.Error = null,
 
-pub fn init(tokens: tokenizer.Tokenizer, allocator: std.mem.Allocator) @This() {
+pub fn init(allocator: std.mem.Allocator, tokens: tokenizer.Tokenizer) @This() {
     return .{
         .src = tokens.src,
         .tokens = tokens,

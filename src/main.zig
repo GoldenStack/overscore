@@ -3,6 +3,7 @@ const Cpu = @import("Cpu.zig");
 const Assembler = @import("Assembler.zig");
 const tokenizer = @import("language/tokenizer.zig");
 const Parser = @import("language/Parser.zig");
+const Interpreter = @import("language/Interpreter.zig");
 
 pub fn main() !void {
     // Create an allocator and error if it leaks
@@ -19,7 +20,7 @@ pub fn main() !void {
     const src = @embedFile("example2.os");
 
     const tokens = tokenizer.Tokenizer.init(src);
-    var parser = Parser.init(tokens, allocator);
+    var parser = Parser.init(allocator, tokens);
 
     const container = parser.read_root() catch |err| {
         if (err == error.SyntaxError) {
@@ -29,6 +30,17 @@ pub fn main() !void {
     };
 
     try parser.print_container(container, stdout);
+    try stdout.writeByte('\n');
+
+    var interpreter = Interpreter.init(allocator, src);
+    const result = interpreter.eval_main(container) catch |err| {
+        if (err == error.InterpreterError) {
+            try interpreter.error_context.?.display("example2.os", src, stdout);
+            return;
+        } else return err;
+    };
+
+    try parser.print_expr(result, stdout);
     try stdout.writeByte('\n');
 
     // // Load the assembly and convert it to a slice

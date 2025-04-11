@@ -25,36 +25,42 @@ pub const Error = union(enum) {
     /// A number literal was too large.
     number_too_large: Range,
 
-    /// An identifier was declared in a context in which it already exists.
-    redeclared_identifier: struct {
+    /// A member name was declared twice in the same container.
+    duplicate_member_name: struct {
         declared: Range,
         redeclared: Range,
     },
 
-    /// An identifier was used but it wasn't declared.
-    unknown_identifier: Range,
+    // /// An identifier was declared in a context in which it already exists.
+    // redeclared_identifier: struct {
+    //     declared: Range,
+    //     redeclared: Range,
+    // },
 
-    /// Expected entirely tagged or entirely untagged fields, but found a mixture.
-    expected_homogenous_fields: struct {
-        untagged_example: Range,
-        tagged_example: Range,
-    },
+    // /// An identifier was used but it wasn't declared.
+    // unknown_identifier: Range,
 
-    /// A tag was declared twice in the same container or function.
-    duplicate_tag: struct {
-        declared: Range,
-        redeclared: Range,
-    },
+    // /// Expected entirely tagged or entirely untagged fields, but found a mixture.
+    // expected_homogenous_fields: struct {
+    //     untagged_example: Range,
+    //     tagged_example: Range,
+    // },
 
-    /// Expected only untagged fields, but found a tagged field.
-    expected_untagged_fields: struct {
-        counterexample: Range,
-    },
+    // /// A tag was declared twice in the same container or function.
+    // duplicate_tag: struct {
+    //     declared: Range,
+    //     redeclared: Range,
+    // },
 
-    /// Expected only tagged fields, but found an untagged field.
-    expected_tagged_fields: struct {
-        counterexample: Range,
-    },
+    // /// Expected only untagged fields, but found a tagged field.
+    // expected_untagged_fields: struct {
+    //     counterexample: Range,
+    // },
+
+    // /// Expected only tagged fields, but found an untagged field.
+    // expected_tagged_fields: struct {
+    //     counterexample: Range,
+    // },
 
     pub fn display(self: @This(), filename: []const u8, src: []const u8, writer: anytype) !void {
         switch (self) {
@@ -85,58 +91,67 @@ pub const Error = union(enum) {
                 try writer.print("number \"{s}\" too large to store\n" ++ Unbold, .{number.substr(src)});
                 try point_to(src, number, writer);
             },
-            .redeclared_identifier => |red| {
-                try prefix(filename, red.redeclared, .err, writer);
-                try writer.print("redeclaration of identifier '{s}'\n" ++ Unbold, .{red.redeclared.substr(src)});
-                try point_to(src, red.redeclared, writer);
-
-                try prefix(filename, red.declared, .note, writer);
-                try writer.writeAll("identifier initially declared here\n" ++ Unbold);
-                try point_to(src, red.declared, writer);
-            },
-            .unknown_identifier => |unknown| {
-                try prefix(filename, unknown, .err, writer);
-                try writer.print("use of undeclared identifier '{s}'\n" ++ Unbold, .{unknown.substr(src)});
-                try point_to(src, unknown, writer);
-            },
-            .expected_homogenous_fields => |exp| {
-                if (exp.tagged_example.start.pos > exp.untagged_example.start.pos) {
-                    try prefix(filename, exp.tagged_example, .err, writer);
-                    try writer.writeAll("tagged field declared after untagged field was declared in the same container\n" ++ Unbold);
-                    try point_to(src, exp.tagged_example, writer);
-
-                    try prefix(filename, exp.untagged_example, .note, writer);
-                    try writer.writeAll("untagged field was declared here\n" ++ Unbold);
-                    try point_to(src, exp.untagged_example, writer);
-                } else {
-                    try prefix(filename, exp.untagged_example, .err, writer);
-                    try writer.writeAll("untagged field declared after tagged field was declared in the same container\n" ++ Unbold);
-                    try point_to(src, exp.untagged_example, writer);
-
-                    try prefix(filename, exp.tagged_example, .note, writer);
-                    try writer.writeAll("tagged field was declared here\n" ++ Unbold);
-                    try point_to(src, exp.tagged_example, writer);
-                }
-            },
-            .duplicate_tag => |dup| {
+            .duplicate_member_name => |dup| {
                 try prefix(filename, dup.redeclared, .err, writer);
-                try writer.print("redeclaration of tag '{s}'\n" ++ Unbold, .{dup.redeclared.substr(src)});
+                try writer.print("duplicate of member name '{s}' in container\n" ++ Unbold, .{dup.redeclared.substr(src)});
                 try point_to(src, dup.redeclared, writer);
 
                 try prefix(filename, dup.declared, .note, writer);
-                try writer.writeAll("tag initially declared here\n" ++ Unbold);
+                try writer.writeAll("name initially used here\n" ++ Unbold);
                 try point_to(src, dup.declared, writer);
             },
-            .expected_untagged_fields => |exp| {
-                try prefix(filename, exp.counterexample, .err, writer);
-                try writer.writeAll("expected untagged fields, but found a tagged one\n" ++ Unbold);
-                try point_to(src, exp.counterexample, writer);
-            },
-            .expected_tagged_fields => |exp| {
-                try prefix(filename, exp.counterexample, .err, writer);
-                try writer.writeAll("expected tagged fields, but found an untagged one\n" ++ Unbold);
-                try point_to(src, exp.counterexample, writer);
-            },
+            // .redeclared_identifier => |red| {
+            //     try prefix(filename, red.redeclared, .err, writer);
+            //     try writer.print("redeclaration of identifier '{s}'\n" ++ Unbold, .{red.redeclared.substr(src)});
+            //     try point_to(src, red.redeclared, writer);
+
+            //     try prefix(filename, red.declared, .note, writer);
+            //     try writer.writeAll("identifier initially declared here\n" ++ Unbold);
+            //     try point_to(src, red.declared, writer);
+            // },
+            // .unknown_identifier => |unknown| {
+            //     try prefix(filename, unknown, .err, writer);
+            //     try writer.print("use of undeclared identifier '{s}'\n" ++ Unbold, .{unknown.substr(src)});
+            //     try point_to(src, unknown, writer);
+            // },
+            // .expected_homogenous_fields => |exp| {
+            //     if (exp.tagged_example.start.pos > exp.untagged_example.start.pos) {
+            //         try prefix(filename, exp.tagged_example, .err, writer);
+            //         try writer.writeAll("tagged field declared after untagged field was declared in the same container\n" ++ Unbold);
+            //         try point_to(src, exp.tagged_example, writer);
+
+            //         try prefix(filename, exp.untagged_example, .note, writer);
+            //         try writer.writeAll("untagged field was declared here\n" ++ Unbold);
+            //         try point_to(src, exp.untagged_example, writer);
+            //     } else {
+            //         try prefix(filename, exp.untagged_example, .err, writer);
+            //         try writer.writeAll("untagged field declared after tagged field was declared in the same container\n" ++ Unbold);
+            //         try point_to(src, exp.untagged_example, writer);
+
+            //         try prefix(filename, exp.tagged_example, .note, writer);
+            //         try writer.writeAll("tagged field was declared here\n" ++ Unbold);
+            //         try point_to(src, exp.tagged_example, writer);
+            //     }
+            // },
+            // .duplicate_tag => |dup| {
+            //     try prefix(filename, dup.redeclared, .err, writer);
+            //     try writer.print("redeclaration of tag '{s}'\n" ++ Unbold, .{dup.redeclared.substr(src)});
+            //     try point_to(src, dup.redeclared, writer);
+
+            //     try prefix(filename, dup.declared, .note, writer);
+            //     try writer.writeAll("tag initially declared here\n" ++ Unbold);
+            //     try point_to(src, dup.declared, writer);
+            // },
+            // .expected_untagged_fields => |exp| {
+            //     try prefix(filename, exp.counterexample, .err, writer);
+            //     try writer.writeAll("expected untagged fields, but found a tagged one\n" ++ Unbold);
+            //     try point_to(src, exp.counterexample, writer);
+            // },
+            // .expected_tagged_fields => |exp| {
+            //     try prefix(filename, exp.counterexample, .err, writer);
+            //     try writer.writeAll("expected tagged fields, but found an untagged one\n" ++ Unbold);
+            //     try point_to(src, exp.counterexample, writer);
+            // },
         }
     }
 
