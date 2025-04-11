@@ -3,7 +3,6 @@ const Cpu = @import("Cpu.zig");
 const Assembler = @import("Assembler.zig");
 const tokenizer = @import("language/tokenizer.zig");
 const Parser = @import("language/Parser.zig");
-const Interpreter = @import("language/Interpreter.zig");
 
 pub fn main() !void {
     // Create an allocator and error if it leaks
@@ -17,30 +16,19 @@ pub fn main() !void {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    const src = @embedFile("example.os");
+    const src = @embedFile("example2.os");
 
     const tokens = tokenizer.Tokenizer.init(src);
     var parser = Parser.init(tokens, allocator);
 
-    var container = parser.read_root() catch |err| {
-        if (err == error.ParsingError) {
-            try parser.error_context.?.display("example.os", src, stdout);
+    const container = parser.read_root() catch |err| {
+        if (err == error.SyntaxError) {
+            try parser.error_context.?.display("example2.os", src, stdout);
             return;
         } else return err;
     };
 
-    try Parser.print_container(src, container.value, stdout);
-    try stdout.writeByte('\n');
-
-    var interpreter = Interpreter.init(allocator, src);
-    const result = interpreter.eval_main(&container) catch |err| {
-        if (err == error.InterpreterError) {
-            try interpreter.error_context.?.display("example.os", src, stdout);
-            return;
-        } else return err;
-    };
-
-    Parser.print_expr(src, result.value, stdout) catch unreachable;
+    try parser.print_container(container, stdout);
     try stdout.writeByte('\n');
 
     // // Load the assembly and convert it to a slice
