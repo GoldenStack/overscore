@@ -21,33 +21,13 @@ allocator: std.mem.Allocator,
 /// may contain anything.
 error_context: ?failure.Error = null,
 
-namespace: TokenHashMap(Ranged(ast.Expr)),
-
-/// Currently does not preserve order; waiting on
-/// [#23344](https://github.com/ziglang/zig/issues/23344) `ArrayHashMap` once
-/// again.
-fn TokenHashMap(comptime V: type) type {
-    const Context = struct {
-        src: [:0]const u8,
-
-        pub fn hash(self: @This(), token: Ranged(Token)) u64 {
-            return std.hash_map.hashString(token.range.substr(self.src));
-        }
-        pub fn eql(self: @This(), a: Ranged(Token), b: Ranged(Token)) bool {
-            return std.mem.eql(u8, a.range.substr(self.src), b.range.substr(self.src));
-        }
-    };
-
-    return std.HashMap(Ranged(Token), V, Context, std.hash_map.default_max_load_percentage);
-}
+namespace: std.StringHashMap(struct { Ranged(Token), Ranged(ast.Expr) }),
 
 pub fn init(allocator: std.mem.Allocator, src: [:0]const u8) @This() {
     return .{
         .src = src,
         .allocator = allocator,
-        .namespace = TokenHashMap(Ranged(ast.Expr)).initContext(allocator, .{
-            .src = src,
-        }),
+        .namespace = @FieldType(@This(), "namespace").init(allocator),
     };
 }
 
@@ -57,25 +37,58 @@ pub fn eval_main(self: *@This(), container: ast.Container) Error!ast.Expr {
     }
 
     defer for (container.decls.items) |item| {
-        _ = self.namespace.remove(item.value.name);
+        self.namespace_remove(item.value.name);
     };
 
-    // TODO: Get, eval, and return main.
-    return undefined;
+    const main = self.namespace.get("main") orelse @panic("No main function found!");
+
+    const mainValue = try self.eval_expr(main.@"1".value);
+
+    return mainValue;
+}
+
+fn eval_expr(self: *@This(), expr: ast.Expr) Error!ast.Expr {
+    return switch (expr) {
+        .type => |@"type"| .{ .type = try self.eval_type(@"type") },
+        .word => |word| .{ .word = word },
+        .ident => |ident| try self.eval_ident(ident),
+    };
+}
+
+fn eval_type(self: *@This(), @"type": ast.Type) Error!ast.Type {
+    _ = self;
+    return switch (@"type") {
+        .type => .type,
+        .word => .word,
+    };
+}
+
+fn eval_ident(self: *@This(), ident: Ranged(Token)) Error!ast.Expr {
+    return if (self.namespace.get(ident.range.substr(self.src))) |value| {
+        return value.@"1".value;
+    } else self.fail(.{ .unknown_identifier = ident.range });
 }
 
 /// Adds the given name and value to this namespace, returning an error if
 /// impossible.
 fn namespace_add(self: *@This(), name: Ranged(Token), value: Ranged(ast.Expr)) Error!void {
-    const result = try self.namespace.getOrPut(name);
+    // TODO: Differentiate between duplicate struct members and otherwise
+    //       duplicate names.
+    const result = try self.namespace.getOrPut(name.range.substr(self.src));
 
     if (result.found_existing) {
         return self.fail(.{ .duplicate_member_name = .{
-            .declared = result.key_ptr.*.range,
+            .declared = result.value_ptr.@"0".range,
             .redeclared = name.range,
         } });
     } else {
-        result.value_ptr.* = value;
+        result.value_ptr.* = .{ name, value };
+    }
+}
+
+fn namespace_remove(self: *@This(), name: Ranged(Token)) void {
+    if (!self.namespace.remove(name.range.substr(self.src))) {
+        @panic("Expected to be able to remove previously-added declaration!");
     }
 }
 

@@ -37,8 +37,8 @@ pub const Error = union(enum) {
     //     redeclared: Range,
     // },
 
-    // /// An identifier was used but it wasn't declared.
-    // unknown_identifier: Range,
+    /// An identifier was used but it wasn't declared.
+    unknown_identifier: Range,
 
     // /// Expected entirely tagged or entirely untagged fields, but found a mixture.
     // expected_homogenous_fields: struct {
@@ -109,11 +109,11 @@ pub const Error = union(enum) {
             //     try writer.writeAll("identifier initially declared here\n" ++ Unbold);
             //     try point_to(src, red.declared, writer);
             // },
-            // .unknown_identifier => |unknown| {
-            //     try prefix(filename, unknown, .err, writer);
-            //     try writer.print("use of undeclared identifier '{s}'\n" ++ Unbold, .{unknown.substr(src)});
-            //     try point_to(src, unknown, writer);
-            // },
+            .unknown_identifier => |unknown| {
+                try prefix(filename, unknown, .err, writer);
+                try writer.print("use of undeclared identifier '{s}'\n" ++ Unbold, .{unknown.substr(src)});
+                try point_to(src, unknown, writer);
+            },
             // .expected_homogenous_fields => |exp| {
             //     if (exp.tagged_example.start.pos > exp.untagged_example.start.pos) {
             //         try prefix(filename, exp.tagged_example, .err, writer);
