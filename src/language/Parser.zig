@@ -4,65 +4,70 @@ const failure = @import("failure.zig");
 const Ranged = tokenizer.Ranged;
 const Token = tokenizer.Token;
 
-/// A container, containing a list of declarations.
-pub const Container = struct {
-    decls: std.ArrayList(Ranged(Decl)),
-};
+/// The abstract syntax tree.
+pub const ast = struct {
 
-/// A declaration, consisting of an access modifier, a mutability modifier, a
-/// name, a type (explicit for now), and a value;
-pub const Decl = struct {
-    access: Access,
-    mutability: Mutability,
-    name: Ranged(Token),
+    /// A container, containing a list of declarations.
+    pub const Container = struct {
+        decls: std.ArrayList(Ranged(Decl)),
+    };
 
-    type: Ranged(Expr),
-    value: Ranged(Expr),
-};
+    /// A declaration, consisting of an access modifier, a mutability modifier, a
+    /// name, a type (explicit for now), and a value;
+    pub const Decl = struct {
+        access: Access,
+        mutability: Mutability,
+        name: Ranged(Token),
 
-/// An access modifier - either public or private.
-pub const Access = enum {
-    private,
-    public,
-};
+        type: Ranged(Expr),
+        value: Ranged(Expr),
+    };
 
-/// A mutability modifier - either constant or variable.
-pub const Mutability = enum {
-    constant,
-    variable,
-};
+    /// An access modifier - either public or private.
+    pub const Access = enum {
+        private,
+        public,
+    };
 
-/// Type expressions. These cannot be reduced any further, but their constituent
-/// parts (parameters, declarations, values, etc) may need to be. They must be
-/// fully evaluated during compile time.
-pub const Type = union(enum) {
-    /// An integer type, the CPU "word". For now, integers are always unsigned
-    /// 32-bit integers, so they are referred to as words to reflect the
-    /// intention of this to be changed.
-    word,
+    /// A mutability modifier - either constant or variable.
+    pub const Mutability = enum {
+        constant,
+        variable,
+    };
 
-    /// A type.
-    ///
-    /// When the value of an expression is a type, the type of the expression is
-    /// `type`. This does lead to unsoundness in the type system due to
-    /// Russell's paradox, likely the only point of unsoundness, but I don't
-    /// really care.
-    type,
-};
+    /// Type expressions. These cannot be reduced any further, but their constituent
+    /// parts (parameters, declarations, values, etc) may need to be. They must be
+    /// fully evaluated during compile time.
+    pub const Type = union(enum) {
+        /// An integer type, the CPU "word". For now, integers are always unsigned
+        /// 32-bit integers, so they are referred to as words to reflect the
+        /// intention of this to be changed.
+        word,
 
-pub const Expr = union(enum) {
-    /// The primitive value that the CPU can handle, an unsigned 32-bit integer.
-    word: u32,
+        /// A type.
+        ///
+        /// When the value of an expression is a type, the type of the expression is
+        /// `type`. This does lead to unsoundness in the type system due to
+        /// Russell's paradox, likely the only point of unsoundness, but I don't
+        /// really care.
+        type,
+    };
 
-    /// A type - see `Type`.
-    ///
-    /// This is not wrapped in a range because the values in `Type` are
-    /// conveniently stored separately, not because there's some special keyword
-    /// indicating that a type expression will follow.
-    type: Type,
+    pub const Expr = union(enum) {
+        /// The primitive value that the CPU can handle, an unsigned 32-bit integer.
+        word: u32,
 
-    /// An identifier that contains a value.
-    ident: Ranged(Token),
+        /// A type - see `Type`.
+        ///
+        /// This is not wrapped in a range because the values in `Type` are
+        /// conveniently stored separately, not because there's some special keyword
+        /// indicating that a type expression will follow.
+        type: Type,
+
+        /// An identifier that contains a value.
+        ident: Ranged(Token),
+    };
+
 };
 
 /// The error set of errors that can occur while parsing the AST.
@@ -97,11 +102,11 @@ pub fn init(tokens: tokenizer.Tokenizer, allocator: std.mem.Allocator) @This() {
 
 /// Reads the root container from this parser. This will consume the entire
 /// sorce file unless there is an error.
-pub fn read_root(self: *@This()) Error!Container {
-    var decls = std.ArrayList(Ranged(Decl)).init(self.allocator);
+pub fn read_root(self: *@This()) Error!ast.Container {
+    var decls = std.ArrayList(Ranged(ast.Decl)).init(self.allocator);
 
     while (self.peek().value != .eof) {
-        try decls.append(try Ranged(Decl).wrap(self, read_decl));
+        try decls.append(try Ranged(ast.Decl).wrap(self, read_decl));
     }
 
     return .{
@@ -110,10 +115,10 @@ pub fn read_root(self: *@This()) Error!Container {
 }
 
 /// Parses a declaration from this parser.
-pub fn read_decl(self: *@This()) Error!Decl {
-    const access: Access = if (self.consume(.@"pub")) |_| .public else .private;
+pub fn read_decl(self: *@This()) Error!ast.Decl {
+    const access: ast.Access = if (self.consume(.@"pub")) |_| .public else .private;
 
-    const mutability: Mutability = switch ((try self.expect_many(&.{ .@"const", .@"var" })).value) {
+    const mutability: ast.Mutability = switch ((try self.expect_many(&.{ .@"const", .@"var" })).value) {
         .@"const" => .constant,
         .@"var" => .variable,
         else => unreachable,
@@ -124,11 +129,11 @@ pub fn read_decl(self: *@This()) Error!Decl {
     // Type specifier is mandatory for now.
     _ = try self.expect(.colon);
 
-    const @"type" = try Ranged(Expr).wrap(self, read_expr);
+    const @"type" = try Ranged(ast.Expr).wrap(self, read_expr);
 
     _ = try self.expect(.equals);
 
-    const value = try Ranged(Expr).wrap(self, read_expr);
+    const value = try Ranged(ast.Expr).wrap(self, read_expr);
 
     _ = try self.expect(.semicolon);
 
@@ -145,7 +150,7 @@ pub fn read_decl(self: *@This()) Error!Decl {
 // functions for guaranteed values vs non-guaranteed values.
 
 /// Parses an expression from this parser.
-pub fn read_expr(self: *@This()) Error!Expr {
+pub fn read_expr(self: *@This()) Error!ast.Expr {
     return switch (self.peek().value) {
         // Read a type
         .word, .type => .{ .type = try self.read_type() },
@@ -161,7 +166,7 @@ pub fn read_expr(self: *@This()) Error!Expr {
 }
 
 /// Parses a type from this parser.
-pub fn read_type(self: *@This()) Error!Type {
+pub fn read_type(self: *@This()) Error!ast.Type {
     return switch (self.peek().value) {
         .word => {
             _ = self.consume(.word); // TODO: Add and switch to .skip() ?
@@ -263,9 +268,8 @@ pub fn location(self: *@This()) tokenizer.Location {
 
 // Functions for printing containers
 // TODO: Separate this into the `Print` namespace.
-//       Do I also separate the AST into an `AST` namespace?
 
-pub fn print_container(self: *const @This(), container: Container, writer: anytype) anyerror!void {
+pub fn print_container(self: *const @This(), container: ast.Container, writer: anytype) anyerror!void {
     try writer.writeAll("{ ");
 
     for (container.decls.items) |decl| {
@@ -276,7 +280,7 @@ pub fn print_container(self: *const @This(), container: Container, writer: anyty
     try writer.writeByte('}');
 }
 
-pub fn print_decl(self: *const @This(), decl: Decl, writer: anytype) anyerror!void {
+pub fn print_decl(self: *const @This(), decl: ast.Decl, writer: anytype) anyerror!void {
     if (decl.access == .public) try writer.writeAll("pub ");
 
     try writer.writeAll(switch (decl.mutability) {
@@ -295,7 +299,7 @@ pub fn print_decl(self: *const @This(), decl: Decl, writer: anytype) anyerror!vo
     try writer.writeAll(";");
 }
 
-pub fn print_expr(self: *const @This(), expr: Expr, writer: anytype) anyerror!void {
+pub fn print_expr(self: *const @This(), expr: ast.Expr, writer: anytype) anyerror!void {
     switch (expr) {
         .word => |word| try writer.print("{}", .{word}),
         .type => |@"type"| try self.print_type(@"type", writer),
@@ -303,7 +307,7 @@ pub fn print_expr(self: *const @This(), expr: Expr, writer: anytype) anyerror!vo
     }
 }
 
-pub fn print_type(self: *const @This(), @"type": Type, writer: anytype) anyerror!void {
+pub fn print_type(self: *const @This(), @"type": ast.Type, writer: anytype) anyerror!void {
     _ = self;
     switch (@"type") {
         .word => try writer.writeAll("word"),
