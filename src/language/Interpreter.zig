@@ -96,17 +96,27 @@ fn call_function(self: *@This(), function: *Ranged(Parser.Expr), args: *[]Ranged
     if (args.len != params.len) @panic("Wrong number of parameters");
 
     // Add to namespace
-    for (params.*, args.*) |param, *arg| {
-        // TODO: Assert types
+    for (params.*, args.*) |*param, *arg| {
         try self.define(param.value.name, arg);
     }
 
-    const block_result = try self.eval_block(&func.body);
-
-    // Remove from namespace
-    for (params.*) |param| {
-        _ = self.namespace.remove(param.value.name);
+    defer { // Remove from namespace
+        for (params.*) |param| {
+            _ = self.namespace.remove(param.value.name);
+        }
     }
+
+    for (params.*, args.*) |*param, *arg| {
+        if (try self.eval_expr(&param.value.value)) |_| @panic("Unexpected effect from type expression");
+        if (param.value.value.value != .type) @panic("Expected type expression for parameter");
+
+        if (!try self.expr_in_type(arg, &param.value.value.value.type)) @panic("Wrongly typed parameter!");
+    }
+
+    if (try self.eval_expr(func.@"return")) |_| @panic("Unexpected effect from return expression");
+    if (func.@"return".value != .type) @panic("Expected type expression for return expression");
+
+    const block_result = try self.eval_block(&func.body);
 
     // TODO: Assert types. Unit types are implied.
     if (block_result) |result| {
@@ -126,6 +136,26 @@ fn is_main(self: *@This(), decl: *Parser.Decl) bool {
     };
 }
 
+fn expr_in_type(self: *@This(), expr: *Ranged(Parser.Expr), @"type": *Parser.Type) !bool {
+    _ = self;
+    return switch (@"type".*) {
+        .function => |function_type| switch (expr.value) {
+            .function => |function| {
+                if (function_type.parameters.items.len != function.parameters.items.len) return false;
+
+                // TODO: Check every parameter, as well as the return type
+
+                return true;
+            },
+            else => false,
+        },
+        .container => false, // TODO: Implement struct literals
+        .distinct => false, // TODO: Figure out semantics for this
+        .word => expr.value == .word,
+        .type => expr.value == .type,
+    };
+}
+
 fn eval_expr(self: *@This(), expr: *Ranged(Parser.Expr)) InterpreterError!?SideEffect {
     return switch (expr.value) {
         .word => null, // Words are values - nothing to evaluate
@@ -134,6 +164,10 @@ fn eval_expr(self: *@This(), expr: *Ranged(Parser.Expr)) InterpreterError!?SideE
         .type => |*@"type"| self.eval_type(@"type"),
 
         .call => |*call| {
+            for (call.arguments.items) |*item| {
+                if (try self.eval_expr(item)) |effect| return effect;
+            }
+
             const result = try self.call_function(call.function, &call.arguments.items);
             expr.* = result.*;
             return null;

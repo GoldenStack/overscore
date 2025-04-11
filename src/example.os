@@ -17,9 +17,11 @@ pub const main = fn () void {
 
 pub const ABC = fn () void { return 100; };
 
-pub const snd = fn (first: 5, second: 10) 50 {
+pub const snd = fn (first: word, second: word) word {
     return second;
 };
+
+pub const void = product {};
 
 const CONSTANT = (7);
 

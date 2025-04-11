@@ -126,7 +126,7 @@ pub const Expr = union(enum) {
     ///
     /// Function declarations look like `fn(a: word, b: word) word { return 0;
     /// }`.
-    /// 
+    ///
     /// ([Zig#1717](https://github.com/ziglang/zig/issues/1717) my beloved)
     function: struct {
         parameters: std.ArrayList(Ranged(NamedExpr)),
@@ -346,8 +346,14 @@ pub fn read_type(self: *@This()) ParsingError!Type {
             _ = self.next(); // Skip the "distinct" token
             return .{ .distinct = try self.read_expr_ptr() };
         },
-        .word => .word,
-        .type => .type,
+        .word => {
+            _ = self.next(); // Skip the "word" token
+            return .word;
+        },
+        .type => {
+            _ = self.next(); // Skip the "type" token
+            return .type;
+        },
         else => self.fail_expected(&.{ .sum, .product, .distinct, .word, .type }),
     };
 }
