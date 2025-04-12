@@ -3,6 +3,7 @@ const tokenizer = @import("tokenizer.zig");
 const Ranged = tokenizer.Ranged;
 const Token = tokenizer.Token;
 const Range = tokenizer.Range;
+const ast = @import("Parser.zig").ast;
 
 const Esc = "\x1B";
 const Csi = Esc ++ "[";
@@ -38,6 +39,14 @@ pub const Error = union(enum) {
     dependency_loop: struct {
         declared: Range,
         depends: Range,
+    },
+
+    /// An expression was supposed to have a type but had a different one.
+    mismatched_type: struct {
+        expected_type: ast.Type,
+        found_type: ast.Type,
+        has_wrong_type: Range,
+        expected_type_declared: ?Range,
     },
 
     // /// Expected entirely tagged or entirely untagged fields, but found a mixture.
@@ -113,7 +122,22 @@ pub const Error = union(enum) {
                 try prefix(filename, dep.declared, .note, writer);
                 try writer.print("expression initially declared here\n" ++ Unbold, .{});
                 try point_to(src, dep.declared, writer);
-            }
+            },
+            .mismatched_type => |mis| {
+                try prefix(filename, mis.has_wrong_type, .err, writer);
+                try writer.writeAll("expected expression to be of type '");
+                try ast.print_type(src, mis.expected_type, writer);
+                try writer.writeAll("', found '");
+                try ast.print_type(src, mis.found_type, writer);
+                try writer.writeAll("'\n" ++ Unbold);
+                try point_to(src, mis.has_wrong_type, writer);
+
+                if (mis.expected_type_declared) |exp| {
+                    try prefix(filename, exp, .note, writer);
+                    try writer.print("type declared here\n" ++ Unbold, .{});
+                    try point_to(src, exp, writer);
+                }
+            },
             // .expected_homogenous_fields => |exp| {
             //     if (exp.tagged_example.start.pos > exp.untagged_example.start.pos) {
             //         try prefix(filename, exp.tagged_example, .err, writer);

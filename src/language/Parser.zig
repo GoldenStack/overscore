@@ -6,16 +6,21 @@ const Token = tokenizer.Token;
 
 /// The abstract syntax tree.
 pub const ast = struct {
-
     /// A container, containing a list of declarations.
     pub const Container = struct {
-        decls: std.ArrayList(Ranged(Decl)),
+        decls: std.ArrayList(Ranged(ContainerDecl)),
     };
 
-    /// A declaration, consisting of an access modifier, a mutability modifier, a
-    /// name, a type (explicit for now), and a value;
-    pub const Decl = struct {
+    /// A declaration in a container. This is equivalent to a normal declaration
+    /// except that it also has an access modifier.
+    pub const ContainerDecl = struct {
         access: Access,
+        decl: Decl,
+    };
+
+    /// A declaration, consisting of a mutability modifier, a name, a type
+    /// (explicit for now), and a value;
+    pub const Decl = struct {
         mutability: Mutability,
         name: Ranged(Token),
 
@@ -68,6 +73,60 @@ pub const ast = struct {
         ident: Ranged(Token),
     };
 
+    pub fn print_container(src: []const u8, container: ast.Container, writer: anytype) anyerror!void {
+        try writer.writeAll("{ ");
+
+        for (container.decls.items) |decl| {
+            try print_container_decl(src, decl.value, writer);
+            try writer.writeByte(' ');
+        }
+
+        try writer.writeByte('}');
+    }
+
+    pub fn print_container_decl(src: []const u8, decl: ast.ContainerDecl, writer: anytype) anyerror!void {
+        if (decl.access == .public) try writer.writeAll("pub ");
+
+        try print_decl(src, decl.decl, writer);
+    }
+
+    pub fn print_decl(src: []const u8, decl: ast.Decl, writer: anytype) anyerror!void {
+        try writer.writeAll(switch (decl.mutability) {
+            .constant => "const",
+            .variable => "var",
+        });
+        try writer.writeByte(' ');
+
+        try print_token(src, decl.name, writer);
+        try writer.writeAll(": ");
+
+        try print_expr(src,decl.type.value, writer);
+        try writer.writeAll(" = ");
+
+        try print_expr(src, decl.value.value, writer);
+        try writer.writeAll(";");
+    }
+
+    pub fn print_expr(src: []const u8, expr: ast.Expr, writer: anytype) anyerror!void {
+        switch (expr) {
+            .word => |word| try writer.print("{}", .{word}),
+            .type => |@"type"| try print_type(src, @"type", writer),
+            .ident => |ident| try print_token(src, ident, writer),
+        }
+    }
+
+    pub fn print_type(src: []const u8, @"type": ast.Type, writer: anytype) anyerror!void {
+        _ = src;
+        switch (@"type") {
+            .word => try writer.writeAll("word"),
+            .type => try writer.writeAll("type"),
+        }
+    }
+
+    pub fn print_token(src: []const u8, token: Ranged(Token), writer: anytype) anyerror!void {
+        try writer.writeAll(token.range.substr(src));
+    }
+
 };
 
 /// The error set of errors that can occur while parsing the AST.
@@ -103,10 +162,10 @@ pub fn init(allocator: std.mem.Allocator, tokens: tokenizer.Tokenizer) @This() {
 /// Reads the root container from this parser. This will consume the entire
 /// sorce file unless there is an error.
 pub fn read_root(self: *@This()) Error!ast.Container {
-    var decls = std.ArrayList(Ranged(ast.Decl)).init(self.allocator);
+    var decls = std.ArrayList(Ranged(ast.ContainerDecl)).init(self.allocator);
 
     while (self.peek().value != .eof) {
-        try decls.append(try Ranged(ast.Decl).wrap(self, read_decl));
+        try decls.append(try Ranged(ast.ContainerDecl).wrap(self, read_container_decl));
     }
 
     return .{
@@ -114,10 +173,18 @@ pub fn read_root(self: *@This()) Error!ast.Container {
     };
 }
 
-/// Parses a declaration from this parser.
-pub fn read_decl(self: *@This()) Error!ast.Decl {
+/// Parses a container declaration from this parser.
+pub fn read_container_decl(self: *@This()) Error!ast.ContainerDecl {
     const access: ast.Access = if (self.consume(.@"pub")) |_| .public else .private;
 
+    return .{
+        .access = access,
+        .decl = try self.read_decl(),
+    };
+}
+
+/// Parses a declaration from this parser.
+pub fn read_decl(self: *@This()) Error!ast.Decl {
     const mutability: ast.Mutability = switch ((try self.expect_many(&.{ .@"const", .@"var" })).value) {
         .@"const" => .constant,
         .@"var" => .variable,
@@ -138,10 +205,9 @@ pub fn read_decl(self: *@This()) Error!ast.Decl {
     _ = try self.expect(.semicolon);
 
     return .{
-        .access = access,
         .mutability = mutability,
         .name = name,
-        .@"type" = @"type",
+        .type = @"type",
         .value = value,
     };
 }
@@ -266,55 +332,3 @@ pub fn location(self: *@This()) tokenizer.Location {
     return self.tokens.loc;
 }
 
-// Functions for printing containers
-// TODO: Separate this into the `Print` namespace.
-
-pub fn print_container(self: *const @This(), container: ast.Container, writer: anytype) anyerror!void {
-    try writer.writeAll("{ ");
-
-    for (container.decls.items) |decl| {
-        try self.print_decl(decl.value, writer);
-        try writer.writeByte(' ');
-    }
-
-    try writer.writeByte('}');
-}
-
-pub fn print_decl(self: *const @This(), decl: ast.Decl, writer: anytype) anyerror!void {
-    if (decl.access == .public) try writer.writeAll("pub ");
-
-    try writer.writeAll(switch (decl.mutability) {
-        .constant => "const",
-        .variable => "var",
-    });
-    try writer.writeByte(' ');
-
-    try self.print_token(decl.name, writer);
-    try writer.writeAll(": ");
-
-    try self.print_expr(decl.type.value, writer);
-    try writer.writeAll(" = ");
-
-    try self.print_expr(decl.value.value, writer);
-    try writer.writeAll(";");
-}
-
-pub fn print_expr(self: *const @This(), expr: ast.Expr, writer: anytype) anyerror!void {
-    switch (expr) {
-        .word => |word| try writer.print("{}", .{word}),
-        .type => |@"type"| try self.print_type(@"type", writer),
-        .ident => |ident| try self.print_token(ident, writer),
-    }
-}
-
-pub fn print_type(self: *const @This(), @"type": ast.Type, writer: anytype) anyerror!void {
-    _ = self;
-    switch (@"type") {
-        .word => try writer.writeAll("word"),
-        .type => try writer.writeAll("type"),
-    }
-}
-
-pub fn print_token(self: *const @This(), token: Ranged(Token), writer: anytype) anyerror!void {
-    try writer.writeAll(token.range.substr(self.src));
-}

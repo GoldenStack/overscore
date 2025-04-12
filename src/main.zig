@@ -29,7 +29,7 @@ pub fn main() !void {
         } else return err;
     };
 
-    try parser.print_container(container, stdout);
+    try Parser.ast.print_container(src, container, stdout);
     try stdout.writeByte('\n');
 
     var interpreter = Interpreter.init(allocator, src);
@@ -40,7 +40,7 @@ pub fn main() !void {
         } else return err;
     };
 
-    try parser.print_expr(result, stdout);
+    try Parser.ast.print_expr(src, result, stdout);
     try stdout.writeByte('\n');
 
     // // Load the assembly and convert it to a slice

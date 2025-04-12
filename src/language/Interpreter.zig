@@ -8,8 +8,7 @@ const ast = @import("Parser.zig").ast;
 const failure = @import("failure.zig");
 
 pub const Value = struct {
-    name: Ranged(Token),
-    value: Ranged(ast.Expr),
+    decl: ast.Decl,
     evaluating: bool = false,
 };
 
@@ -39,19 +38,59 @@ pub fn init(allocator: std.mem.Allocator, src: [:0]const u8) @This() {
 
 pub fn eval_main(self: *@This(), container: ast.Container) Error!ast.Expr {
     for (container.decls.items) |item| {
-        try self.namespace_add(item.value.name, item.value.value);
+        try self.namespace_add(item.value.decl);
     }
 
     defer for (container.decls.items) |item| {
-        self.namespace_remove(item.value.name);
+        self.namespace_remove(item.value.decl);
     };
 
     const mainEntry = self.namespace.getEntry("main") orelse @panic("No main function found!");
-    mainEntry.value_ptr.evaluating = true;
+    try self.eval_namespace(mainEntry.value_ptr);
 
-    const mainValue = try self.eval_expr(mainEntry.value_ptr.value.value);
+    return mainEntry.value_ptr.decl.value.value;
+}
 
-    return mainValue;
+fn eval_namespace(self: *@This(), value: *Value) Error!void {
+    value.evaluating = true;
+    try self.eval_decl(&value.decl);
+    value.evaluating = false;
+}
+
+fn eval_decl(self: *@This(), decl: *ast.Decl) Error!void {
+    const @"type" = &decl.type.value;
+    @"type".* = try self.eval_expr(@"type".*);
+
+    const expr = &decl.value.value;
+    expr.* = try self.eval_expr(expr.*);
+
+    try self.expect_type(decl.type, .type, null);
+    try self.expect_type(decl.value, @"type".type, decl.type.range);
+}
+
+fn expect_type(self: *@This(), expr: Ranged(ast.Expr), @"type": ast.Type, cause: ?tokenizer.Range) Error!void {
+    if (!self.is_type(expr.value, @"type")) return self.fail(.{ .mismatched_type = .{
+        .expected_type = @"type",
+        .found_type = try self.type_of(expr.value),
+        .expected_type_declared = cause,
+        .has_wrong_type = expr.range,
+    } });
+}
+
+fn is_type(self: *@This(), expr: ast.Expr, @"type": ast.Type) bool {
+    _ = self;
+    return switch (@"type") {
+        .word => expr == .word,
+        .type => expr == .type,
+    };
+}
+
+fn type_of(self: *@This(), expr: ast.Expr) Error!ast.Type {
+    return switch (expr) {
+        .type => .type,
+        .word => .word,
+        .ident => |ident| try self.type_of((try self.namespace_get(ident)).decl.value.value),
+    };
 }
 
 fn eval_expr(self: *@This(), expr: ast.Expr) Error!ast.Expr {
@@ -61,12 +100,11 @@ fn eval_expr(self: *@This(), expr: ast.Expr) Error!ast.Expr {
         .ident => |ident| {
             const entry = try self.namespace_get(ident);
             if (entry.evaluating) return self.fail(.{ .dependency_loop = .{
-                .declared = entry.name.range,
+                .declared = entry.decl.name.range,
                 .depends = ident.range,
             } });
-            entry.evaluating = true;
-
-            return try self.eval_expr(entry.value.value);
+            try self.eval_namespace(entry);
+            return entry.decl.value.value;
         },
     };
 }
@@ -85,28 +123,24 @@ fn namespace_get(self: *@This(), ident: Ranged(Token)) Error!*Value {
     } else self.fail(.{ .unknown_identifier = ident.range });
 }
 
-/// Adds the given name and value to this namespace, returning an error if
-/// impossible.
-fn namespace_add(self: *@This(), name: Ranged(Token), value: Ranged(ast.Expr)) Error!void {
-    // TODO: Differentiate between duplicate struct members and otherwise
-    //       duplicate names.
-    const result = try self.namespace.getOrPut(name.range.substr(self.src));
+/// Adds a declaration to this namespace, returning an error if impossible.
+fn namespace_add(self: *@This(), decl: ast.Decl) Error!void {
+    const result = try self.namespace.getOrPut(decl.name.range.substr(self.src));
 
     if (result.found_existing) {
         return self.fail(.{ .redeclared_identifier = .{
-            .declared = result.value_ptr.value.range,
-            .redeclared = name.range,
+            .declared = result.value_ptr.decl.name.range,
+            .redeclared = decl.name.range,
         } });
     } else {
-        result.value_ptr.* = .{
-            .name = name,
-            .value = value,
-        };
+        result.value_ptr.* = .{ .decl = decl };
     }
 }
 
-fn namespace_remove(self: *@This(), name: Ranged(Token)) void {
-    if (!self.namespace.remove(name.range.substr(self.src))) {
+/// Removes a declaration from this namespace, assuming it was previously
+/// defined (panicking if otherwise).
+fn namespace_remove(self: *@This(), decl: ast.Decl) void {
+    if (!self.namespace.remove(decl.name.range.substr(self.src))) {
         @panic("Expected to be able to remove previously-added declaration!");
     }
 }
