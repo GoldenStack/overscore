@@ -25,20 +25,20 @@ pub const Error = union(enum) {
     /// A number literal was too large.
     number_too_large: Range,
 
-    /// A member name was declared twice in the same container.
-    duplicate_member_name: struct {
+    /// An identifier was declared in a context in which it already exists.
+    redeclared_identifier: struct {
         declared: Range,
         redeclared: Range,
     },
 
-    // /// An identifier was declared in a context in which it already exists.
-    // redeclared_identifier: struct {
-    //     declared: Range,
-    //     redeclared: Range,
-    // },
-
     /// An identifier was used but it wasn't declared.
     unknown_identifier: Range,
+
+    /// An expression depends on itself.
+    dependency_loop: struct {
+        declared: Range,
+        depends: Range,
+    },
 
     // /// Expected entirely tagged or entirely untagged fields, but found a mixture.
     // expected_homogenous_fields: struct {
@@ -91,29 +91,29 @@ pub const Error = union(enum) {
                 try writer.print("number \"{s}\" too large to store\n" ++ Unbold, .{number.substr(src)});
                 try point_to(src, number, writer);
             },
-            .duplicate_member_name => |dup| {
-                try prefix(filename, dup.redeclared, .err, writer);
-                try writer.print("duplicate of member name '{s}' in container\n" ++ Unbold, .{dup.redeclared.substr(src)});
-                try point_to(src, dup.redeclared, writer);
+            .redeclared_identifier => |red| {
+                try prefix(filename, red.redeclared, .err, writer);
+                try writer.print("redeclaration of identifier '{s}'\n" ++ Unbold, .{red.redeclared.substr(src)});
+                try point_to(src, red.redeclared, writer);
 
-                try prefix(filename, dup.declared, .note, writer);
-                try writer.writeAll("name initially used here\n" ++ Unbold);
-                try point_to(src, dup.declared, writer);
+                try prefix(filename, red.declared, .note, writer);
+                try writer.writeAll("identifier initially declared here\n" ++ Unbold);
+                try point_to(src, red.declared, writer);
             },
-            // .redeclared_identifier => |red| {
-            //     try prefix(filename, red.redeclared, .err, writer);
-            //     try writer.print("redeclaration of identifier '{s}'\n" ++ Unbold, .{red.redeclared.substr(src)});
-            //     try point_to(src, red.redeclared, writer);
-
-            //     try prefix(filename, red.declared, .note, writer);
-            //     try writer.writeAll("identifier initially declared here\n" ++ Unbold);
-            //     try point_to(src, red.declared, writer);
-            // },
             .unknown_identifier => |unknown| {
                 try prefix(filename, unknown, .err, writer);
                 try writer.print("use of undeclared identifier '{s}'\n" ++ Unbold, .{unknown.substr(src)});
                 try point_to(src, unknown, writer);
             },
+            .dependency_loop => |dep| {
+                try prefix(filename, dep.depends, .err, writer);
+                try writer.print("expression depends on itself\n" ++ Unbold, .{});
+                try point_to(src, dep.depends, writer);
+
+                try prefix(filename, dep.declared, .note, writer);
+                try writer.print("expression initially declared here\n" ++ Unbold, .{});
+                try point_to(src, dep.declared, writer);
+            }
             // .expected_homogenous_fields => |exp| {
             //     if (exp.tagged_example.start.pos > exp.untagged_example.start.pos) {
             //         try prefix(filename, exp.tagged_example, .err, writer);

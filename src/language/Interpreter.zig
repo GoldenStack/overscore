@@ -10,6 +10,7 @@ const failure = @import("failure.zig");
 pub const Value = struct {
     name: Ranged(Token),
     value: Ranged(ast.Expr),
+    evaluating: bool = false,
 };
 
 /// The error set of errors that can occur while interpreting.
@@ -45,9 +46,10 @@ pub fn eval_main(self: *@This(), container: ast.Container) Error!ast.Expr {
         self.namespace_remove(item.value.name);
     };
 
-    const main = self.namespace.get("main") orelse @panic("No main function found!");
+    const mainEntry = self.namespace.getEntry("main") orelse @panic("No main function found!");
+    mainEntry.value_ptr.evaluating = true;
 
-    const mainValue = try self.eval_expr(main.value.value);
+    const mainValue = try self.eval_expr(mainEntry.value_ptr.value.value);
 
     return mainValue;
 }
@@ -56,7 +58,16 @@ fn eval_expr(self: *@This(), expr: ast.Expr) Error!ast.Expr {
     return switch (expr) {
         .type => |@"type"| .{ .type = try self.eval_type(@"type") },
         .word => |word| .{ .word = word },
-        .ident => |ident| try self.eval_expr(try self.namespace_get(ident)),
+        .ident => |ident| {
+            const entry = try self.namespace_get(ident);
+            if (entry.evaluating) return self.fail(.{ .dependency_loop = .{
+                .declared = entry.name.range,
+                .depends = ident.range,
+            } });
+            entry.evaluating = true;
+
+            return try self.eval_expr(entry.value.value);
+        },
     };
 }
 
@@ -68,9 +79,9 @@ fn eval_type(self: *@This(), @"type": ast.Type) Error!ast.Type {
     };
 }
 
-fn namespace_get(self: *@This(), ident: Ranged(Token)) Error!ast.Expr {
-    return if (self.namespace.get(ident.range.substr(self.src))) |value| {
-        return value.value.value;
+fn namespace_get(self: *@This(), ident: Ranged(Token)) Error!*Value {
+    return if (self.namespace.getEntry(ident.range.substr(self.src))) |entry| {
+        return entry.value_ptr;
     } else self.fail(.{ .unknown_identifier = ident.range });
 }
 
@@ -82,7 +93,7 @@ fn namespace_add(self: *@This(), name: Ranged(Token), value: Ranged(ast.Expr)) E
     const result = try self.namespace.getOrPut(name.range.substr(self.src));
 
     if (result.found_existing) {
-        return self.fail(.{ .duplicate_member_name = .{
+        return self.fail(.{ .redeclared_identifier = .{
             .declared = result.value_ptr.value.range,
             .redeclared = name.range,
         } });
