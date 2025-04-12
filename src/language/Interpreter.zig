@@ -89,7 +89,7 @@ fn typeContainsValue(self: *@This(), expr: ast.Expr, @"type": ast.Type) bool {
     return switch (@"type") {
         .word => expr == .word,
         .type => expr == .type,
-        .container => expr == .type and expr.type == .container,
+        .container => false,
     };
 }
 
