@@ -73,49 +73,49 @@ pub const ast = struct {
         ident: Ranged(Token),
     };
 
-    pub fn print_container(src: []const u8, container: ast.Container, writer: anytype) anyerror!void {
+    pub fn printContainer(src: []const u8, container: ast.Container, writer: anytype) anyerror!void {
         try writer.writeAll("{ ");
 
         for (container.decls.items) |decl| {
-            try print_container_decl(src, decl.value, writer);
+            try printContainerDecl(src, decl.value, writer);
             try writer.writeByte(' ');
         }
 
         try writer.writeByte('}');
     }
 
-    pub fn print_container_decl(src: []const u8, decl: ast.ContainerDecl, writer: anytype) anyerror!void {
+    pub fn printContainerDecl(src: []const u8, decl: ast.ContainerDecl, writer: anytype) anyerror!void {
         if (decl.access == .public) try writer.writeAll("pub ");
 
-        try print_decl(src, decl.decl, writer);
+        try printDecl(src, decl.decl, writer);
     }
 
-    pub fn print_decl(src: []const u8, decl: ast.Decl, writer: anytype) anyerror!void {
+    pub fn printDecl(src: []const u8, decl: ast.Decl, writer: anytype) anyerror!void {
         try writer.writeAll(switch (decl.mutability) {
             .constant => "const",
             .variable => "var",
         });
         try writer.writeByte(' ');
 
-        try print_token(src, decl.name, writer);
+        try printToken(src, decl.name, writer);
         try writer.writeAll(": ");
 
-        try print_expr(src,decl.type.value, writer);
+        try printExpr(src,decl.type.value, writer);
         try writer.writeAll(" = ");
 
-        try print_expr(src, decl.value.value, writer);
+        try printExpr(src, decl.value.value, writer);
         try writer.writeAll(";");
     }
 
-    pub fn print_expr(src: []const u8, expr: ast.Expr, writer: anytype) anyerror!void {
+    pub fn printExpr(src: []const u8, expr: ast.Expr, writer: anytype) anyerror!void {
         switch (expr) {
             .word => |word| try writer.print("{}", .{word}),
-            .type => |@"type"| try print_type(src, @"type", writer),
-            .ident => |ident| try print_token(src, ident, writer),
+            .type => |@"type"| try printType(src, @"type", writer),
+            .ident => |ident| try printToken(src, ident, writer),
         }
     }
 
-    pub fn print_type(src: []const u8, @"type": ast.Type, writer: anytype) anyerror!void {
+    pub fn printType(src: []const u8, @"type": ast.Type, writer: anytype) anyerror!void {
         _ = src;
         switch (@"type") {
             .word => try writer.writeAll("word"),
@@ -123,7 +123,7 @@ pub const ast = struct {
         }
     }
 
-    pub fn print_token(src: []const u8, token: Ranged(Token), writer: anytype) anyerror!void {
+    pub fn printToken(src: []const u8, token: Ranged(Token), writer: anytype) anyerror!void {
         try writer.writeAll(token.range.substr(src));
     }
 
@@ -161,11 +161,11 @@ pub fn init(allocator: std.mem.Allocator, tokens: tokenizer.Tokenizer) @This() {
 
 /// Reads the root container from this parser. This will consume the entire
 /// sorce file unless there is an error.
-pub fn read_root(self: *@This()) Error!ast.Container {
+pub fn readRoot(self: *@This()) Error!ast.Container {
     var decls = std.ArrayList(Ranged(ast.ContainerDecl)).init(self.allocator);
 
     while (self.peek().value != .eof) {
-        try decls.append(try Ranged(ast.ContainerDecl).wrap(self, read_container_decl));
+        try decls.append(try Ranged(ast.ContainerDecl).wrap(self, readContainerDecl));
     }
 
     return .{
@@ -174,18 +174,18 @@ pub fn read_root(self: *@This()) Error!ast.Container {
 }
 
 /// Parses a container declaration from this parser.
-pub fn read_container_decl(self: *@This()) Error!ast.ContainerDecl {
+pub fn readContainerDecl(self: *@This()) Error!ast.ContainerDecl {
     const access: ast.Access = if (self.consume(.@"pub")) |_| .public else .private;
 
     return .{
         .access = access,
-        .decl = try self.read_decl(),
+        .decl = try self.readDecl(),
     };
 }
 
 /// Parses a declaration from this parser.
-pub fn read_decl(self: *@This()) Error!ast.Decl {
-    const mutability: ast.Mutability = switch ((try self.expect_many(&.{ .@"const", .@"var" })).value) {
+pub fn readDecl(self: *@This()) Error!ast.Decl {
+    const mutability: ast.Mutability = switch ((try self.expectMany(&.{ .@"const", .@"var" })).value) {
         .@"const" => .constant,
         .@"var" => .variable,
         else => unreachable,
@@ -196,11 +196,11 @@ pub fn read_decl(self: *@This()) Error!ast.Decl {
     // Type specifier is mandatory for now.
     _ = try self.expect(.colon);
 
-    const @"type" = try Ranged(ast.Expr).wrap(self, read_expr);
+    const @"type" = try Ranged(ast.Expr).wrap(self, readExpr);
 
     _ = try self.expect(.equals);
 
-    const value = try Ranged(ast.Expr).wrap(self, read_expr);
+    const value = try Ranged(ast.Expr).wrap(self, readExpr);
 
     _ = try self.expect(.semicolon);
 
@@ -216,23 +216,23 @@ pub fn read_decl(self: *@This()) Error!ast.Decl {
 // functions for guaranteed values vs non-guaranteed values.
 
 /// Parses an expression from this parser.
-pub fn read_expr(self: *@This()) Error!ast.Expr {
+pub fn readExpr(self: *@This()) Error!ast.Expr {
     return switch (self.peek().value) {
         // Read a type
-        .word, .type => .{ .type = try self.read_type() },
+        .word, .type => .{ .type = try self.readType() },
 
         // Read a word
-        .number => .{ .word = try self.read_word() },
+        .number => .{ .word = try self.readWord() },
 
         // Read an identifier
         .ident => .{ .ident = try self.expect(.ident) },
 
-        else => self.fail_expected(&.{ .word, .type, .number }),
+        else => self.failExpected(&.{ .word, .type, .number }),
     };
 }
 
 /// Parses a type from this parser.
-pub fn read_type(self: *@This()) Error!ast.Type {
+pub fn readType(self: *@This()) Error!ast.Type {
     return switch (self.peek().value) {
         .word => {
             _ = self.consume(.word); // TODO: Add and switch to .skip() ?
@@ -242,12 +242,12 @@ pub fn read_type(self: *@This()) Error!ast.Type {
             _ = self.consume(.type); // TODO: Add and swithc to .skip() ?
             return .type;
         },
-        else => self.fail_expected(&.{.type}),
+        else => self.failExpected(&.{.type}),
     };
 }
 
 /// Parses a word from this parser.
-pub fn read_word(self: *@This()) Error!u32 {
+pub fn readWord(self: *@This()) Error!u32 {
     const token = try self.expect(.number);
 
     return std.fmt.parseUnsigned(u32, token.range.substr(self.src), 10) catch self.fail(.{ .number_too_large = token.range });
@@ -264,20 +264,20 @@ pub fn consume(self: *@This(), comptime token: Token) ?Ranged(Token) {
 
 /// Reads a token, returning an error if it's not equal to the given tag.
 pub fn expect(self: *@This(), comptime token: Token) !Ranged(Token) {
-    return self.expect_many(&.{token});
+    return self.expectMany(&.{token});
 }
 
 /// Reads a token, returning an error if it's not one of the given tags.
-pub fn expect_many(self: *@This(), comptime tags: []const Token) !Ranged(Token) {
+pub fn expectMany(self: *@This(), comptime tags: []const Token) !Ranged(Token) {
     const next_tag = self.peek().value;
 
     inline for (tags) |tag| {
         if (tag == next_tag) return self.next();
-    } else return self.fail_expected(tags);
+    } else return self.failExpected(tags);
 }
 
 /// Fails with an error message saying that the given tags were expected.
-pub fn fail_expected(self: *@This(), comptime tags: []const Token) error{SyntaxError} {
+pub fn failExpected(self: *@This(), comptime tags: []const Token) error{SyntaxError} {
     return self.fail(.{ .expected_tag = .{
         .expected = tags,
         .found = self.peek(),

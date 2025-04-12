@@ -22,25 +22,25 @@ pub fn main() !void {
     const tokens = tokenizer.Tokenizer.init(src);
     var parser = Parser.init(allocator, tokens);
 
-    const container = parser.read_root() catch |err| {
+    const container = parser.readRoot() catch |err| {
         if (err == error.SyntaxError) {
             try parser.error_context.?.display("example2.os", src, stdout);
             return;
         } else return err;
     };
 
-    try Parser.ast.print_container(src, container, stdout);
+    try Parser.ast.printContainer(src, container, stdout);
     try stdout.writeByte('\n');
 
     var interpreter = Interpreter.init(allocator, src);
-    const result = interpreter.eval_main(container) catch |err| {
+    const result = interpreter.evalMain(container) catch |err| {
         if (err == error.InterpreterError) {
             try interpreter.error_context.?.display("example2.os", src, stdout);
             return;
         } else return err;
     };
 
-    try Parser.ast.print_expr(src, result, stdout);
+    try Parser.ast.printExpr(src, result, stdout);
     try stdout.writeByte('\n');
 
     // // Load the assembly and convert it to a slice

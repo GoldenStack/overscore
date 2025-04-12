@@ -68,7 +68,7 @@ pub fn Ranged(T: type) type {
             };
         }
 
-        pub fn map_extend(self: @This(), context: anytype, read_fn: anytype) MapErrorPayload(@TypeOf(read_fn), Ranged) {
+        pub fn mapExtend(self: @This(), context: anytype, read_fn: anytype) MapErrorPayload(@TypeOf(read_fn), Ranged) {
             const value = try read_fn(context, self);
 
             return .{
@@ -164,12 +164,12 @@ pub const Tokenizer = struct {
         };
     }
 
-    fn peek_char(self: *const @This()) u8 {
+    fn peekChar(self: *const @This()) u8 {
         return self.src[self.loc.pos];
     }
 
-    fn next_char(self: *@This()) u8 {
-        const char = self.peek_char();
+    fn nextChar(self: *@This()) u8 {
+        const char = self.peekChar();
         if (char == 0) return char; // Do not advance past the end
 
         self.loc.pos += 1;
@@ -184,8 +184,8 @@ pub const Tokenizer = struct {
         return char;
     }
 
-    fn next_tag(self: *@This()) Token {
-        return switch (self.next_char()) {
+    fn nextTag(self: *@This()) Token {
+        return switch (self.nextChar()) {
             // Fast paths for singular character tokens
             0 => .eof,
             '{' => .opening_curly_bracket,
@@ -200,24 +200,24 @@ pub const Tokenizer = struct {
 
             // Less fast paths for multi-character non-alphabetic tokens
             '/' => {
-                if (self.peek_char() != '/') return .ident;
+                if (self.peekChar() != '/') return .ident;
 
                 // Skip until newline or EOF
                 while (true) {
-                    const token = self.next_char();
+                    const token = self.nextChar();
                     if (token == '\n' or token == 0) break;
                 }
                 return .comment;
             },
 
             'a'...'z', 'A'...'Z' => {
-                self.skip_while(std.ascii.isAlphanumeric);
+                self.skipWhile(std.ascii.isAlphanumeric);
 
                 return .ident;
             },
 
             '0'...'9' => {
-                self.skip_while(std.ascii.isDigit);
+                self.skipWhile(std.ascii.isDigit);
 
                 return .number;
             },
@@ -226,16 +226,16 @@ pub const Tokenizer = struct {
         };
     }
 
-    fn skip_while(self: *@This(), function: fn (u8) bool) void {
-        while (function(self.peek_char())) _ = self.next_char();
+    fn skipWhile(self: *@This(), function: fn (u8) bool) void {
+        while (function(self.peekChar())) _ = self.nextChar();
     }
 
     /// Reads the next token from this iterator.
     pub fn next(self: *@This()) Ranged(Token) {
-        self.skip_while(std.ascii.isWhitespace);
+        self.skipWhile(std.ascii.isWhitespace);
 
         const start = self.loc;
-        const tag = self.next_tag();
+        const tag = self.nextTag();
         const end = self.loc;
 
         var token = Ranged(Token){

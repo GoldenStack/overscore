@@ -93,93 +93,93 @@ pub const Error = union(enum) {
                 }
 
                 try writer.print(", but found {}\n" ++ Unbold, .{exp.found.value});
-                try point_to(src, exp.found.range, writer);
+                try pointTo(src, exp.found.range, writer);
             },
             .number_too_large => |number| {
                 try prefix(filename, number, .err, writer);
                 try writer.print("number \"{s}\" too large to store\n" ++ Unbold, .{number.substr(src)});
-                try point_to(src, number, writer);
+                try pointTo(src, number, writer);
             },
             .redeclared_identifier => |red| {
                 try prefix(filename, red.redeclared, .err, writer);
                 try writer.print("redeclaration of identifier '{s}'\n" ++ Unbold, .{red.redeclared.substr(src)});
-                try point_to(src, red.redeclared, writer);
+                try pointTo(src, red.redeclared, writer);
 
                 try prefix(filename, red.declared, .note, writer);
                 try writer.writeAll("identifier initially declared here\n" ++ Unbold);
-                try point_to(src, red.declared, writer);
+                try pointTo(src, red.declared, writer);
             },
             .unknown_identifier => |unknown| {
                 try prefix(filename, unknown, .err, writer);
                 try writer.print("use of undeclared identifier '{s}'\n" ++ Unbold, .{unknown.substr(src)});
-                try point_to(src, unknown, writer);
+                try pointTo(src, unknown, writer);
             },
             .dependency_loop => |dep| {
                 try prefix(filename, dep.depends, .err, writer);
                 try writer.print("expression depends on itself\n" ++ Unbold, .{});
-                try point_to(src, dep.depends, writer);
+                try pointTo(src, dep.depends, writer);
 
                 try prefix(filename, dep.declared, .note, writer);
                 try writer.print("expression initially declared here\n" ++ Unbold, .{});
-                try point_to(src, dep.declared, writer);
+                try pointTo(src, dep.declared, writer);
             },
             .mismatched_type => |mis| {
                 try prefix(filename, mis.has_wrong_type, .err, writer);
                 try writer.writeAll("expected expression to be of type '");
-                try ast.print_type(src, mis.expected_type, writer);
+                try ast.printType(src, mis.expected_type, writer);
                 try writer.writeAll("', found '");
-                try ast.print_type(src, mis.found_type, writer);
+                try ast.printType(src, mis.found_type, writer);
                 try writer.writeAll("'\n" ++ Unbold);
-                try point_to(src, mis.has_wrong_type, writer);
+                try pointTo(src, mis.has_wrong_type, writer);
 
                 if (mis.expected_type_declared) |exp| {
                     try prefix(filename, exp, .note, writer);
                     try writer.print("type declared here\n" ++ Unbold, .{});
-                    try point_to(src, exp, writer);
+                    try pointTo(src, exp, writer);
                 }
             },
             // .expected_homogenous_fields => |exp| {
             //     if (exp.tagged_example.start.pos > exp.untagged_example.start.pos) {
             //         try prefix(filename, exp.tagged_example, .err, writer);
             //         try writer.writeAll("tagged field declared after untagged field was declared in the same container\n" ++ Unbold);
-            //         try point_to(src, exp.tagged_example, writer);
+            //         try pointTo(src, exp.tagged_example, writer);
 
             //         try prefix(filename, exp.untagged_example, .note, writer);
             //         try writer.writeAll("untagged field was declared here\n" ++ Unbold);
-            //         try point_to(src, exp.untagged_example, writer);
+            //         try pointTo(src, exp.untagged_example, writer);
             //     } else {
             //         try prefix(filename, exp.untagged_example, .err, writer);
             //         try writer.writeAll("untagged field declared after tagged field was declared in the same container\n" ++ Unbold);
-            //         try point_to(src, exp.untagged_example, writer);
+            //         try pointTo(src, exp.untagged_example, writer);
 
             //         try prefix(filename, exp.tagged_example, .note, writer);
             //         try writer.writeAll("tagged field was declared here\n" ++ Unbold);
-            //         try point_to(src, exp.tagged_example, writer);
+            //         try pointTo(src, exp.tagged_example, writer);
             //     }
             // },
             // .duplicate_tag => |dup| {
             //     try prefix(filename, dup.redeclared, .err, writer);
             //     try writer.print("redeclaration of tag '{s}'\n" ++ Unbold, .{dup.redeclared.substr(src)});
-            //     try point_to(src, dup.redeclared, writer);
+            //     try pointTo(src, dup.redeclared, writer);
 
             //     try prefix(filename, dup.declared, .note, writer);
             //     try writer.writeAll("tag initially declared here\n" ++ Unbold);
-            //     try point_to(src, dup.declared, writer);
+            //     try pointTo(src, dup.declared, writer);
             // },
             // .expected_untagged_fields => |exp| {
             //     try prefix(filename, exp.counterexample, .err, writer);
             //     try writer.writeAll("expected untagged fields, but found a tagged one\n" ++ Unbold);
-            //     try point_to(src, exp.counterexample, writer);
+            //     try pointTo(src, exp.counterexample, writer);
             // },
             // .expected_tagged_fields => |exp| {
             //     try prefix(filename, exp.counterexample, .err, writer);
             //     try writer.writeAll("expected tagged fields, but found an untagged one\n" ++ Unbold);
-            //     try point_to(src, exp.counterexample, writer);
+            //     try pointTo(src, exp.counterexample, writer);
             // },
         }
     }
 
-    fn line_around(src: []const u8, location: tokenizer.Location) []const u8 {
+    fn lineAround(src: []const u8, location: tokenizer.Location) []const u8 {
         const maybeStart = std.mem.lastIndexOfScalar(u8, src[0..location.pos], '\n');
         const maybeEnd = std.mem.indexOfScalarPos(u8, src, location.pos, '\n');
 
@@ -199,7 +199,7 @@ pub const Error = union(enum) {
         try writer.print(Bold ++ "{s}:{}:{}: {s}: " ++ Reset ++ Bold, .{ filename, range.start.row, range.start.col, format });
     }
 
-    fn line_prefix(loc: tokenizer.Location, display_type: enum { line, blank, continued }, writer: anytype) !void {
+    fn linePrefix(loc: tokenizer.Location, display_type: enum { line, blank, continued }, writer: anytype) !void {
         const line_print_len = std.math.log10_int(loc.row) + 1;
 
         switch (display_type) {
@@ -218,37 +218,37 @@ pub const Error = union(enum) {
         }
     }
 
-    fn point_to(src: []const u8, range: Range, writer: anytype) !void {
+    fn pointTo(src: []const u8, range: Range, writer: anytype) !void {
         const lines_diff = range.end.row -| range.start.row;
 
         if (lines_diff == 0) {
-            try line_prefix(range.start, .line, writer);
-            try writer.writeAll(line_around(src, range.start));
+            try linePrefix(range.start, .line, writer);
+            try writer.writeAll(lineAround(src, range.start));
             try writer.writeAll("\n");
 
-            try line_prefix(range.start, .blank, writer);
+            try linePrefix(range.start, .blank, writer);
 
             try writer.writeByteNTimes(' ', range.start.col - 1);
             try writer.writeByteNTimes('^', range.end.col - range.start.col);
             try writer.writeAll("\n");
         } else {
-            const first_line = line_around(src, range.start);
+            const first_line = lineAround(src, range.start);
 
-            try line_prefix(range.start, .line, writer);
+            try linePrefix(range.start, .line, writer);
             try writer.writeAll(first_line);
             try writer.writeAll("\n");
 
-            try line_prefix(range.start, if (lines_diff > 1) .continued else .blank, writer);
+            try linePrefix(range.start, if (lines_diff > 1) .continued else .blank, writer);
             try writer.writeByteNTimes(' ', range.start.col - 1);
             try writer.writeAll("^");
             try writer.writeByteNTimes('~', (first_line.len -| 1) - (range.start.col - 1));
             try writer.writeAll("\n");
 
-            try line_prefix(range.end, .line, writer);
-            try writer.writeAll(line_around(src, range.end));
+            try linePrefix(range.end, .line, writer);
+            try writer.writeAll(lineAround(src, range.end));
             try writer.writeAll("\n");
 
-            try line_prefix(range.end, .blank, writer);
+            try linePrefix(range.end, .blank, writer);
             try writer.writeByteNTimes('~', range.end.col - 1 -| 1);
             try writer.writeAll("^\n");
         }
