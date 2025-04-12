@@ -49,6 +49,9 @@ pub const ast = struct {
         /// intention of this to be changed.
         word,
 
+        /// A container. See `Container` documentation for more details.
+        container: Container,
+
         /// A type.
         ///
         /// When the value of an expression is a type, the type of the expression is
@@ -124,10 +127,10 @@ pub const ast = struct {
     }
 
     pub fn printType(src: []const u8, @"type": ast.Type, writer: anytype) anyerror!void {
-        _ = src;
         switch (@"type") {
             .word => try writer.writeAll("word"),
             .type => try writer.writeAll("type"),
+            .container => |container| try printContainer(src, container, writer),
         }
     }
 
@@ -175,6 +178,24 @@ pub fn readRoot(self: *@This()) Error!ast.Container {
     while (self.peek().value != .eof) {
         try decls.append(try Ranged(ast.ContainerDecl).wrap(self, readContainerDecl));
     }
+
+    return .{
+        .decls = decls,
+    };
+}
+
+/// Reads a container from this parser.
+pub fn readContainer(self: *@This()) Error!ast.Container {
+    _ = try self.expect(.product);
+    _ = try self.expect(.opening_curly_bracket);
+
+    var decls = std.ArrayList(Ranged(ast.ContainerDecl)).init(self.allocator);
+
+    while (self.peek().value != .closing_curly_bracket) {
+        try decls.append(try Ranged(ast.ContainerDecl).wrap(self, readContainerDecl));
+    }
+
+    _ = try self.expect(.closing_curly_bracket);
 
     return .{
         .decls = decls,
@@ -233,7 +254,7 @@ pub fn readExprPtr(self: *@This()) Error!*ast.Expr {
 pub fn readExpr(self: *@This()) Error!ast.Expr {
     return switch (self.peek().value) {
         // Read a type
-        .word, .type => .{ .type = try self.readType() },
+        .word, .type, .product => .{ .type = try self.readType() },
 
         // Read a word
         .number => .{ .word = try self.readWord() },
@@ -244,7 +265,7 @@ pub fn readExpr(self: *@This()) Error!ast.Expr {
         // Read an expression surrounded with parentheses
         .opening_parentheses => try self.readParentheses(),
 
-        else => self.failExpected(&.{ .word, .type, .number }),
+        else => self.failExpected(&.{ .word, .type, .product, .number, .ident, .opening_parentheses }),
     };
 }
 
@@ -252,17 +273,19 @@ pub fn readExpr(self: *@This()) Error!ast.Expr {
 pub fn readType(self: *@This()) Error!ast.Type {
     return switch (self.peek().value) {
         .word => {
-            _ = self.consume(.word); // TODO: Add and switch to .skip() ?
+            _ = try self.expect(.word);
             return .word;
         },
         .type => {
-            _ = self.consume(.type); // TODO: Add and swithc to .skip() ?
+            _ = try self.expect(.type);
             return .type;
         },
-        else => self.failExpected(&.{.type}),
+        .product => .{ .container = try self.readContainer() },
+        else => self.failExpected(&.{ .word, .type, .product }),
     };
 }
 
+/// Reads an expression surrounded in parentheses from this parser.
 pub fn readParentheses(self: *@This()) Error!ast.Expr {
     _ = try self.expect(.opening_parentheses);
 

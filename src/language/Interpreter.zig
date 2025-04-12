@@ -89,6 +89,7 @@ fn isType(self: *@This(), expr: ast.Expr, @"type": ast.Type) bool {
     return switch (@"type") {
         .word => expr == .word,
         .type => expr == .type,
+        .container => expr == .type and expr.type == .container,
     };
 }
 
@@ -123,6 +124,7 @@ fn evalType(self: *@This(), @"type": ast.Type) Error!ast.Type {
     return switch (@"type") {
         .type => .type,
         .word => .word,
+        .container => |container| .{ .container = container },
     };
 }
 
