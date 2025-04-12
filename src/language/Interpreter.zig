@@ -97,6 +97,7 @@ fn typeOf(self: *@This(), expr: ast.Expr) Error!ast.Type {
         .type => .type,
         .word => .word,
         .ident => |ident| try self.typeOf((try self.namespaceGet(ident)).decl.value.value),
+        .parentheses => |parens| try self.typeOf(parens.value.*),
     };
 }
 
@@ -113,6 +114,7 @@ fn evalExpr(self: *@This(), expr: ast.Expr) Error!ast.Expr {
             try self.evalNamespace(entry);
             return entry.decl.value.value;
         },
+        .parentheses => |parens| try self.evalExpr(parens.value.*),
     };
 }
 

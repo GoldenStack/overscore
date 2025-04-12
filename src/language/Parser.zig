@@ -71,6 +71,9 @@ pub const ast = struct {
 
         /// An identifier that contains a value.
         ident: Ranged(Token),
+
+        /// An expression that has been wrapped with parentheses.
+        parentheses: Ranged(*Expr),
     };
 
     pub fn printContainer(src: []const u8, container: ast.Container, writer: anytype) anyerror!void {
@@ -112,6 +115,11 @@ pub const ast = struct {
             .word => |word| try writer.print("{}", .{word}),
             .type => |@"type"| try printType(src, @"type", writer),
             .ident => |ident| try printToken(src, ident, writer),
+            .parentheses => |parens| {
+                try writer.writeByte('(');
+                try printExpr(src, parens.value.*, writer);
+                try writer.writeByte(')');
+            }
         }
     }
 
@@ -215,6 +223,12 @@ pub fn readDecl(self: *@This()) Error!ast.Decl {
 // TODO: Either guarantee that it evaluates to a value, or make separate
 // functions for guaranteed values vs non-guaranteed values.
 
+pub fn readExprPtr(self: *@This()) Error!*ast.Expr {
+    const ptr = try self.allocator.create(ast.Expr);
+    ptr.* = try self.readExpr();
+    return ptr;
+}
+
 /// Parses an expression from this parser.
 pub fn readExpr(self: *@This()) Error!ast.Expr {
     return switch (self.peek().value) {
@@ -226,6 +240,9 @@ pub fn readExpr(self: *@This()) Error!ast.Expr {
 
         // Read an identifier
         .ident => .{ .ident = try self.expect(.ident) },
+
+        // Read an expression surrounded with parentheses
+        .opening_parentheses => try self.readParentheses(),
 
         else => self.failExpected(&.{ .word, .type, .number }),
     };
@@ -244,6 +261,16 @@ pub fn readType(self: *@This()) Error!ast.Type {
         },
         else => self.failExpected(&.{.type}),
     };
+}
+
+pub fn readParentheses(self: *@This()) Error!ast.Expr {
+    _ = try self.expect(.opening_parentheses);
+
+    const expr = try Ranged(*ast.Expr).wrap(self, readExprPtr);
+
+    _ = try self.expect(.closing_parentheses);
+
+    return .{ .parentheses = expr };
 }
 
 /// Parses a word from this parser.
