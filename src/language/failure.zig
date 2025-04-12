@@ -46,7 +46,13 @@ pub const Error = union(enum) {
         expected_type: ast.Type,
         found_type: ast.Type,
         has_wrong_type: Range,
-        expected_type_declared: ?Range,
+        expected_type_declared: Range,
+    },
+
+    /// Expected a type expression, but found a non-type
+    expected_type_expression: struct {
+        found_type: ast.Type,
+        has_wrong_type: Range,
     },
 
     // /// Expected entirely tagged or entirely untagged fields, but found a mixture.
@@ -132,11 +138,16 @@ pub const Error = union(enum) {
                 try writer.writeAll("'\n" ++ Unbold);
                 try pointTo(src, mis.has_wrong_type, writer);
 
-                if (mis.expected_type_declared) |exp| {
-                    try prefix(filename, exp, .note, writer);
-                    try writer.print("type declared here\n" ++ Unbold, .{});
-                    try pointTo(src, exp, writer);
-                }
+                try prefix(filename, mis.expected_type_declared, .note, writer);
+                try writer.print("type declared here\n" ++ Unbold, .{});
+                try pointTo(src, mis.expected_type_declared, writer);
+            },
+            .expected_type_expression => |exp| {
+                try prefix(filename, exp.has_wrong_type, .err, writer);
+                try writer.writeAll("expected type expression, found expression of type '");
+                try ast.printType(src, exp.found_type, writer);
+                try writer.writeAll("'\n" ++ Unbold);
+                try pointTo(src, exp.has_wrong_type, writer);
             },
             // .expected_homogenous_fields => |exp| {
             //     if (exp.tagged_example.start.pos > exp.untagged_example.start.pos) {

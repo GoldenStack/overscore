@@ -64,11 +64,18 @@ fn evalDecl(self: *@This(), decl: *ast.Decl) Error!void {
     const expr = &decl.value.value;
     expr.* = try self.evalExpr(expr.*);
 
-    try self.expectType(decl.type, .type, null);
+    try self.expectTypeExpression(decl.type);
     try self.expectType(decl.value, @"type".type, decl.type.range);
 }
 
-fn expectType(self: *@This(), expr: Ranged(ast.Expr), @"type": ast.Type, cause: ?tokenizer.Range) Error!void {
+fn expectTypeExpression(self: *@This(), expr: Ranged(ast.Expr)) Error!void {
+    if (!self.isType(expr.value, .type)) return self.fail(.{ .expected_type_expression = .{
+        .found_type = try self.typeOf(expr.value),
+        .has_wrong_type = expr.range,
+    } });
+}
+
+fn expectType(self: *@This(), expr: Ranged(ast.Expr), @"type": ast.Type, cause: tokenizer.Range) Error!void {
     if (!self.isType(expr.value, @"type")) return self.fail(.{ .mismatched_type = .{
         .expected_type = @"type",
         .found_type = try self.typeOf(expr.value),
