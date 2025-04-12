@@ -1,6 +1,6 @@
+pub const TypeType: type = type;
+pub const Type: TypeType = word;
+pub const Value: Type = 5;
+pub const main: Type = Value;
 
-pub const VALUE: TYPE = 2;
-
-pub const TYPE: type = word;
-
-pub const main: TYPE = VALUE;
+//pub const main: word = main;

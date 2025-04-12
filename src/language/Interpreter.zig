@@ -7,6 +7,11 @@ const Ranged = tokenizer.Ranged;
 const ast = @import("Parser.zig").ast;
 const failure = @import("failure.zig");
 
+pub const Value = struct {
+    name: Ranged(Token),
+    value: Ranged(ast.Expr),
+};
+
 /// The error set of errors that can occur while interpreting.
 pub const Error = error{
     InterpreterError,
@@ -21,13 +26,13 @@ allocator: std.mem.Allocator,
 /// may contain anything.
 error_context: ?failure.Error = null,
 
-namespace: std.StringHashMap(struct { Ranged(Token), Ranged(ast.Expr) }),
+namespace: std.StringHashMap(Value),
 
 pub fn init(allocator: std.mem.Allocator, src: [:0]const u8) @This() {
     return .{
         .src = src,
         .allocator = allocator,
-        .namespace = @FieldType(@This(), "namespace").init(allocator),
+        .namespace = std.StringHashMap(Value).init(allocator),
     };
 }
 
@@ -42,7 +47,7 @@ pub fn eval_main(self: *@This(), container: ast.Container) Error!ast.Expr {
 
     const main = self.namespace.get("main") orelse @panic("No main function found!");
 
-    const mainValue = try self.eval_expr(main.@"1".value);
+    const mainValue = try self.eval_expr(main.value.value);
 
     return mainValue;
 }
@@ -51,7 +56,7 @@ fn eval_expr(self: *@This(), expr: ast.Expr) Error!ast.Expr {
     return switch (expr) {
         .type => |@"type"| .{ .type = try self.eval_type(@"type") },
         .word => |word| .{ .word = word },
-        .ident => |ident| try self.eval_ident(ident),
+        .ident => |ident| try self.eval_expr(try self.namespace_get(ident)),
     };
 }
 
@@ -63,9 +68,9 @@ fn eval_type(self: *@This(), @"type": ast.Type) Error!ast.Type {
     };
 }
 
-fn eval_ident(self: *@This(), ident: Ranged(Token)) Error!ast.Expr {
+fn namespace_get(self: *@This(), ident: Ranged(Token)) Error!ast.Expr {
     return if (self.namespace.get(ident.range.substr(self.src))) |value| {
-        return value.@"1".value;
+        return value.value.value;
     } else self.fail(.{ .unknown_identifier = ident.range });
 }
 
@@ -78,11 +83,14 @@ fn namespace_add(self: *@This(), name: Ranged(Token), value: Ranged(ast.Expr)) E
 
     if (result.found_existing) {
         return self.fail(.{ .duplicate_member_name = .{
-            .declared = result.value_ptr.@"0".range,
+            .declared = result.value_ptr.value.range,
             .redeclared = name.range,
         } });
     } else {
-        result.value_ptr.* = .{ name, value };
+        result.value_ptr.* = .{
+            .name = name,
+            .value = value,
+        };
     }
 }
 
