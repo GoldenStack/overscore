@@ -93,15 +93,21 @@ fn typeContainsValue(self: *@This(), expr: ast.Expr, @"type": ast.Type) bool {
     };
 }
 
+/// Assumes that the provided expression has been fully evaluated. This means
+/// the provided expression must be a *minimal* value, i.e. `.type` or `.word`.
+/// 
+/// Call `evalExpr` to make sure.
 fn typeOf(self: *@This(), expr: ast.Expr) Error!ast.Type {
+    _ = self;
     return switch (expr) {
         .type => .type,
         .word => .word,
-        .ident => |ident| try self.typeOf((try self.namespaceGet(ident)).decl.value.value),
-        .parentheses => |parens| try self.typeOf(parens.value.*),
+        else => @panic("Expected fully evaluated expression"),
     };
 }
 
+/// Evaluates an expression until it's a raw value. This means the returned
+/// expression is only ever `.type` or `.word`.
 fn evalExpr(self: *@This(), expr: ast.Expr) Error!ast.Expr {
     return switch (expr) {
         .type => |@"type"| .{ .type = try self.evalType(@"type") },
@@ -116,6 +122,12 @@ fn evalExpr(self: *@This(), expr: ast.Expr) Error!ast.Expr {
             return entry.decl.value.value;
         },
         .parentheses => |parens| try self.evalExpr(parens.value.*),
+        .member_access => |access| {
+            const container = access.container.swap(try self.evalExpr(access.container.value.*));
+            const member = try self.memberAccessGeneric(container, access.member);
+            try self.evalNamespace(member);
+            return member.decl.value.value;
+        }
     };
 }
 
@@ -126,6 +138,41 @@ fn evalType(self: *@This(), @"type": ast.Type) Error!ast.Type {
         .word => .word,
         .container => |container| .{ .container = container },
     };
+}
+
+/// Member access works in several different ways, primarily static and dynamic
+/// field access. This function figures it out.
+fn memberAccessGeneric(self: *@This(), expr: Ranged(ast.Expr), member: Ranged(Token)) Error!*Value {
+    if (expr.value == .type and expr.value.type == .container) {
+        return self.staticMemberAccess(expr, member);
+    } // TODO: Handle struct field member access when added
+
+    return self.fail(.{ .unsupported_member_access = .{
+        .@"type" = try self.typeOf(expr.value),
+        .member = member.range,
+    } });
+}
+
+/// Access declarations (static members, essentially) on a container.
+/// This assumes that the provided expression is a container type.
+fn staticMemberAccess(self: *@This(), container: Ranged(ast.Expr), member: Ranged(Token)) Error!*Value {
+    const name = member.range.substr(self.src);
+
+    const container_value = container.value.type.container;
+
+    for (container_value.decls.items) |*decl| {
+        if (std.mem.eql(u8, decl.value.decl.name.range.substr(self.src), name)) {
+            if (decl.value.access == .private) return self.fail(.{ .private_member = .{
+                .declaration = decl.value.decl.name.range,
+                .member = member.range,
+            } });
+            
+            @panic("Member access not fully supported yet");
+        }
+    } else return self.fail(.{ .unknown_member = .{
+        .container = container.range,
+        .member = member.range,
+    } });
 }
 
 fn namespaceGet(self: *@This(), ident: Ranged(Token)) Error!*Value {

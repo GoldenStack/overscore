@@ -49,10 +49,29 @@ pub const Error = union(enum) {
         expected_type_declared: Range,
     },
 
-    /// Expected a type expression, but found a non-type
+    /// Expected a type expression, but found a non-type.
     expected_type_expression: struct {
         found_type: ast.Type,
         has_wrong_type: Range,
+    },
+
+    /// Tried to access the member of an instance of a type that doesn't support
+    /// member access.
+    unsupported_member_access: struct {
+        @"type": ast.Type,
+        member: Range, // TODO: Point to the entire member access, e.g. `a.b`.
+    },
+
+    /// Tried to access a member of a container that doesn't exist.
+    unknown_member: struct {
+        container: Range, // TODO: Point to the original type declaration, e.g. `product {}`.
+        member: Range, // TODO: Point to the entire member access, e.g. `a.b`.
+    },
+
+    /// Tried to access the member of a container, but it was private.
+    private_member: struct {
+        declaration: Range,
+        member: Range, // TODO: Point to the entire member access, e.g. `a.b`.
     },
 
     // /// Expected entirely tagged or entirely untagged fields, but found a mixture.
@@ -148,6 +167,33 @@ pub const Error = union(enum) {
                 try ast.printType(src, exp.found_type, writer);
                 try writer.writeAll("'\n" ++ Unbold);
                 try pointTo(src, exp.has_wrong_type, writer);
+            },
+            .unsupported_member_access => |access| {
+                try prefix(filename, access.member, .err, writer);
+                try writer.writeAll("expression of type '");
+                try ast.printType(src, access.@"type", writer);
+                try writer.writeAll("' does not support member access\n" ++ Unbold);
+                try pointTo(src, access.member, writer);
+            },
+            .unknown_member => |unknown| {
+                try prefix(filename, unknown.member, .err, writer);
+                // TODO: Add name of container
+                try writer.print("container has no member named '{s}'\n" ++ Unbold, .{unknown.member.substr(src)});
+                try pointTo(src, unknown.member, writer);
+
+                // TODO: Point to the actual container creation instead of the (nearly useless) left half of the expression.
+                try prefix(filename, unknown.container, .note, writer);
+                try writer.print("container declared here\n" ++ Unbold, .{});
+                try pointTo(src, unknown.container, writer);
+            },
+            .private_member => |private| {
+                try prefix(filename, private.member, .err, writer);
+                try writer.print("member '{s}' is private\n" ++ Unbold, .{private.member.substr(src)});
+                try pointTo(src, private.member, writer);
+
+                try prefix(filename, private.declaration, .note, writer);
+                try writer.writeAll("member declared here\n" ++ Unbold);
+                try pointTo(src, private.declaration, writer);
             },
             // .expected_homogenous_fields => |exp| {
             //     if (exp.tagged_example.start.pos > exp.untagged_example.start.pos) {

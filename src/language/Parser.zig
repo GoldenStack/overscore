@@ -77,6 +77,12 @@ pub const ast = struct {
 
         /// An expression that has been wrapped with parentheses.
         parentheses: Ranged(*Expr),
+
+        /// Represents accessing a member of a container.
+        member_access: struct {
+            container: Ranged(*Expr),
+            member: Ranged(Token),
+        }
     };
 
     pub fn printContainer(src: []const u8, container: ast.Container, writer: anytype) anyerror!void {
@@ -122,6 +128,11 @@ pub const ast = struct {
                 try writer.writeByte('(');
                 try printExpr(src, parens.value.*, writer);
                 try writer.writeByte(')');
+            },
+            .member_access => |member| {
+                try printExpr(src, member.container.value.*, writer);
+                try writer.writeByte('.');
+                try printToken(src, member.member, writer);
             }
         }
     }
@@ -252,6 +263,19 @@ pub fn readExprPtr(self: *@This()) Error!*ast.Expr {
 
 /// Parses an expression from this parser.
 pub fn readExpr(self: *@This()) Error!ast.Expr {
+    var expr = try Ranged(ast.Expr).wrap(self, readExprRaw);
+
+    while (true) {
+        expr = switch (self.peek().value) {
+            .period => try expr.mapExtend(self, readMemberAccess),
+            else => break,
+        };
+    }
+
+    return expr.value;
+}
+
+fn readExprRaw(self: *@This()) Error!ast.Expr {
     return switch (self.peek().value) {
         // Read a type
         .word, .type, .product => .{ .type = try self.readType() },
@@ -267,6 +291,20 @@ pub fn readExpr(self: *@This()) Error!ast.Expr {
 
         else => self.failExpected(&.{ .word, .type, .product, .number, .ident, .opening_parentheses }),
     };
+}
+
+fn readMemberAccess(self: *@This(), base: Ranged(ast.Expr)) Error!ast.Expr {
+    _ = try self.expect(.period);
+
+    const member = try self.expect(.ident);
+
+    const ptr = try self.allocator.create(ast.Expr);
+    ptr.* = base.value;
+
+    return .{ .member_access = .{
+        .container = base.swap(ptr),
+        .member = member,
+    } };
 }
 
 /// Parses a type from this parser.
