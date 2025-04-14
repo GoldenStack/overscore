@@ -85,7 +85,7 @@ pub const ast = struct {
         }
     };
 
-    pub fn printContainer(src: []const u8, container: ast.Container, writer: anytype) anyerror!void {
+    pub fn printContainer(src: []const u8, container: Container, writer: anytype) anyerror!void {
         try writer.writeAll("{ ");
 
         for (container.decls.items) |decl| {
@@ -96,13 +96,13 @@ pub const ast = struct {
         try writer.writeByte('}');
     }
 
-    pub fn printContainerDecl(src: []const u8, decl: ast.ContainerDecl, writer: anytype) anyerror!void {
+    pub fn printContainerDecl(src: []const u8, decl: ContainerDecl, writer: anytype) anyerror!void {
         if (decl.access == .public) try writer.writeAll("pub ");
 
         try printDecl(src, decl.decl, writer);
     }
 
-    pub fn printDecl(src: []const u8, decl: ast.Decl, writer: anytype) anyerror!void {
+    pub fn printDecl(src: []const u8, decl: Decl, writer: anytype) anyerror!void {
         try writer.writeAll(switch (decl.mutability) {
             .constant => "const",
             .variable => "var",
@@ -119,7 +119,7 @@ pub const ast = struct {
         try writer.writeAll(";");
     }
 
-    pub fn printExpr(src: []const u8, expr: ast.Expr, writer: anytype) anyerror!void {
+    pub fn printExpr(src: []const u8, expr: Expr, writer: anytype) anyerror!void {
         switch (expr) {
             .word => |word| try writer.print("{}", .{word}),
             .type => |@"type"| try printType(src, @"type", writer),
@@ -137,7 +137,7 @@ pub const ast = struct {
         }
     }
 
-    pub fn printType(src: []const u8, @"type": ast.Type, writer: anytype) anyerror!void {
+    pub fn printType(src: []const u8, @"type": Type, writer: anytype) anyerror!void {
         switch (@"type") {
             .word => try writer.writeAll("word"),
             .type => try writer.writeAll("type"),
