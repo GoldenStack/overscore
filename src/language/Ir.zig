@@ -15,7 +15,7 @@ pub fn Index(T: type) type {
 }
 
 /// The intermediate representation (IR).
-/// 
+///
 /// Documentation is omitted as it's meant to be essentially a clone of `ast`.
 /// However, changes relative to the AST are still documented.
 pub const ir = struct {
@@ -97,23 +97,16 @@ pub fn convertContainer(self: *@This(), container: ast.Container) Error!Index(ir
 
     // Add references with no values
     for (container.decls.items) |decl| {
-        const key = decl.value.decl.name.range.substr(self.src);
+        const name = decl.value.decl.name;
+        const key = name.range.substr(self.src);
 
-        const result = try decls.getOrPut(key);
+        const decl_index = self.decls.items.len;
 
-        if (result.found_existing) {
-            return self.fail(.{ .redeclared_identifier = .{
-                .declared = self.decls.items[result.value_ptr.value.decl].name.range,
-                .redeclared = decl.value.decl.name.range,
-            } });
-        } else {
-            const decl_index = self.decls.items.len;
-
-            result.value_ptr.* = decl.swap(ir.ContainerDecl{
-                .access = decl.value.access,
-                .decl = decl_index,
-            });
-        }
+        try self.lookupNameDeclareContainer(name, &decls);
+        try decls.putNoClobber(key, decl.swap(ir.ContainerDecl{
+            .access = decl.value.access,
+            .decl = decl_index,
+        }));
 
         try self.decls.append(undefined);
     }
@@ -167,7 +160,7 @@ pub fn convertExpr(self: *@This(), expr: ast.Expr) Error!ir.Expr {
     return switch (expr) {
         .word => |word| .{ .word = word },
         .type => |@"type"| .{ .type = try self.convertType(@"type") },
-        .ident => |ident| .{ .ident = ident.swap(try self.findDeclaration(ident)) },
+        .ident => |ident| .{ .ident = ident.swap(try self.lookupNameExpected(ident)) },
         .parentheses => |parens| try self.convertExpr(parens.value.*),
         .member_access => |access| .{ .member_access = .{
             .container = try access.container.map(self, convertExprPtr),
@@ -184,18 +177,53 @@ pub fn convertType(self: *@This(), @"type": ast.Type) Error!ir.Type {
     };
 }
 
-pub fn findDeclaration(self: *@This(), ident: Ranged(Token)) Error!Index(ir.Decl) {
+pub fn lookupName(self: *@This(), name: Ranged(Token)) ?Index(ir.Decl) {
     var current = self.current;
 
     while (current) |scope| {
         const container = self.containers.items[scope];
 
-        if (container.decls.getPtr(ident.range.substr(self.src))) |decl| {
+        if (container.decls.getPtr(name.range.substr(self.src))) |decl| {
             return decl.value.decl;
         }
 
         current = container.parent;
-    } else return self.fail(.{ .unknown_identifier = ident.range });
+    } else return null;
+}
+
+pub fn lookupNameExpected(self: *@This(), name: Ranged(Token)) Error!Index(ir.Decl) {
+    const index = self.lookupName(name);
+
+    return index orelse self.fail(.{ .unknown_identifier = name.range });
+}
+
+pub fn lookupNameDeclare(self: *@This(), name: Ranged(Token)) Error!void {
+    const maybe_index = self.lookupName(name);
+
+    if (maybe_index) |index| {
+        return self.fail(.{ .redeclared_identifier = .{
+            .declared = self.decls.items[index].name.range,
+            .redeclared = name.range,
+        } });
+    }
+}
+
+pub fn lookupNameDeclareContainer(self: *@This(), name: Ranged(Token), decls: *std.StringArrayHashMap(Ranged(ir.ContainerDecl))) Error!void {
+    const value = name.range.substr(self.src);
+
+    // This used to be merged into one with a `decls.getOrPut`, which has better
+    // performance, but unfortunately has different semantics (would require
+    // removing on fail, etc.).
+    if (decls.get(value)) |decl| {
+        const index = decl.value.decl;
+
+        return self.fail(.{ .duplicate_member_name = .{
+            .declared = self.decls.items[index].name.range,
+            .redeclared = name.range,
+        } });
+    }
+
+    try self.lookupNameDeclare(name);
 }
 
 /// Fails, storing the given error context and returning an error.

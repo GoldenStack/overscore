@@ -32,6 +32,12 @@ pub const Error = union(enum) {
         redeclared: Range,
     },
 
+    /// A member name was used twice in the same container.
+    duplicate_member_name: struct {
+        declared: Range,
+        redeclared: Range,
+    },
+
     /// An identifier was used but it wasn't declared.
     unknown_identifier: Range,
 
@@ -133,6 +139,15 @@ pub const Error = union(enum) {
                 try prefix(filename, red.declared, .note, writer);
                 try writer.writeAll("identifier initially declared here\n" ++ Unbold);
                 try pointTo(src, red.declared, writer);
+            },
+            .duplicate_member_name => |dup| {
+                try prefix(filename, dup.redeclared, .err, writer);
+                try writer.print("duplicate member name '{s}' on the same container\n" ++ Unbold, .{dup.redeclared.substr(src)});
+                try pointTo(src, dup.redeclared, writer);
+
+                try prefix(filename, dup.declared, .note, writer);
+                try writer.writeAll("name initially declared here\n" ++ Unbold);
+                try pointTo(src, dup.declared, writer);
             },
             .unknown_identifier => |unknown| {
                 try prefix(filename, unknown, .err, writer);

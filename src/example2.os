@@ -7,7 +7,7 @@
 
 pub const main: word = other.aa;
 
-pub const value: word = 2;
+pub const value: word = other2.value2;
 
 pub const other: type = product {
     pub const aa: word = a;
@@ -16,4 +16,8 @@ pub const other: type = product {
     const b: word = 2;
     pub var c: word = 2;
     var d: word = 2;
+};
+
+pub const other2: type = product {
+    pub const value2: word = 2;
 };
