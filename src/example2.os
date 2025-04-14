@@ -5,7 +5,7 @@
 
 //pub const main: word = main;
 
-pub const main: type = other.aa;
+pub const main: word = other.aa;
 
 pub const value: word = 2;
 
