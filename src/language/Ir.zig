@@ -14,72 +14,48 @@ pub fn Index(T: type) type {
     return usize;
 }
 
+/// The intermediate representation (IR).
+/// 
+/// Documentation is omitted as it's meant to be essentially a clone of `ast`.
+/// However, changes relative to the AST are still documented.
 pub const ir = struct {
-    /// A container, containing a list of declarations.
     pub const Container = struct {
+        // Stores the parent scope of this container. This allows namespace
+        // resolution.
         parent: ?Index(Container),
+
         decls: std.StringArrayHashMap(Ranged(ContainerDecl)),
     };
 
-    /// A declaration in a container. This is equivalent to a normal declaration
-    /// except that it also has an access modifier.
     pub const ContainerDecl = struct {
         access: ast.Access,
         decl: Index(Decl),
     };
 
-    /// A declaration, consisting of a mutability modifier, a name, a type
-    /// (explicit for now), and a value;
     pub const Decl = struct {
         mutability: ast.Mutability,
         name: Ranged(Token),
-
         type: Ranged(Expr),
         value: Ranged(Expr),
 
-        // index: Index(),
+        /// Whether or not this declaration is in the process of being
+        /// evaluated. When a declaration needs to be evaluated while it's
+        /// already being evaluated, this means its value depends on itself, and
+        /// thus a dependency loop exists.
         evaluating: bool = false,
     };
 
-    /// Type expressions. These cannot be reduced any further, but their constituent
-    /// parts (parameters, declarations, values, etc) may need to be. They must be
-    /// fully evaluated during compile time.
     pub const Type = union(enum) {
-        /// An integer type, the CPU "word". For now, integers are always unsigned
-        /// 32-bit integers, so they are referred to as words to reflect the
-        /// intention of this to be changed.
         word,
-
-        /// A container. See `Container` documentation for more details.
         container: Index(Container),
-
-        /// A type.
-        ///
-        /// When the value of an expression is a type, the type of the expression is
-        /// `type`. This does lead to unsoundness in the type system due to
-        /// Russell's paradox, likely the only point of unsoundness, but I don't
-        /// really care.
         type,
     };
 
     pub const Expr = union(enum) {
-        /// The primitive value that the CPU can handle, an unsigned 32-bit integer.
         word: u32,
-
-        /// A type - see `Type`.
-        ///
-        /// This is not wrapped in a range because the values in `Type` are
-        /// conveniently stored separately, not because there's some special keyword
-        /// indicating that a type expression will follow.
         type: Type,
-
-        /// An identifier that contains a value.
         ident: Ranged(Index(ir.Decl)),
-
-        /// An expression that has been wrapped with parentheses.
         parentheses: Ranged(*Expr),
-
-        /// Represents accessing a member of a container.
         member_access: struct {
             container: Ranged(*Expr),
             member: Ranged(Token),
