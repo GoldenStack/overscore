@@ -3,7 +3,7 @@ const tokenizer = @import("tokenizer.zig");
 const Ranged = tokenizer.Ranged;
 const Token = tokenizer.Token;
 const Range = tokenizer.Range;
-const ast = @import("Parser.zig").ast;
+const ir = @import("Ir.zig").ir;
 
 const Esc = "\x1B";
 const Csi = Esc ++ "[";
@@ -43,22 +43,22 @@ pub const Error = union(enum) {
 
     /// An expression was supposed to have a type but had a different one.
     mismatched_type: struct {
-        expected_type: ast.Type,
-        found_type: ast.Type,
+        expected_type: ir.Type,
+        found_type: ir.Type,
         has_wrong_type: Range,
         expected_type_declared: Range,
     },
 
     /// Expected a type expression, but found a non-type.
     expected_type_expression: struct {
-        found_type: ast.Type,
+        found_type: ir.Type,
         has_wrong_type: Range,
     },
 
     /// Tried to access the member of an instance of a type that doesn't support
     /// member access.
     unsupported_member_access: struct {
-        @"type": ast.Type,
+        @"type": ir.Type,
         member: Range, // TODO: Point to the entire member access, e.g. `a.b`.
     },
 
@@ -151,9 +151,11 @@ pub const Error = union(enum) {
             .mismatched_type => |mis| {
                 try prefix(filename, mis.has_wrong_type, .err, writer);
                 try writer.writeAll("expected expression to be of type '");
-                try ast.printType(src, mis.expected_type, writer);
+                // try ast.printType(src, mis.expected_type, writer);
+                try writer.print("{any}", .{mis.expected_type}); // TODO: Fix printing
                 try writer.writeAll("', found '");
-                try ast.printType(src, mis.found_type, writer);
+                // try ast.printType(src, mis.found_type, writer);
+                try writer.print("{any}", .{mis.found_type}); // TODO: Fix printing
                 try writer.writeAll("'\n" ++ Unbold);
                 try pointTo(src, mis.has_wrong_type, writer);
 
@@ -164,14 +166,16 @@ pub const Error = union(enum) {
             .expected_type_expression => |exp| {
                 try prefix(filename, exp.has_wrong_type, .err, writer);
                 try writer.writeAll("expected type expression, found expression of type '");
-                try ast.printType(src, exp.found_type, writer);
+                // try ast.printType(src, exp.found_type, writer);
+                try writer.print("{any}", .{exp.found_type}); // TODO: Fix printing
                 try writer.writeAll("'\n" ++ Unbold);
                 try pointTo(src, exp.has_wrong_type, writer);
             },
             .unsupported_member_access => |access| {
                 try prefix(filename, access.member, .err, writer);
                 try writer.writeAll("expression of type '");
-                try ast.printType(src, access.@"type", writer);
+                // try ast.printType(src, access.@"type", writer);
+                try writer.print("{any}", .{access.@"type"}); // TODO: Fix printing
                 try writer.writeAll("' does not support member access\n" ++ Unbold);
                 try pointTo(src, access.member, writer);
             },

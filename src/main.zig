@@ -3,6 +3,7 @@ const Cpu = @import("Cpu.zig");
 const Assembler = @import("Assembler.zig");
 const tokenizer = @import("language/tokenizer.zig");
 const Parser = @import("language/Parser.zig");
+const Ir = @import("language/Ir.zig");
 const Interpreter = @import("language/Interpreter.zig");
 
 pub fn main() !void {
@@ -32,15 +33,26 @@ pub fn main() !void {
     try Parser.ast.printContainer(src, container, stdout);
     try stdout.writeByte('\n');
 
-    var interpreter = Interpreter.init(allocator, src);
-    const result = interpreter.evalMain(container) catch |err| {
+    var ir = Ir.init(allocator, src);
+    const container_index = ir.convertContainer(container) catch |err| {
+        if (err == error.IrError) {
+            try ir.error_context.?.display("example2.os", src, stdout);
+            return;
+        } else return err;
+    };
+
+    try ir.printContainer(container_index, stdout);
+    try stdout.writeByte('\n');
+
+    var interpreter = Interpreter.init(allocator, src, ir);
+    const result = interpreter.evalMain(container_index) catch |err| {
         if (err == error.InterpreterError) {
             try interpreter.error_context.?.display("example2.os", src, stdout);
             return;
         } else return err;
     };
 
-    try Parser.ast.printExpr(src, result, stdout);
+    try ir.printExpr(result, stdout);
     try stdout.writeByte('\n');
 
     // // Load the assembly and convert it to a slice

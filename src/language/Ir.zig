@@ -1,0 +1,302 @@
+const std = @import("std");
+
+const tokenizer = @import("tokenizer.zig");
+const Token = tokenizer.Token;
+const Ranged = tokenizer.Ranged;
+
+const ast = @import("Parser.zig").ast;
+const failure = @import("failure.zig");
+
+/// Represents an index of a type. The type annotation currently doesn't do
+/// anything; it just makes code more legible.
+pub fn Index(T: type) type {
+    _ = T;
+    return usize;
+}
+
+pub const ir = struct {
+    /// A container, containing a list of declarations.
+    pub const Container = struct {
+        parent: ?Index(Container),
+        decls: std.StringArrayHashMap(Ranged(ContainerDecl)),
+    };
+
+    /// A declaration in a container. This is equivalent to a normal declaration
+    /// except that it also has an access modifier.
+    pub const ContainerDecl = struct {
+        access: ast.Access,
+        decl: Index(Decl),
+    };
+
+    /// A declaration, consisting of a mutability modifier, a name, a type
+    /// (explicit for now), and a value;
+    pub const Decl = struct {
+        mutability: ast.Mutability,
+        name: Ranged(Token),
+
+        type: Ranged(Expr),
+        value: Ranged(Expr),
+
+        // index: Index(),
+        evaluating: bool = false,
+    };
+
+    /// Type expressions. These cannot be reduced any further, but their constituent
+    /// parts (parameters, declarations, values, etc) may need to be. They must be
+    /// fully evaluated during compile time.
+    pub const Type = union(enum) {
+        /// An integer type, the CPU "word". For now, integers are always unsigned
+        /// 32-bit integers, so they are referred to as words to reflect the
+        /// intention of this to be changed.
+        word,
+
+        /// A container. See `Container` documentation for more details.
+        container: Index(Container),
+
+        /// A type.
+        ///
+        /// When the value of an expression is a type, the type of the expression is
+        /// `type`. This does lead to unsoundness in the type system due to
+        /// Russell's paradox, likely the only point of unsoundness, but I don't
+        /// really care.
+        type,
+    };
+
+    pub const Expr = union(enum) {
+        /// The primitive value that the CPU can handle, an unsigned 32-bit integer.
+        word: u32,
+
+        /// A type - see `Type`.
+        ///
+        /// This is not wrapped in a range because the values in `Type` are
+        /// conveniently stored separately, not because there's some special keyword
+        /// indicating that a type expression will follow.
+        type: Type,
+
+        /// An identifier that contains a value.
+        ident: Ranged(Index(ir.Decl)),
+
+        /// An expression that has been wrapped with parentheses.
+        parentheses: Ranged(*Expr),
+
+        /// Represents accessing a member of a container.
+        member_access: struct {
+            container: Ranged(*Expr),
+            member: Ranged(Token),
+        },
+    };
+};
+
+/// The error set of errors that can occur while converting IR.
+pub const Error = error{
+    IrError,
+    OutOfMemory,
+};
+
+src: [:0]const u8,
+allocator: std.mem.Allocator,
+
+/// The context for whatever error may have occurred. If any functions on this
+/// type return error.IrError, this value is significant. Otherwise, it
+/// may contain anything.
+error_context: ?failure.Error = null,
+
+containers: std.ArrayList(ir.Container),
+decls: std.ArrayList(ir.Decl),
+
+// TODO: Will need to refactor when functions are added
+current: ?Index(ir.Container) = null,
+
+pub fn init(allocator: std.mem.Allocator, src: [:0]const u8) @This() {
+    return .{
+        .src = src,
+        .allocator = allocator,
+        .containers = std.ArrayList(ir.Container).init(allocator),
+        .decls = std.ArrayList(ir.Decl).init(allocator),
+    };
+}
+
+pub fn convertContainer(self: *@This(), container: ast.Container) Error!Index(ir.Container) {
+    var decls = std.StringArrayHashMap(Ranged(ir.ContainerDecl)).init(self.allocator);
+
+    // Add references with no values
+    for (container.decls.items) |decl| {
+        const key = decl.value.decl.name.range.substr(self.src);
+
+        const result = try decls.getOrPut(key);
+
+        if (result.found_existing) {
+            return self.fail(.{ .redeclared_identifier = .{
+                .declared = self.decls.items[result.value_ptr.value.decl].name.range,
+                .redeclared = decl.value.decl.name.range,
+            } });
+        } else {
+            const decl_index = self.decls.items.len;
+
+            result.value_ptr.* = decl.swap(ir.ContainerDecl{
+                .access = decl.value.access,
+                .decl = decl_index,
+            });
+        }
+
+        try self.decls.append(undefined);
+    }
+
+    const index = self.containers.items.len;
+    try self.containers.append(.{
+        .decls = decls,
+        .parent = self.current,
+    });
+
+    self.current = index;
+
+    // Add the values of the references
+    for (container.decls.items) |decl| {
+        const key = decl.value.decl.name.range.substr(self.src);
+        const stored_decl = self.containers.items[index].decls.get(key) orelse unreachable; // We just added it, so it must exist
+
+        const converted = try self.convertDecl(decl.value.decl);
+        self.decls.items[stored_decl.value.decl] = converted;
+    }
+
+    // We set current above, so it must be valid
+    self.current = self.containers.items[self.current.?].parent;
+
+    return index;
+}
+
+pub fn convertContainerDecl(self: *@This(), decl: ast.ContainerDecl) Error!ir.ContainerDecl {
+    return .{
+        .access = decl.access,
+        .decl = try self.convertDecl(decl.decl),
+    };
+}
+
+pub fn convertDecl(self: *@This(), decl: ast.Decl) Error!ir.Decl {
+    return .{
+        .mutability = decl.mutability,
+        .name = decl.name,
+        .type = try decl.type.map(self, convertExpr),
+        .value = try decl.value.map(self, convertExpr),
+    };
+}
+
+pub fn convertExprPtr(self: *@This(), expr: *ast.Expr) Error!*ir.Expr {
+    const ptr = try self.allocator.create(ir.Expr);
+    ptr.* = try self.convertExpr(expr.*);
+    return ptr;
+}
+
+pub fn convertExpr(self: *@This(), expr: ast.Expr) Error!ir.Expr {
+    return switch (expr) {
+        .word => |word| .{ .word = word },
+        .type => |@"type"| .{ .type = try self.convertType(@"type") },
+        .ident => |ident| .{ .ident = ident.swap(try self.findDeclaration(ident)) },
+        .parentheses => |parens| try self.convertExpr(parens.value.*),
+        .member_access => |access| .{ .member_access = .{
+            .container = try access.container.map(self, convertExprPtr),
+            .member = access.member,
+        } },
+    };
+}
+
+pub fn convertType(self: *@This(), @"type": ast.Type) Error!ir.Type {
+    return switch (@"type") {
+        .word => .word,
+        .container => |container| .{ .container = try self.convertContainer(container) },
+        .type => .type,
+    };
+}
+
+pub fn findDeclaration(self: *@This(), ident: Ranged(Token)) Error!Index(ir.Decl) {
+    var current = self.current;
+
+    while (current) |scope| {
+        const container = self.containers.items[scope];
+
+        if (container.decls.getPtr(ident.range.substr(self.src))) |decl| {
+            return decl.value.decl;
+        }
+
+        current = container.parent;
+    } else return self.fail(.{ .unknown_identifier = ident.range });
+}
+
+/// Fails, storing the given error context and returning an error.
+fn fail(self: *@This(), @"error": failure.Error) error{IrError} {
+    self.error_context = @"error";
+    return error.IrError;
+}
+
+pub fn printContainer(self: *const @This(), index: Index(ir.Container), writer: anytype) anyerror!void {
+    const container = self.containers.items[index];
+
+    try writer.writeAll("{ ");
+
+    var iter = container.decls.iterator();
+    while (iter.next()) |decl| {
+        try self.printContainerDecl(decl.value_ptr.value, writer);
+        try writer.writeByte(' ');
+    }
+
+    try writer.writeByte('}');
+}
+
+pub fn printContainerDecl(self: *const @This(), decl: ir.ContainerDecl, writer: anytype) anyerror!void {
+    if (decl.access == .public) try writer.writeAll("pub ");
+
+    try self.printDecl(decl.decl, writer);
+}
+
+pub fn printDecl(self: *const @This(), index: Index(ir.Decl), writer: anytype) anyerror!void {
+    const decl = self.decls.items[index];
+
+    try writer.writeAll(switch (decl.mutability) {
+        .constant => "const",
+        .variable => "var",
+    });
+    try writer.writeByte(' ');
+
+    try self.printRange(decl.name.range, writer);
+    try writer.print("<{}>", .{index});
+    try writer.writeAll(": ");
+
+    try self.printExpr(decl.type.value, writer);
+    try writer.writeAll(" = ");
+
+    try self.printExpr(decl.value.value, writer);
+    try writer.writeAll(";");
+}
+
+pub fn printExpr(self: *const @This(), expr: ir.Expr, writer: anytype) anyerror!void {
+    switch (expr) {
+        .word => |word| try writer.print("{}", .{word}),
+        .type => |@"type"| try self.printType(@"type", writer),
+        .ident => |ident| {
+            try self.printRange(ident.range, writer);
+            try writer.print("<{}>", .{ident.value});
+        },
+        .parentheses => |parens| {
+            try writer.writeByte('(');
+            try self.printExpr(parens.value.*, writer);
+            try writer.writeByte(')');
+        },
+        .member_access => |member| {
+            try self.printExpr(member.container.value.*, writer);
+            try writer.writeByte('.');
+            try self.printRange(member.member.range, writer);
+        },
+    }
+}
+
+pub fn printType(self: *const @This(), @"type": ir.Type, writer: anytype) anyerror!void {
+    switch (@"type") {
+        .word => try writer.writeAll("word"),
+        .type => try writer.writeAll("type"),
+        .container => |container| try self.printContainer(container, writer),
+    }
+}
+
+pub fn printRange(self: *const @This(), range: tokenizer.Range, writer: anytype) anyerror!void {
+    try writer.writeAll(range.substr(self.src));
+}

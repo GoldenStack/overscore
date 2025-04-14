@@ -4,13 +4,10 @@ const tokenizer = @import("tokenizer.zig");
 const Token = tokenizer.Token;
 const Ranged = tokenizer.Ranged;
 
-const ast = @import("Parser.zig").ast;
+const Ir = @import("Ir.zig");
+const ir = Ir.ir;
+const Index = Ir.Index;
 const failure = @import("failure.zig");
-
-pub const Value = struct {
-    decl: ast.Decl,
-    evaluating: bool = false,
-};
 
 /// The error set of errors that can occur while interpreting.
 pub const Error = error{
@@ -26,56 +23,52 @@ allocator: std.mem.Allocator,
 /// may contain anything.
 error_context: ?failure.Error = null,
 
-namespace: std.StringHashMap(Value),
+context: Ir,
 
-pub fn init(allocator: std.mem.Allocator, src: [:0]const u8) @This() {
+pub fn init(allocator: std.mem.Allocator, src: [:0]const u8, context: Ir) @This() {
     return .{
         .src = src,
         .allocator = allocator,
-        .namespace = std.StringHashMap(Value).init(allocator),
+        .context = context,
     };
 }
 
-pub fn evalMain(self: *@This(), container: ast.Container) Error!ast.Expr {
-    for (container.decls.items) |item| {
-        try self.namespaceAdd(item.value.decl);
-    }
+pub fn evalMain(self: *@This(), index: Index(ir.Container)) Error!ir.Expr {
+    const container = self.context.containers.items[index];
+    const main = container.decls.get("main") orelse @panic("No main found!");
 
-    defer for (container.decls.items) |item| {
-        self.namespaceRemove(item.value.decl);
-    };
+    const mainIndex = main.value.decl;
 
-    const mainEntry = self.namespace.getEntry("main") orelse @panic("No main function found!");
-    try self.evalNamespace(mainEntry.value_ptr);
+    try self.evalDecl(mainIndex);
 
-    return mainEntry.value_ptr.decl.value.value;
+    return self.context.decls.items[mainIndex].value.value;
 }
 
-fn evalNamespace(self: *@This(), value: *Value) Error!void {
-    value.evaluating = true;
-    try self.evalDecl(&value.decl);
-    value.evaluating = false;
-}
+fn evalDecl(self: *@This(), index: Index(ir.Decl)) Error!void {
+    var decl = &self.context.decls.items[index];
 
-fn evalDecl(self: *@This(), decl: *ast.Decl) Error!void {
+    decl.evaluating = true;
+
     const @"type" = &decl.type.value;
     @"type".* = try self.evalExpr(@"type".*);
 
     const expr = &decl.value.value;
     expr.* = try self.evalExpr(expr.*);
 
+    decl.evaluating = false;
+
     try self.expectTypeExpression(decl.type);
     try self.expectType(decl.value, @"type".type, decl.type.range);
 }
 
-fn expectTypeExpression(self: *@This(), expr: Ranged(ast.Expr)) Error!void {
+fn expectTypeExpression(self: *@This(), expr: Ranged(ir.Expr)) Error!void {
     if (!self.typeContainsValue(expr.value, .type)) return self.fail(.{ .expected_type_expression = .{
         .found_type = try self.typeOf(expr.value),
         .has_wrong_type = expr.range,
     } });
 }
 
-fn expectType(self: *@This(), expr: Ranged(ast.Expr), @"type": ast.Type, cause: tokenizer.Range) Error!void {
+fn expectType(self: *@This(), expr: Ranged(ir.Expr), @"type": ir.Type, cause: tokenizer.Range) Error!void {
     if (!self.typeContainsValue(expr.value, @"type")) return self.fail(.{ .mismatched_type = .{
         .expected_type = @"type",
         .found_type = try self.typeOf(expr.value),
@@ -84,7 +77,7 @@ fn expectType(self: *@This(), expr: Ranged(ast.Expr), @"type": ast.Type, cause: 
     } });
 }
 
-fn typeContainsValue(self: *@This(), expr: ast.Expr, @"type": ast.Type) bool {
+fn typeContainsValue(self: *@This(), expr: ir.Expr, @"type": ir.Type) bool {
     _ = self;
     return switch (@"type") {
         .word => expr == .word,
@@ -95,9 +88,9 @@ fn typeContainsValue(self: *@This(), expr: ast.Expr, @"type": ast.Type) bool {
 
 /// Assumes that the provided expression has been fully evaluated. This means
 /// the provided expression must be a *minimal* value, i.e. `.type` or `.word`.
-/// 
+///
 /// Call `evalExpr` to make sure.
-fn typeOf(self: *@This(), expr: ast.Expr) Error!ast.Type {
+fn typeOf(self: *@This(), expr: ir.Expr) Error!ir.Type {
     _ = self;
     return switch (expr) {
         .type => .type,
@@ -108,30 +101,33 @@ fn typeOf(self: *@This(), expr: ast.Expr) Error!ast.Type {
 
 /// Evaluates an expression until it's a raw value. This means the returned
 /// expression is only ever `.type` or `.word`.
-fn evalExpr(self: *@This(), expr: ast.Expr) Error!ast.Expr {
+fn evalExpr(self: *@This(), expr: ir.Expr) Error!ir.Expr {
     return switch (expr) {
         .type => |@"type"| .{ .type = try self.evalType(@"type") },
         .word => |word| .{ .word = word },
         .ident => |ident| {
-            const entry = try self.namespaceGet(ident);
-            if (entry.evaluating) return self.fail(.{ .dependency_loop = .{
-                .declared = entry.decl.name.range,
+            const decl = &self.context.decls.items[ident.value];
+
+            if (decl.evaluating) return self.fail(.{ .dependency_loop = .{
+                .declared = decl.name.range,
                 .depends = ident.range,
             } });
-            try self.evalNamespace(entry);
-            return entry.decl.value.value;
+
+            try self.evalDecl(ident.value);
+
+            return decl.value.value;
         },
         .parentheses => |parens| try self.evalExpr(parens.value.*),
         .member_access => |access| {
             const container = access.container.swap(try self.evalExpr(access.container.value.*));
             const member = try self.memberAccessGeneric(container, access.member);
-            try self.evalNamespace(member);
-            return member.decl.value.value;
-        }
+            try self.evalDecl(member);
+            return self.context.decls.items[member].value.value;
+        },
     };
 }
 
-fn evalType(self: *@This(), @"type": ast.Type) Error!ast.Type {
+fn evalType(self: *@This(), @"type": ir.Type) Error!ir.Type {
     _ = self;
     return switch (@"type") {
         .type => .type,
@@ -142,65 +138,38 @@ fn evalType(self: *@This(), @"type": ast.Type) Error!ast.Type {
 
 /// Member access works in several different ways, primarily static and dynamic
 /// field access. This function figures it out.
-fn memberAccessGeneric(self: *@This(), expr: Ranged(ast.Expr), member: Ranged(Token)) Error!*Value {
+fn memberAccessGeneric(self: *@This(), expr: Ranged(ir.Expr), member: Ranged(Token)) Error!Index(ir.Decl) {
     if (expr.value == .type and expr.value.type == .container) {
         return self.staticMemberAccess(expr, member);
     } // TODO: Handle struct field member access when added
 
     return self.fail(.{ .unsupported_member_access = .{
-        .@"type" = try self.typeOf(expr.value),
+        .type = try self.typeOf(expr.value),
         .member = member.range,
     } });
 }
 
 /// Access declarations (static members, essentially) on a container.
 /// This assumes that the provided expression is a container type.
-fn staticMemberAccess(self: *@This(), container: Ranged(ast.Expr), member: Ranged(Token)) Error!*Value {
-    const name = member.range.substr(self.src);
+fn staticMemberAccess(self: *@This(), container: Ranged(ir.Expr), member: Ranged(Token)) Error!Index(ir.Decl) {
+    const container_index = container.value.type.container;
+    const decls = self.context.containers.items[container_index].decls;
 
-    const container_value = container.value.type.container;
+    const key = member.range.substr(self.src);
 
-    for (container_value.decls.items) |*decl| {
-        if (std.mem.eql(u8, decl.value.decl.name.range.substr(self.src), name)) {
-            if (decl.value.access == .private) return self.fail(.{ .private_member = .{
-                .declaration = decl.value.decl.name.range,
-                .member = member.range,
-            } });
-            
-            @panic("Member access not fully supported yet");
-        }
-    } else return self.fail(.{ .unknown_member = .{
+    const container_decl = decls.get(key) orelse return self.fail(.{ .unknown_member = .{
         .container = container.range,
         .member = member.range,
     } });
-}
 
-fn namespaceGet(self: *@This(), ident: Ranged(Token)) Error!*Value {
-    return if (self.namespace.getEntry(ident.range.substr(self.src))) |entry| {
-        return entry.value_ptr;
-    } else self.fail(.{ .unknown_identifier = ident.range });
-}
+    const decl = self.context.decls.items[container_decl.value.decl];
 
-/// Adds a declaration to this namespace, returning an error if impossible.
-fn namespaceAdd(self: *@This(), decl: ast.Decl) Error!void {
-    const result = try self.namespace.getOrPut(decl.name.range.substr(self.src));
+    if (container_decl.value.access == .private) return self.fail(.{ .private_member = .{
+        .declaration = decl.name.range,
+        .member = member.range,
+    } });
 
-    if (result.found_existing) {
-        return self.fail(.{ .redeclared_identifier = .{
-            .declared = result.value_ptr.decl.name.range,
-            .redeclared = decl.name.range,
-        } });
-    } else {
-        result.value_ptr.* = .{ .decl = decl };
-    }
-}
-
-/// Removes a declaration from this namespace, assuming it was previously
-/// defined (panicking if otherwise).
-fn namespaceRemove(self: *@This(), decl: ast.Decl) void {
-    if (!self.namespace.remove(decl.name.range.substr(self.src))) {
-        @panic("Expected to be able to remove previously-added declaration!");
-    }
+    return container_decl.value.decl;
 }
 
 /// Fails, storing the given error context and returning an error.
