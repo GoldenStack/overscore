@@ -7,11 +7,6 @@ const Ir = @import("language/Ir.zig");
 const Interpreter = @import("language/Interpreter.zig");
 
 pub fn main() !void {
-    // Create an allocator and error if it leaks
-    // var gpa = std.heap.GeneralPurposeAllocator(.{}).init;
-    // defer _ = gpa.deinit();
-    // const allocator = gpa.allocator();
-
     const stdout = std.io.getStdOut().writer();
 
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
