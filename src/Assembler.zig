@@ -7,11 +7,8 @@ pub const LineBreak = '\n';
 /// The comment string, commenting text until the end of the line.
 pub const Comment = "//";
 
-/// The tag for addresses in assembly.
-pub const AddrTag = enum { literal, label };
-
 /// The type for an address literal.
-pub const Addr = union(AddrTag) {
+pub const Addr = union(enum) {
     literal: Cpu.Word,
     label: []const u8,
 
