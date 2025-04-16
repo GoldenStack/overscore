@@ -49,13 +49,6 @@ pub const Error = error{
 pub const BinOp = struct {
     left: Addr,
     right: Addr,
-
-    pub fn read(reader: anytype) Error!BinOp {
-        return .{
-            .left = reader.readInt(Addr, .little) catch return error.InstructionOutOfBounds,
-            .right = reader.readInt(Addr, .little) catch return error.InstructionOutOfBounds,
-        };
-    }
 };
 
 /// The tag for the instruction type.
@@ -80,12 +73,6 @@ pub const InstructionTag = enum(Unit) {
     nrm,
     jz,
     jnz,
-
-    pub fn read(reader: anytype) Error!InstructionTag {
-        const opcode = reader.readByte() catch return error.InstructionOutOfBounds;
-
-        return std.meta.intToEnum(InstructionTag, opcode) catch error.UnknownOpcode;
-    }
 };
 
 /// A CPU instruction.
@@ -110,31 +97,6 @@ pub const Instruction = union(InstructionTag) {
     nrm: BinOp,
     jz: BinOp,
     jnz: BinOp,
-
-    pub fn read(reader: anytype) Error!Instruction {
-        return switch (try InstructionTag.read(reader)) {
-            .set => .{ .set = try BinOp.read(reader) },
-            .mov => .{ .mov = try BinOp.read(reader) },
-            .nand => .{ .nand = try BinOp.read(reader) },
-            .add => .{ .add = try BinOp.read(reader) },
-            .irm => .{ .irm = try BinOp.read(reader) },
-            .iwm => .{ .iwm = try BinOp.read(reader) },
-            .sys => .{ .sys = try BinOp.read(reader) },
-            .not => .{ .not = try BinOp.read(reader) },
-            .@"and" => .{ .@"and" = try BinOp.read(reader) },
-            .@"or" => .{ .@"or" = try BinOp.read(reader) },
-            .ori => .{ .ori = try BinOp.read(reader) },
-            .addi => .{ .addi = try BinOp.read(reader) },
-            .sub => .{ .sub = try BinOp.read(reader) },
-            .subi => .{ .subi = try BinOp.read(reader) },
-            .mul => .{ .mul = try BinOp.read(reader) },
-            .muli => .{ .muli = try BinOp.read(reader) },
-            .iwmi => .{ .iwmi = try BinOp.read(reader) },
-            .nrm => .{ .nrm = try BinOp.read(reader) },
-            .jz => .{ .jz = try BinOp.read(reader) },
-            .jnz => .{ .jnz = try BinOp.read(reader) },
-        };
-    }
 };
 
 memory: [Memory]Unit,
@@ -163,6 +125,48 @@ fn setWordAt(self: *@This(), addr: Addr, word: Word) Error!void {
     std.mem.writeInt(Word, try self.wordSliceAt(addr), word, .little);
 }
 
+fn readBinOp(self: *@This(), index: *usize) Error!BinOp {
+    const left = try self.getWordAt(@truncate(index.*));
+    const right = try self.getWordAt(@truncate(index.* + 4));
+    index.* += 8;
+    return .{ .left = left, .right = right };
+}
+
+fn readInstructionTag(self: *@This(), index: *usize) Error!InstructionTag {
+    const opcode = self.memory[index.*];
+    index.* += 1;
+
+    if (opcode == 0 or opcode > @intFromEnum(InstructionTag.jnz)) return error.UnknownOpcode;
+    return @enumFromInt(opcode);
+}
+
+fn readInstruction(self: *@This(), index: *usize) Error!Instruction {
+    const tag = try self.readInstructionTag(index);
+
+    return switch (tag) {
+        .set => .{ .set = try self.readBinOp(index) },
+        .mov => .{ .mov = try self.readBinOp(index) },
+        .nand => .{ .nand = try self.readBinOp(index) },
+        .add => .{ .add = try self.readBinOp(index) },
+        .irm => .{ .irm = try self.readBinOp(index) },
+        .iwm => .{ .iwm = try self.readBinOp(index) },
+        .sys => .{ .sys = try self.readBinOp(index) },
+        .not => .{ .not = try self.readBinOp(index) },
+        .@"and" => .{ .@"and" = try self.readBinOp(index) },
+        .@"or" => .{ .@"or" = try self.readBinOp(index) },
+        .ori => .{ .ori = try self.readBinOp(index) },
+        .addi => .{ .addi = try self.readBinOp(index) },
+        .sub => .{ .sub = try self.readBinOp(index) },
+        .subi => .{ .subi = try self.readBinOp(index) },
+        .mul => .{ .mul = try self.readBinOp(index) },
+        .muli => .{ .muli = try self.readBinOp(index) },
+        .iwmi => .{ .iwmi = try self.readBinOp(index) },
+        .nrm => .{ .nrm = try self.readBinOp(index) },
+        .jz => .{ .jz = try self.readBinOp(index) },
+        .jnz => .{ .jnz = try self.readBinOp(index) },
+    };
+}
+
 /// Reads an instruction from the CPU, advancing the instruction pointer as
 /// necessary.
 pub fn prepareInstruction(self: *@This()) Error!?Instruction {
@@ -174,15 +178,9 @@ pub fn prepareInstruction(self: *@This()) Error!?Instruction {
     // Handle opcode of 0
     if (self.memory[addr] == 0) return null;
 
-    // Create a buffer stream of memory
-    var stream = std.io.fixedBufferStream(self.memory[0..]);
-    stream.pos = addr;
-
-    // Read an instruction
-    const instruction = try Instruction.read(&stream.reader());
-
-    // Update the instruction pointer
-    try self.setWordAt(0, @truncate(stream.pos));
+    var index: usize = addr;
+    const instruction = try self.readInstruction(&index);
+    try self.setWordAt(0, @truncate(index));
 
     return instruction;
 }
