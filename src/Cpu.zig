@@ -62,12 +62,24 @@ pub const BinOp = struct {
 pub const InstructionTag = enum(Unit) {
     set = 1,
     mov,
-    not,
-    @"and",
+    nand,
     add,
     irm,
     iwm,
     sys,
+    not,
+    @"and",
+    @"or",
+    ori,
+    addi,
+    sub,
+    subi,
+    mul,
+    muli,
+    iwmi,
+    nrm,
+    jz,
+    jnz,
 
     pub fn read(reader: anytype) Error!InstructionTag {
         const opcode = reader.readByte() catch return error.InstructionOutOfBounds;
@@ -80,23 +92,47 @@ pub const InstructionTag = enum(Unit) {
 pub const Instruction = union(InstructionTag) {
     set: BinOp,
     mov: BinOp,
-    not: BinOp,
-    @"and": BinOp,
+    nand: BinOp,
     add: BinOp,
     irm: BinOp,
     iwm: BinOp,
     sys: BinOp,
+    not: BinOp,
+    @"and": BinOp,
+    @"or": BinOp,
+    ori: BinOp,
+    addi: BinOp,
+    sub: BinOp,
+    subi: BinOp,
+    mul: BinOp,
+    muli: BinOp,
+    iwmi: BinOp,
+    nrm: BinOp,
+    jz: BinOp,
+    jnz: BinOp,
 
     pub fn read(reader: anytype) Error!Instruction {
         return switch (try InstructionTag.read(reader)) {
             .set => .{ .set = try BinOp.read(reader) },
             .mov => .{ .mov = try BinOp.read(reader) },
-            .not => .{ .not = try BinOp.read(reader) },
-            .@"and" => .{ .@"and" = try BinOp.read(reader) },
+            .nand => .{ .nand = try BinOp.read(reader) },
             .add => .{ .add = try BinOp.read(reader) },
             .irm => .{ .irm = try BinOp.read(reader) },
             .iwm => .{ .iwm = try BinOp.read(reader) },
             .sys => .{ .sys = try BinOp.read(reader) },
+            .not => .{ .not = try BinOp.read(reader) },
+            .@"and" => .{ .@"and" = try BinOp.read(reader) },
+            .@"or" => .{ .@"or" = try BinOp.read(reader) },
+            .ori => .{ .ori = try BinOp.read(reader) },
+            .addi => .{ .addi = try BinOp.read(reader) },
+            .sub => .{ .sub = try BinOp.read(reader) },
+            .subi => .{ .subi = try BinOp.read(reader) },
+            .mul => .{ .mul = try BinOp.read(reader) },
+            .muli => .{ .muli = try BinOp.read(reader) },
+            .iwmi => .{ .iwmi = try BinOp.read(reader) },
+            .nrm => .{ .nrm = try BinOp.read(reader) },
+            .jz => .{ .jz = try BinOp.read(reader) },
+            .jnz => .{ .jnz = try BinOp.read(reader) },
         };
     }
 };
@@ -158,9 +194,7 @@ pub fn follow(self: *@This(), instruction: Instruction) Error!void {
 
         .mov => |op| self.setWordAt(op.left, try self.getWordAt(op.right)),
 
-        .not => |op| self.setWordAt(op.left, ~try self.getWordAt(op.right)),
-
-        .@"and" => |op| self.setWordAt(op.left, try self.getWordAt(op.left) & try self.getWordAt(op.right)),
+        .nand => |op| self.setWordAt(op.left, ~(try self.getWordAt(op.left) & try self.getWordAt(op.right))),
 
         .add => |op| self.setWordAt(op.left, try self.getWordAt(op.left) +% try self.getWordAt(op.right)),
 
@@ -169,5 +203,31 @@ pub fn follow(self: *@This(), instruction: Instruction) Error!void {
         .iwm => |op| self.setWordAt(try self.getWordAt(op.left), try self.getWordAt(op.right)),
 
         .sys => |op| self.setWordAt(op.left, self.sys(try self.getWordAt(op.right))),
+
+        .not => |op| self.setWordAt(op.left, ~try self.getWordAt(op.right)),
+
+        .@"and" => |op| self.setWordAt(op.left, try self.getWordAt(op.left) & try self.getWordAt(op.right)),
+
+        .@"or" => |op| self.setWordAt(op.left, try self.getWordAt(op.left) | try self.getWordAt(op.right)),
+
+        .ori => |op| self.setWordAt(op.left, try self.getWordAt(op.left) | op.right),
+
+        .addi => |op| self.setWordAt(op.left, try self.getWordAt(op.left) +% op.right),
+
+        .sub => |op| self.setWordAt(op.left, try self.getWordAt(op.left) -% try self.getWordAt(op.right)),
+
+        .subi => |op| self.setWordAt(op.left, try self.getWordAt(op.left) -% op.right),
+
+        .mul => |op| self.setWordAt(op.left, try self.getWordAt(op.left) *% try self.getWordAt(op.right)),
+
+        .muli => |op| self.setWordAt(op.left, try self.getWordAt(op.left) *% op.right),
+
+        .iwmi => |op| self.setWordAt(try self.getWordAt(op.left), op.right),
+
+        .nrm => |op| self.setWordAt(op.left, if (try self.getWordAt(op.right) == 0) 0 else 1),
+
+        .jz => |op| if (try self.getWordAt(op.left) == 0) try self.setWordAt(0, op.right),
+
+        .jnz => |op| if (try self.getWordAt(op.left) != 0) try self.setWordAt(0, op.right),
     };
 }
