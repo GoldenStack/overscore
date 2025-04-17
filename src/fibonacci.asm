@@ -24,12 +24,8 @@ label Main
     add10 Stack 4
 
     // [4..8] Param 1 (number)
-    mov20 Stack d40 // Fibonacci of 15
-    add10 Stack 4
-
-    // [8..12] Return value
-    mov20 Stack 0
-    add10 Stack 4
+    mov20 Stack d35 // The number to calculate fibonacci of
+    add10 Stack 8 // Add 4, and 4 extra as the return value is undefined
 
     // Jump to the call
     mov10 0 Fib
@@ -51,19 +47,18 @@ label Main.AfterCall
     end
 
 label Fib
-    // Retrieve the parameter from the stack and put it in Tmp2
+    // [Tmp2] = [[Stack]-8]
     mov11 Tmp1 Stack
     sub10 Tmp1 8
     mov12 Tmp2 Tmp1
 
-    // Jump to Fib.One1 if it's not 1
-    jnz Tmp2 Fib.One1
+    // if ([Tmp2] != 0) goto Fib.Branch1
+    jnz Tmp2 Fib.Branch1
 
     // If not...
     // mem[stack-4] = 0
     mov11 Tmp1 Stack
     sub10 Tmp1 4
-
     mov20 Tmp1 0
     
     // Jump to mem[stack-12]
@@ -71,30 +66,27 @@ label Fib
     sub10 Tmp1 d12
     mov12 0 Tmp1
 
-label Fib.One1
-    // Retrieve the parameter from the stack and put it in Tmp2
+label Fib.Branch1
+    // [Tmp2] = [[Stack]-8] (the parameter)
     mov11 Tmp1 Stack
     sub10 Tmp1 8
     mov12 Tmp2 Tmp1
 
-    // Since we're checking if it equals 1, subtract one
+    // if ([Tmp2]-1 != 0) goto Fib.Branch2
     sub10 Tmp2 1
-    jnz Tmp2 Fib.One2
+    jnz Tmp2 Fib.Branch2
 
-    // If not...
-    // mem[stack-4] = 1
+    // [Stack-4] = 1
     mov11 Tmp1 Stack
     sub10 Tmp1 4
-
-    // Set the result to 1
     mov20 Tmp1 1
     
-    // Jump to mem[stack-12]
+    // goto [[Stack]-12]
     mov11 Tmp1 Stack
     sub10 Tmp1 d12
     mov12 0 Tmp1
 
-label Fib.One2
+label Fib.Branch2
 
     // Allocate and zero 4 bytes on the stack
     mov20 Stack 0
@@ -103,8 +95,7 @@ label Fib.One2
     // Return Fib(n-1) + Fib(n-2)
 
     // [0..4] Return address
-    mov10 Tmp2 Fib.AfterCall1
-    mov21 Stack Tmp2
+    mov20 Stack Fib.AfterCall1
     add10 Stack 4
 
     // [4..8] Param 1 (number)
@@ -116,11 +107,7 @@ label Fib.One2
     sub10 Tmp2 1
 
     mov21 Stack Tmp2
-    add10 Stack 4
-
-    // [8..12] Return value
-    mov20 Stack 0
-    add10 Stack 4
+    add10 Stack 8 // Add 4, and 4 extra as the return value is undefined
 
     // Jump to the call
     mov10 0 Fib
@@ -157,11 +144,7 @@ label Fib.AfterCall1
     sub10 Tmp2 2
 
     mov21 Stack Tmp2
-    add10 Stack 4
-
-    // [8..12] Return value
-    mov20 Stack 0
-    add10 Stack 4
+    add10 Stack 8 // Add 4, and 4 extra as the return value is undefined
 
     // Jump to the call
     mov10 0 Fib
@@ -172,28 +155,28 @@ label Fib.AfterCall2
     // Reset the stack pointer
     sub10 Stack d12
 
-    // Set Tmp2 to the return value
+    // [Tmp2] = [[Stack]-8]
     mov11 Tmp1 Stack
     add10 Tmp1 8
     mov12 Tmp2 Tmp1
 
-    // mem[stack-4] += Tmp2
+    // [[Stack]-4] += [Tmp2]
     mov11 Tmp1 Stack
     sub10 Tmp1 4
-
     mov12 Tmp3 Tmp1
+
     add11 Tmp2 Tmp3
     mov21 Tmp1 Tmp2
 
     // Reset the stack pointer
     sub10 Stack 4
 
-    // mem[stack-4] = Tmp2
+    // [[Stack]-4] = [Tmp2]
     mov11 Tmp1 Stack
     sub10 Tmp1 4
     mov21 Tmp1 Tmp2
 
-    // Jump to mem[stack-12]
+    // goto [[Stack]-12]
     mov11 Tmp1 Stack
     sub10 Tmp1 d12
 
