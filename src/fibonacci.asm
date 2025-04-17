@@ -20,184 +20,184 @@ label Main
     // Allocate 12 bytes on the stack
 
     // [0..4] Return address
-    iwmi Stack Main.AfterCall
-    addi Stack 4
+    mov20 Stack Main.AfterCall
+    add10 Stack 4
 
     // [4..8] Param 1 (number)
-    iwmi Stack d30 // Fibonacci of 15
-    addi Stack 4
+    mov20 Stack d40 // Fibonacci of 15
+    add10 Stack 4
 
     // [8..12] Return value
-    iwmi Stack 0
-    addi Stack 4
+    mov20 Stack 0
+    add10 Stack 4
 
     // Jump to the call
-    set 0 Fib
+    mov10 0 Fib
     
     // After the call...
 label Main.AfterCall
 
     // Reset the stack pointer
-    subi Stack d12
+    sub10 Stack d12
 
     // Set Tmp2 to the return value
-    mov Tmp1 Stack
-    addi Tmp1 8
-    irm Tmp2 Tmp1
+    mov11 Tmp1 Stack
+    add10 Tmp1 8
+    mov12 Tmp2 Tmp1
 
     // Output the number directly, since I can't be bothered to print it
-    sys Tmp2 Tmp2
+    sys Tmp2
 
     end
 
 label Fib
     // Retrieve the parameter from the stack and put it in Tmp2
-    mov Tmp1 Stack
-    subi Tmp1 8
-    irm Tmp2 Tmp1
+    mov11 Tmp1 Stack
+    sub10 Tmp1 8
+    mov12 Tmp2 Tmp1
 
     // Jump to Fib.One1 if it's not 1
     jnz Tmp2 Fib.One1
 
     // If not...
     // mem[stack-4] = 0
-    mov Tmp1 Stack
-    subi Tmp1 4
+    mov11 Tmp1 Stack
+    sub10 Tmp1 4
 
-    iwmi Tmp1 0
+    mov20 Tmp1 0
     
     // Jump to mem[stack-12]
-    mov Tmp1 Stack
-    subi Tmp1 d12
-    irm 0 Tmp1
+    mov11 Tmp1 Stack
+    sub10 Tmp1 d12
+    mov12 0 Tmp1
 
 label Fib.One1
     // Retrieve the parameter from the stack and put it in Tmp2
-    mov Tmp1 Stack
-    subi Tmp1 8
-    irm Tmp2 Tmp1
+    mov11 Tmp1 Stack
+    sub10 Tmp1 8
+    mov12 Tmp2 Tmp1
 
     // Since we're checking if it equals 1, subtract one
-    subi Tmp2 1
+    sub10 Tmp2 1
     jnz Tmp2 Fib.One2
 
     // If not...
     // mem[stack-4] = 1
-    mov Tmp1 Stack
-    subi Tmp1 4
+    mov11 Tmp1 Stack
+    sub10 Tmp1 4
 
     // Set the result to 1
-    iwmi Tmp1 1
+    mov20 Tmp1 1
     
     // Jump to mem[stack-12]
-    mov Tmp1 Stack
-    subi Tmp1 d12
-    irm 0 Tmp1
+    mov11 Tmp1 Stack
+    sub10 Tmp1 d12
+    mov12 0 Tmp1
 
 label Fib.One2
 
     // Allocate and zero 4 bytes on the stack
-    iwmi Stack 0
-    addi Stack 4
+    mov20 Stack 0
+    add10 Stack 4
 
     // Return Fib(n-1) + Fib(n-2)
 
     // [0..4] Return address
-    set Tmp2  Fib.AfterCall1
-    iwm Stack Tmp2
-    addi Stack 4
+    mov10 Tmp2 Fib.AfterCall1
+    mov21 Stack Tmp2
+    add10 Stack 4
 
     // [4..8] Param 1 (number)
     // Retrieve the parameter from the stack and put it in Tmp2
-    mov Tmp1 Stack
-    subi Tmp1 d16
-    irm Tmp2 Tmp1
+    mov11 Tmp1 Stack
+    sub10 Tmp1 d16
+    mov12 Tmp2 Tmp1
 
-    subi Tmp2 1
+    sub10 Tmp2 1
 
-    iwm Stack Tmp2
-    addi Stack 4
+    mov21 Stack Tmp2
+    add10 Stack 4
 
     // [8..12] Return value
-    iwmi Stack 0
-    addi Stack 4
+    mov20 Stack 0
+    add10 Stack 4
 
     // Jump to the call
-    set 0 Fib
+    mov10 0 Fib
     
     // After the call...
 label Fib.AfterCall1
 
     // Reset the stack pointer
-    subi Stack d12
+    sub10 Stack d12
 
     // Get the return value
-    set Tmp1 8
-    add Tmp1 Stack
+    mov10 Tmp1 8
+    add11 Tmp1 Stack
 
     // Extract the number into Tmp2
-    irm Tmp2 Tmp1
+    mov12 Tmp2 Tmp1
 
     // mem[stack-4] = Tmp2
-    mov Tmp1 Stack
-    subi Tmp1 4
-    iwm Tmp1 Tmp2
+    mov11 Tmp1 Stack
+    sub10 Tmp1 4
+    mov21 Tmp1 Tmp2
 
     // [0..4] Return address
-    set Tmp2  Fib.AfterCall2
-    iwm Stack Tmp2
-    addi Stack 4
+    mov10 Tmp2  Fib.AfterCall2
+    mov21 Stack Tmp2
+    add10 Stack 4
 
     // [4..8] Param 1 (number)
     // Retrieve the parameter from the stack and put it in Tmp2
-    mov Tmp1 Stack
-    subi Tmp1 d16
-    irm Tmp2 Tmp1
+    mov11 Tmp1 Stack
+    sub10 Tmp1 d16
+    mov12 Tmp2 Tmp1
 
-    subi Tmp2 2
+    sub10 Tmp2 2
 
-    iwm Stack Tmp2
-    addi Stack 4
+    mov21 Stack Tmp2
+    add10 Stack 4
 
     // [8..12] Return value
-    iwmi Stack 0
-    addi Stack 4
+    mov20 Stack 0
+    add10 Stack 4
 
     // Jump to the call
-    set 0 Fib
+    mov10 0 Fib
     
     // After the call...
 label Fib.AfterCall2
 
     // Reset the stack pointer
-    subi Stack d12
+    sub10 Stack d12
 
     // Set Tmp2 to the return value
-    mov Tmp1 Stack
-    addi Tmp1 8
-    irm Tmp2 Tmp1
+    mov11 Tmp1 Stack
+    add10 Tmp1 8
+    mov12 Tmp2 Tmp1
 
     // mem[stack-4] += Tmp2
-    mov Tmp1 Stack
-    subi Tmp1 4
+    mov11 Tmp1 Stack
+    sub10 Tmp1 4
 
-    irm Tmp3 Tmp1
-    add Tmp2 Tmp3
-    iwm Tmp1 Tmp2
+    mov12 Tmp3 Tmp1
+    add11 Tmp2 Tmp3
+    mov21 Tmp1 Tmp2
 
     // Reset the stack pointer
-    subi Stack 4
+    sub10 Stack 4
 
     // mem[stack-4] = Tmp2
-    mov Tmp1 Stack
-    subi Tmp1 4
-    iwm Tmp1 Tmp2
+    mov11 Tmp1 Stack
+    sub10 Tmp1 4
+    mov21 Tmp1 Tmp2
 
     // Jump to mem[stack-12]
-    mov Tmp1 Stack
-    subi Tmp1 d12
+    mov11 Tmp1 Stack
+    sub10 Tmp1 d12
 
-    irm 0 Tmp1
+    mov12 0 Tmp1
 
     end
 

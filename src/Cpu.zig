@@ -44,59 +44,49 @@ pub const Error = error{
     UnknownOpcode,
 };
 
-/// A binary operation that takes two arguments. Typically, the left argument is
-/// written to.
-pub const BinOp = struct {
-    left: Addr,
-    right: Addr,
-};
-
-/// The tag for the instruction type.
-pub const InstructionTag = enum(Unit) {
-    set = 1,
-    mov,
-    nand,
-    add,
-    irm,
-    iwm,
-    sys,
-    not,
-    @"and",
-    @"or",
-    ori,
-    addi,
-    sub,
-    subi,
-    mul,
-    muli,
-    iwmi,
-    nrm,
-    jz,
-    jnz,
-};
-
 /// A CPU instruction.
-pub const Instruction = union(InstructionTag) {
-    set: BinOp,
-    mov: BinOp,
-    nand: BinOp,
-    add: BinOp,
-    irm: BinOp,
-    iwm: BinOp,
-    sys: BinOp,
-    not: BinOp,
-    @"and": BinOp,
-    @"or": BinOp,
-    ori: BinOp,
-    addi: BinOp,
-    sub: BinOp,
-    subi: BinOp,
-    mul: BinOp,
-    muli: BinOp,
-    iwmi: BinOp,
-    nrm: BinOp,
-    jz: BinOp,
-    jnz: BinOp,
+pub const Instruction = union(enum) {
+    unary: UnaryInstruction,
+    binary: BinaryInstruction,
+};
+
+pub const UnaryInstruction = struct {
+    pub const Opcode = enum(u8) {
+        not,
+        sys,
+    };
+
+    opcode: Opcode,
+    op1: Addr,
+};
+
+pub const BinaryInstruction = struct {
+    pub const Opcode = enum(u8) {
+        mov10,
+        mov11,
+        mov12,
+        mov20,
+        mov21,
+        mov22,
+
+        and10,
+        and11,
+        or10,
+        or11,
+        add10,
+        add11,
+        sub10,
+        sub11,
+        mul10,
+        mul11,
+
+        jz,
+        jnz,
+    };
+
+    opcode: Opcode,
+    op1: Addr,
+    op2: Addr,
 };
 
 memory: [Memory]Unit,
@@ -117,54 +107,52 @@ fn wordSliceAt(self: *@This(), addr: Addr) Error!*[UnitsPerWord]Unit {
     return self.memory[addr..][0..UnitsPerWord];
 }
 
-fn getWordAt(self: *@This(), addr: Addr) Error!Word {
+inline fn getWordAt(self: *@This(), addr: Addr) Error!Word {
     return std.mem.readInt(Word, try self.wordSliceAt(addr), .little);
 }
 
-fn setWordAt(self: *@This(), addr: Addr, word: Word) Error!void {
+inline fn setWordAt(self: *@This(), addr: Addr, word: Word) Error!void {
     std.mem.writeInt(Word, try self.wordSliceAt(addr), word, .little);
 }
 
-fn readBinOp(self: *@This(), index: *usize) Error!BinOp {
-    const left = try self.getWordAt(@truncate(index.*));
-    const right = try self.getWordAt(@truncate(index.* + 4));
-    index.* += 8;
-    return .{ .left = left, .right = right };
+fn readUnaryInstruction(self: *@This(), index: *usize) Error!UnaryInstruction {
+    const opcode = self.memory[index.*] & 0b01111111;
+
+    if (opcode > @intFromEnum(UnaryInstruction.Opcode.sys)) return error.UnknownOpcode;
+
+    const op1 = try self.getWordAt(@truncate(index.* + 1));
+
+    index.* += 5;
+
+    return .{
+        .opcode = @enumFromInt(opcode),
+        .op1 = op1,
+    };
 }
 
-fn readInstructionTag(self: *@This(), index: *usize) Error!InstructionTag {
-    const opcode = self.memory[index.*];
-    index.* += 1;
+fn readBinaryInstruction(self: *@This(), index: *usize) Error!BinaryInstruction {
+    const opcode = self.memory[index.*] & 0b01111111;
 
-    if (opcode == 0 or opcode > @intFromEnum(InstructionTag.jnz)) return error.UnknownOpcode;
-    return @enumFromInt(opcode);
+    if (opcode > @intFromEnum(BinaryInstruction.Opcode.jnz)) return error.UnknownOpcode;
+
+    const op1 = try self.getWordAt(@truncate(index.* + 1));
+    const op2 = try self.getWordAt(@truncate(index.* + 5));
+
+    index.* += 9;
+
+    return .{
+        .opcode = @enumFromInt(opcode),
+        .op1 = op1,
+        .op2 = op2,
+    };
 }
 
 fn readInstruction(self: *@This(), index: *usize) Error!Instruction {
-    const tag = try self.readInstructionTag(index);
-
-    return switch (tag) {
-        .set => .{ .set = try self.readBinOp(index) },
-        .mov => .{ .mov = try self.readBinOp(index) },
-        .nand => .{ .nand = try self.readBinOp(index) },
-        .add => .{ .add = try self.readBinOp(index) },
-        .irm => .{ .irm = try self.readBinOp(index) },
-        .iwm => .{ .iwm = try self.readBinOp(index) },
-        .sys => .{ .sys = try self.readBinOp(index) },
-        .not => .{ .not = try self.readBinOp(index) },
-        .@"and" => .{ .@"and" = try self.readBinOp(index) },
-        .@"or" => .{ .@"or" = try self.readBinOp(index) },
-        .ori => .{ .ori = try self.readBinOp(index) },
-        .addi => .{ .addi = try self.readBinOp(index) },
-        .sub => .{ .sub = try self.readBinOp(index) },
-        .subi => .{ .subi = try self.readBinOp(index) },
-        .mul => .{ .mul = try self.readBinOp(index) },
-        .muli => .{ .muli = try self.readBinOp(index) },
-        .iwmi => .{ .iwmi = try self.readBinOp(index) },
-        .nrm => .{ .nrm = try self.readBinOp(index) },
-        .jz => .{ .jz = try self.readBinOp(index) },
-        .jnz => .{ .jnz = try self.readBinOp(index) },
-    };
+    if (self.memory[index.*] & 0b10000000 == 0) {
+        return .{ .unary = try self.readUnaryInstruction(index) };
+    } else {
+        return .{ .binary = try self.readBinaryInstruction(index) };
+    }
 }
 
 /// Reads an instruction from the CPU, advancing the instruction pointer as
@@ -175,8 +163,8 @@ pub fn prepareInstruction(self: *@This()) Error!?Instruction {
     // Cannot read instructions outside of memory
     if (addr >= Memory) return error.AddressOutOfBounds;
 
-    // Handle opcode of 0
-    if (self.memory[addr] == 0) return null;
+    // Handle opcode of 255 (invalid)
+    if (self.memory[addr] == 0xff) return null;
 
     var index: usize = addr;
     const instruction = try self.readInstruction(&index);
@@ -185,47 +173,49 @@ pub fn prepareInstruction(self: *@This()) Error!?Instruction {
     return instruction;
 }
 
+fn followUnaryInstruction(self: *@This(), unary: UnaryInstruction) Error!void {
+    const op1 = unary.op1;
+
+    const slice = try self.wordSliceAt(op1);
+
+    switch (unary.opcode) {
+        .not => slice.* = @bitCast(~@as(Word, @bitCast(slice.*))), // Endianness is irrelevant
+        .sys => std.mem.writeInt(Word, slice, self.sys(std.mem.readInt(Word, slice, .little)), .little),
+    }
+}
+
+fn followBinaryInstruction(self: *@This(), binary: BinaryInstruction) Error!void {
+    const op1 = binary.op1;
+    const op2 = binary.op2;
+
+    switch (binary.opcode) {
+        .mov10 => try self.setWordAt(op1, op2),
+        .mov11 => try self.setWordAt(op1, try self.getWordAt(op2)),
+        .mov12 => try self.setWordAt(op1, try self.getWordAt(try self.getWordAt(op2))),
+        .mov20 => try self.setWordAt(try self.getWordAt(op1), op2),
+        .mov21 => try self.setWordAt(try self.getWordAt(op1), try self.getWordAt(op2)),
+        .mov22 => try self.setWordAt(try self.getWordAt(op1), try self.getWordAt(try self.getWordAt(op2))),
+
+        .and10 => try self.setWordAt(op1, try self.getWordAt(op1) & op2),
+        .and11 => try self.setWordAt(op1, try self.getWordAt(op1) & try self.getWordAt(op2)),
+        .or10 => try self.setWordAt(op1, try self.getWordAt(op1) | op2),
+        .or11 => try self.setWordAt(op1, try self.getWordAt(op1) | try self.getWordAt(op2)),
+        .add10 => try self.setWordAt(op1, try self.getWordAt(op1) +% op2),
+        .add11 => try self.setWordAt(op1, try self.getWordAt(op1) +% try self.getWordAt(op2)),
+        .sub10 => try self.setWordAt(op1, try self.getWordAt(op1) -% op2),
+        .sub11 => try self.setWordAt(op1, try self.getWordAt(op1) -% try self.getWordAt(op2)),
+        .mul10 => try self.setWordAt(op1, try self.getWordAt(op1) *% op2),
+        .mul11 => try self.setWordAt(op1, try self.getWordAt(op1) *% try self.getWordAt(op2)),
+
+        .jz => if (try self.getWordAt(op1) == 0) try self.setWordAt(0, op2),
+        .jnz => if (try self.getWordAt(op1) != 0) try self.setWordAt(0, op2),
+    }
+}
+
 /// Follows the provided CPU instruction.
 pub fn follow(self: *@This(), instruction: Instruction) Error!void {
     try switch (instruction) {
-        .set => |op| self.setWordAt(op.left, op.right),
-
-        .mov => |op| self.setWordAt(op.left, try self.getWordAt(op.right)),
-
-        .nand => |op| self.setWordAt(op.left, ~(try self.getWordAt(op.left) & try self.getWordAt(op.right))),
-
-        .add => |op| self.setWordAt(op.left, try self.getWordAt(op.left) +% try self.getWordAt(op.right)),
-
-        .irm => |op| self.setWordAt(op.left, try self.getWordAt(try self.getWordAt(op.right))),
-
-        .iwm => |op| self.setWordAt(try self.getWordAt(op.left), try self.getWordAt(op.right)),
-
-        .sys => |op| self.setWordAt(op.left, self.sys(try self.getWordAt(op.right))),
-
-        .not => |op| self.setWordAt(op.left, ~try self.getWordAt(op.right)),
-
-        .@"and" => |op| self.setWordAt(op.left, try self.getWordAt(op.left) & try self.getWordAt(op.right)),
-
-        .@"or" => |op| self.setWordAt(op.left, try self.getWordAt(op.left) | try self.getWordAt(op.right)),
-
-        .ori => |op| self.setWordAt(op.left, try self.getWordAt(op.left) | op.right),
-
-        .addi => |op| self.setWordAt(op.left, try self.getWordAt(op.left) +% op.right),
-
-        .sub => |op| self.setWordAt(op.left, try self.getWordAt(op.left) -% try self.getWordAt(op.right)),
-
-        .subi => |op| self.setWordAt(op.left, try self.getWordAt(op.left) -% op.right),
-
-        .mul => |op| self.setWordAt(op.left, try self.getWordAt(op.left) *% try self.getWordAt(op.right)),
-
-        .muli => |op| self.setWordAt(op.left, try self.getWordAt(op.left) *% op.right),
-
-        .iwmi => |op| self.setWordAt(try self.getWordAt(op.left), op.right),
-
-        .nrm => |op| self.setWordAt(op.left, if (try self.getWordAt(op.right) == 0) 0 else 1),
-
-        .jz => |op| if (try self.getWordAt(op.left) == 0) try self.setWordAt(0, op.right),
-
-        .jnz => |op| if (try self.getWordAt(op.left) != 0) try self.setWordAt(0, op.right),
+        .unary => |unary| self.followUnaryInstruction(unary),
+        .binary => |binary| self.followBinaryInstruction(binary),
     };
 }

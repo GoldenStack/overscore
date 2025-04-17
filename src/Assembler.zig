@@ -35,6 +35,21 @@ pub const Addr = union(enum) {
     }
 };
 
+/// A unary operation, with only one address.
+pub const UnaryOp = struct {
+    left: Addr,
+
+    pub fn read(reader: anytype) !UnaryOp {
+        return .{
+            .left = try Addr.read(reader),
+        };
+    }
+
+    pub fn write(self: *const @This(), writer: anytype, labels: *const std.StringHashMap(Cpu.Addr)) !void {
+        try self.left.write(writer, labels);
+    }
+};
+
 /// A binary operation, with a left and right address.
 pub const BinOp = struct {
     left: Addr,
@@ -55,62 +70,20 @@ pub const BinOp = struct {
 
 /// The tag for the line type.
 pub const LineTag = enum {
-    set,
-    mov,
-    nand,
-    add,
-    irm,
-    iwm,
-    sys,
-    not,
-    @"and",
-    @"or",
-    ori,
-    addi,
-    sub,
-    subi,
-    mul,
-    muli,
-    iwmi,
-    nrm,
-    jz,
-    jnz,
+    unary,
+    binary,
 
     raw,
     label,
     bytes,
     end,
-
-    pub fn read(reader: anytype) !LineTag {
-        const token = try reader.readToken();
-
-        return std.meta.stringToEnum(LineTag, token) orelse error.UnknownLineType;
-    }
 };
 
 /// A line in assembly. This can be an instruction or one of many Assembler
 /// constructs.
 pub const Line = union(LineTag) {
-    set: BinOp,
-    mov: BinOp,
-    nand: BinOp,
-    add: BinOp,
-    irm: BinOp,
-    iwm: BinOp,
-    sys: BinOp,
-    not: BinOp,
-    @"and": BinOp,
-    @"or": BinOp,
-    ori: BinOp,
-    addi: BinOp,
-    sub: BinOp,
-    subi: BinOp,
-    mul: BinOp,
-    muli: BinOp,
-    iwmi: BinOp,
-    nrm: BinOp,
-    jz: BinOp,
-    jnz: BinOp,
+    unary: struct { Cpu.UnaryInstruction.Opcode, UnaryOp },
+    binary: struct { Cpu.BinaryInstruction.Opcode, BinOp },
 
     raw: Addr,
     label: []const u8,
@@ -118,77 +91,49 @@ pub const Line = union(LineTag) {
     end,
 
     pub fn read(reader: anytype) !Line {
-        const tag = try LineTag.read(reader);
+        const token = try reader.readToken();
 
-        return switch (tag) {
-            .set => .{ .set = try BinOp.read(reader) },
-            .mov => .{ .mov = try BinOp.read(reader) },
-            .nand => .{ .nand = try BinOp.read(reader) },
-            .add => .{ .add = try BinOp.read(reader) },
-            .irm => .{ .irm = try BinOp.read(reader) },
-            .iwm => .{ .iwm = try BinOp.read(reader) },
-            .sys => .{ .sys = try BinOp.read(reader) },
-            .not => .{ .not = try BinOp.read(reader) },
-            .@"and" => .{ .@"and" = try BinOp.read(reader) },
-            .@"or" => .{ .@"or" = try BinOp.read(reader) },
-            .ori => .{ .ori = try BinOp.read(reader) },
-            .addi => .{ .addi = try BinOp.read(reader) },
-            .sub => .{ .sub = try BinOp.read(reader) },
-            .subi => .{ .subi = try BinOp.read(reader) },
-            .mul => .{ .mul = try BinOp.read(reader) },
-            .muli => .{ .muli = try BinOp.read(reader) },
-            .iwmi => .{ .iwmi = try BinOp.read(reader) },
-            .nrm => .{ .nrm = try BinOp.read(reader) },
-            .jz => .{ .jz = try BinOp.read(reader) },
-            .jnz => .{ .jnz = try BinOp.read(reader) },
-
-            .raw => .{ .raw = try Addr.read(reader) },
-            .label => .{ .label = try reader.readToken() },
-            .bytes => .{ .bytes = try reader.readRemaining() },
-            .end => .end,
-        };
-    }
-
-    fn write_instruction(comptime variant: Cpu.InstructionTag, value: BinOp, writer: anytype, labels: *const std.StringHashMap(Cpu.Addr)) !void {
-        const opcode = @intFromEnum(variant);
-        try writer.writeByte(opcode);
-
-        try value.write(writer, labels);
+        if (std.meta.stringToEnum(Cpu.UnaryInstruction.Opcode, token)) |op| {
+            return .{ .unary = .{ op, try UnaryOp.read(reader) } };
+        } else if (std.meta.stringToEnum(Cpu.BinaryInstruction.Opcode, token)) |op| {
+            return .{ .binary = .{ op, try BinOp.read(reader) } };
+        } else if (std.mem.eql(u8, "raw", token)) {
+            return .{ .raw = try Addr.read(reader) };
+        } else if (std.mem.eql(u8, "label", token)) {
+            return .{ .label = try reader.readToken() };
+        } else if (std.mem.eql(u8, "bytes", token)) {
+            return .{ .bytes = try reader.readRemaining() };
+        } else if (std.mem.eql(u8, "end", token)) {
+            return .end;
+        } else return error.UnknownLineType;
     }
 
     pub fn write(self: *const @This(), writer: anytype, labels: *const std.StringHashMap(Cpu.Addr)) !void {
         try switch (self.*) {
-            .set => |line| write_instruction(.set, line, writer, labels),
-            .mov => |line| write_instruction(.mov, line, writer, labels),
-            .nand => |line| write_instruction(.nand, line, writer, labels),
-            .add => |line| write_instruction(.add, line, writer, labels),
-            .irm => |line| write_instruction(.irm, line, writer, labels),
-            .iwm => |line| write_instruction(.iwm, line, writer, labels),
-            .sys => |line| write_instruction(.sys, line, writer, labels),
-            .not => |line| write_instruction(.not, line, writer, labels),
-            .@"and" => |line| write_instruction(.@"and", line, writer, labels),
-            .@"or" => |line| write_instruction(.@"or", line, writer, labels),
-            .ori => |line| write_instruction(.ori, line, writer, labels),
-            .addi => |line| write_instruction(.addi, line, writer, labels),
-            .sub => |line| write_instruction(.sub, line, writer, labels),
-            .subi => |line| write_instruction(.subi, line, writer, labels),
-            .mul => |line| write_instruction(.mul, line, writer, labels),
-            .muli => |line| write_instruction(.muli, line, writer, labels),
-            .iwmi => |line| write_instruction(.iwmi, line, writer, labels),
-            .nrm => |line| write_instruction(.nrm, line, writer, labels),
-            .jz => |line| write_instruction(.jz, line, writer, labels),
-            .jnz => |line| write_instruction(.jnz, line, writer, labels),
+            .unary => |unary| {
+                const opcode = @intFromEnum(unary.@"0");
+                try writer.writeByte(opcode);
+
+                try unary.@"1".write(writer, labels);
+            },
+            .binary => |binary| {
+                const opcode = @intFromEnum(binary.@"0") | 0b10000000;
+                try writer.writeByte(opcode);
+
+                try binary.@"1".write(writer, labels);
+            },
 
             .raw => |line| line.write(writer, labels),
             .label => {},
             .bytes => |line| writer.writeAll(line),
-            .end => writer.writeByte(0),
+            .end => writer.writeByte(0xff),
         };
     }
 
     pub fn size(self: *const @This()) Cpu.Word {
         return switch (self.*) {
-            .set, .mov, .nand, .add, .irm, .iwm, .sys, .not, .@"and", .@"or", .ori, .addi, .sub, .subi, .mul, .muli, .iwmi, .nrm, .jz, .jnz => 9,
+            .unary => 5,
+            .binary => 9,
             .raw => 4,
             .label => 0,
             .bytes => |line| @truncate(line.len),
