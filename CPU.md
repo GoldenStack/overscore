@@ -70,10 +70,10 @@ have two operands. This is how they will henceforth be referred to.
 
 ```
 
-| Name               | Description | Variant | Opcode | C-like equivalent |
-|--------------------|-------------|---------|--------|-------------------|
-| [`not1`](#not)     | Not         | -       | 0      | `*a = ~*a`        |
-| [`sys1`](#syscall) | Syscall     | -       | 1      | `*a = sys(*a)`*   |
+| Name              | Description | Variant | Opcode | C-like equivalent |
+|-------------------|-------------|---------|--------|-------------------|
+| [`not`](#not)     | Not         | not1    | 0      | `*a = ~*a`        |
+| [`sys`](#syscall) | Syscall     | sys1    | 1      | `*a = sys(*a)`*   |
 > _*where sys is a standard IO function_
 
 ## Two-operand instructions
