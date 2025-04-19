@@ -56,10 +56,11 @@ the `mov` instruction; for example, `mov12` corresponds to `*a = **b`, as the
 `1` means one level of indirection on `a` and the `2` means two levels of
 indirection on `b`.
 
-An instruction with a length of 5 has one operand; the length 9 instructions
-have two operands. This is how they will henceforth be referred to.
+Instructions with a length of 5 have one operand, and are called one-operand (or
+unary) instructions, while instructions with a length of 9 are called
+two-operand (or binary) instructions.
 
-### One-operand instructions
+## One-operand (unary) instructions
 
 ```
 ┌───────────────────────────────────┐
@@ -76,7 +77,7 @@ have two operands. This is how they will henceforth be referred to.
 | [`sys`](#syscall) | Syscall     | sys1    | 1      | `*a = sys(*a)`*   |
 > _*where sys is a standard IO function_
 
-## Two-operand instructions
+## Two-operand (binary) instructions
 
 ```
 ┌───────────────────────────────────────────────┐
