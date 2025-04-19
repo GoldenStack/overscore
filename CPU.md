@@ -11,9 +11,10 @@ instruction counter at address 0. This allows jumps to be implemented with
 arithmetic on the instruction counter at address 0. There are no registers;
 everything refers to memory directly.
 
-The CPU silently exits when the first byte is `0xFF`. Otherwise, reading from
-invalid memory or having an invalid opcode makes the CPU exit, as there is
-currently no error/interrupt handling.
+When reading instructions, the CPU silently exits when the first byte read is
+`0xFF`. Otherwise, reading from invalid memory or having an invalid opcode makes
+the CPU exit, as there is currently no error/interrupt handling.
+
 
 ## Instruction Set
 
