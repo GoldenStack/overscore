@@ -48,7 +48,13 @@ instruction; for example, a first byte of `00000001` denotes the `sys`
 instruction, while `10000001` corresponds to `mov11`. This means there is room
 for 128 instructions of each size, for a total of 256.
 
-Instruction names genreall
+Instruction names are generally suffixed with the levels of indirection for
+their argument(s). For example, `not1` means there is one level of indirection
+used, corresponding to `*a = ~*a`. A hypothetical `not2` would be represented as
+`**a = ~**a`. All instructions with two levels of indirection are variants of
+the `mov` instruction; for example, `mov12` corresponds to `*a = **b`, as the
+`1` means one level of indirection on `a` and the `2` means two levels of
+indirection on `b`.
 
 An instruction with a length of 5 has one operand; the length 9 instructions
 have two operands. This is how they will henceforth be referred to.
@@ -102,8 +108,6 @@ have two operands. This is how they will henceforth be referred to.
 | [`jz`](#jz)        | Jump if zero    | jz      | 16     | `if (*a == 0) *0 = b` |
 | [`jnz`](#jnz)      | Jump if nonzero | jnz     | 17     | `if (*a != 0) *0 = b` |
 
-
-TODO: Add that the numbers after instruction names indicate levels of indirection.
 
 TODO: Descriptions of each instruction.
 
