@@ -197,7 +197,7 @@ pub fn readRoot(self: *@This()) Error!ast.Container {
 
 /// Reads a container from this parser.
 pub fn readContainer(self: *@This()) Error!ast.Container {
-    _ = try self.expect(.product);
+    _ = try self.expect(.container);
     _ = try self.expect(.opening_curly_bracket);
 
     var decls = std.ArrayList(Ranged(ast.ContainerDecl)).init(self.allocator);
@@ -278,7 +278,7 @@ pub fn readExpr(self: *@This()) Error!ast.Expr {
 fn readExprRaw(self: *@This()) Error!ast.Expr {
     return switch (self.peek().value) {
         // Read a type
-        .word, .type, .product => .{ .type = try self.readType() },
+        .word, .type, .container => .{ .type = try self.readType() },
 
         // Read a word
         .number => .{ .word = try self.readWord() },
@@ -289,7 +289,7 @@ fn readExprRaw(self: *@This()) Error!ast.Expr {
         // Read an expression surrounded with parentheses
         .opening_parentheses => try self.readParentheses(),
 
-        else => self.failExpected(&.{ .word, .type, .product, .number, .ident, .opening_parentheses }),
+        else => self.failExpected(&.{ .word, .type, .container, .number, .ident, .opening_parentheses }),
     };
 }
 
@@ -318,8 +318,8 @@ pub fn readType(self: *@This()) Error!ast.Type {
             _ = try self.expect(.type);
             return .type;
         },
-        .product => .{ .container = try self.readContainer() },
-        else => self.failExpected(&.{ .word, .type, .product }),
+        .container => .{ .container = try self.readContainer() },
+        else => self.failExpected(&.{ .word, .type, .container }),
     };
 }
 
