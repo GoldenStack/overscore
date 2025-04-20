@@ -12,9 +12,9 @@ scratch with a philosophy of simplicity in mind, as well as a learning project.
 This is primarily a solo project, but if there are any questions (like "How do I
 run this myself?"), suggestions, or just general thoughts (maybe even some ideas
 for CPUs, instruction sets, or programming languages that you've had on your own
-that you want to share!), you can open an issue or message me on Discord (link
-on [my website](https://goldenstack.net/)). I do follow the Zig philosophy of
-having a single individual with a dedicated vision for this project, though.
+that you want to share!), feel free to open an issue or contact me otherwise! I
+do follow the Zig philosophy of having a single individual with a dedicated
+vision for this project, though.
 
 # CPU
 
