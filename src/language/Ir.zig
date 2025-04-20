@@ -56,6 +56,7 @@ pub const ir = struct {
         word: u32,
         type: Type,
         pointer: Ranged(Index(ir.Decl)),
+        dereference: Ranged(*Expr),
         parentheses: Ranged(*Expr),
         member_access: struct {
             container: Ranged(*Expr),
@@ -162,6 +163,7 @@ pub fn convertExpr(self: *@This(), expr: ast.Expr) Error!ir.Expr {
         .word => |word| .{ .word = word },
         .type => |@"type"| .{ .type = try self.convertType(@"type") },
         .ident => |ident| .{ .pointer = ident.swap(try self.lookupNameExpected(ident)) },
+        .dereference => |deref| .{ .dereference = try deref.map(self, convertExprPtr) },
         .parentheses => |parens| try self.convertExpr(parens.value.*),
         .member_access => |access| .{ .member_access = .{
             .container = try access.container.map(self, convertExprPtr),
@@ -281,6 +283,10 @@ pub fn printExpr(self: *const @This(), expr: ir.Expr, writer: anytype) anyerror!
         .pointer => |ptr| {
             try self.printRange(ptr.range, writer);
             try writer.print("<{}>", .{ptr.value});
+        },
+        .dereference => |deref| {
+            try self.printExpr(deref.value.*, writer);
+            try writer.writeAll(".*");
         },
         .parentheses => |parens| {
             try writer.writeByte('(');

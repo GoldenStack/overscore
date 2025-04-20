@@ -139,6 +139,19 @@ fn evalExpr(self: *@This(), expr: ir.Expr) Error!ir.Expr {
 
             return expr;
         },
+        .dereference => |deref| {
+            const deref2 = try self.evalExpr(deref.value.*);
+            if (deref2 != .pointer) return self.fail(.{ .dereferenced_non_pointer = .{
+                .expr = deref.range,
+                .@"type" = try self.typeOf(deref2),
+            } });
+
+            const index = deref2.pointer.value;
+            const decl = self.context.decls.items[index];
+
+            // Can just return the direct value because evaluating an expression copies it
+            return decl.value.value;
+        },
         .parentheses => |parens| try self.evalExpr(parens.value.*),
         .member_access => |access| {
             const container = access.container.swap(try self.evalExpr(access.container.value.*));

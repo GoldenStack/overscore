@@ -78,6 +78,9 @@ pub const ast = struct {
         /// An identifier that contains a value.
         ident: Ranged(Token),
 
+        /// An expression that is being dereferenced.
+        dereference: Ranged(*Expr),
+
         /// An expression that has been wrapped with parentheses.
         parentheses: Ranged(*Expr),
 
@@ -85,7 +88,7 @@ pub const ast = struct {
         member_access: struct {
             container: Ranged(*Expr),
             member: Ranged(Token),
-        }
+        },
     };
 
     pub fn printContainer(src: []const u8, container: Container, writer: anytype) anyerror!void {
@@ -115,7 +118,7 @@ pub const ast = struct {
         try printToken(src, decl.name, writer);
         try writer.writeAll(": ");
 
-        try printExpr(src,decl.type.value, writer);
+        try printExpr(src, decl.type.value, writer);
         try writer.writeAll(" = ");
 
         try printExpr(src, decl.value.value, writer);
@@ -127,6 +130,10 @@ pub const ast = struct {
             .word => |word| try writer.print("{}", .{word}),
             .type => |@"type"| try printType(src, @"type", writer),
             .ident => |ident| try printToken(src, ident, writer),
+            .dereference => |deref| {
+                try printExpr(src, deref.value.*, writer);
+                try writer.writeAll(".*");
+            },
             .parentheses => |parens| {
                 try writer.writeByte('(');
                 try printExpr(src, parens.value.*, writer);
@@ -136,7 +143,7 @@ pub const ast = struct {
                 try printExpr(src, member.container.value.*, writer);
                 try writer.writeByte('.');
                 try printToken(src, member.member, writer);
-            }
+            },
         }
     }
 
@@ -155,7 +162,6 @@ pub const ast = struct {
     pub fn printToken(src: []const u8, token: Ranged(Token), writer: anytype) anyerror!void {
         try writer.writeAll(token.range.substr(src));
     }
-
 };
 
 /// The error set of errors that can occur while parsing the AST.
@@ -272,6 +278,7 @@ pub fn readExpr(self: *@This()) Error!ast.Expr {
     while (true) {
         expr = switch (self.peek().value) {
             .period => try expr.mapExtend(self, readMemberAccess),
+            .period_asterisk => try expr.mapExtend(self, readDereference),
             else => break,
         };
     }
@@ -309,6 +316,15 @@ fn readMemberAccess(self: *@This(), base: Ranged(ast.Expr)) Error!ast.Expr {
         .container = base.swap(ptr),
         .member = member,
     } };
+}
+
+fn readDereference(self: *@This(), base: Ranged(ast.Expr)) Error!ast.Expr {
+    _ = try self.expect(.period_asterisk);
+
+    const ptr = try self.allocator.create(ast.Expr);
+    ptr.* = base.value;
+
+    return .{ .dereference = base.swap(ptr) };
 }
 
 /// Parses a type from this parser.
@@ -430,4 +446,3 @@ pub fn next(self: *@This()) Ranged(Token) {
 pub fn location(self: *@This()) tokenizer.Location {
     return self.tokens.loc;
 }
-

@@ -80,6 +80,12 @@ pub const Error = union(enum) {
         member: Range, // TODO: Point to the entire member access, e.g. `a.b`.
     },
 
+    /// Tried to dereference an expression that's not a pointer.
+    dereferenced_non_pointer: struct {
+        expr: Range,
+        @"type": ir.Type,
+    },
+
     // /// Expected entirely tagged or entirely untagged fields, but found a mixture.
     // expected_homogenous_fields: struct {
     //     untagged_example: Range,
@@ -213,6 +219,15 @@ pub const Error = union(enum) {
                 try prefix(filename, private.declaration, .note, writer);
                 try writer.writeAll("member declared here\n" ++ Unbold);
                 try pointTo(src, private.declaration, writer);
+            },
+            .dereferenced_non_pointer => |deref| {
+                try prefix(filename, deref.expr, .err, writer);
+                try writer.writeAll("cannot dereference non-pointer type '");
+                // try ast.printType(src, access.@"type", writer);
+                try writer.print("{any}", .{deref.@"type"}); // TODO: Fix printing
+                try writer.writeAll("'\n" ++ Unbold);
+                try pointTo(src, deref.expr, writer);
+                
             },
             // .expected_homogenous_fields => |exp| {
             //     if (exp.tagged_example.start.pos > exp.untagged_example.start.pos) {
