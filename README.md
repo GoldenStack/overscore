@@ -5,9 +5,9 @@ high-level programming language. It's an entirely separate computer ecosystem,
 starting from the ground up.
 
 Overscore serves as a modern look into the hardware and software ecosystem if it
-were desigend by a college freshman in 2025 (because it was). It's both an
-experiment with what improvements can be made by designing it from scratch with
-a philosophy of simplicity in mind, as well as a learning project.
+were designed by a college freshman in 2025 (because it was). It's both an
+experiment with what improvements can be made by designing everything from
+scratch with a philosophy of simplicity in mind, as well as a learning project.
 
 This is primarily a solo project, but if there are any questions (like "How do I
 run this myself?"), suggestions, or just general thoughts (maybe even some ideas
