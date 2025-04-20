@@ -5,9 +5,9 @@
 
 //pub const main: word = main;
 
-pub const main: word = main2.*.*;
-pub const main2: *word = main3;
-pub const main3: word = main4.*.*;
+pub const main = main2.*.*.*.*;
+pub const main2: ***word = main3;
+pub const main3: **word = main4;
 pub const main4: *word = main5;
 pub const main5: word = 2;
 

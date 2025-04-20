@@ -24,7 +24,7 @@ pub const ast = struct {
         mutability: Mutability,
         name: Ranged(Token),
 
-        type: Ranged(Expr),
+        type: ?Ranged(Expr),
         value: Ranged(Expr),
     };
 
@@ -116,11 +116,13 @@ pub const ast = struct {
         try writer.writeByte(' ');
 
         try printToken(src, decl.name, writer);
-        try writer.writeAll(": ");
 
-        try printExpr(src, decl.type.value, writer);
+        if (decl.type) |@"type"| {
+            try writer.writeAll(": ");
+            try printExpr(src, @"type".value, writer);
+        }
+
         try writer.writeAll(" = ");
-
         try printExpr(src, decl.value.value, writer);
         try writer.writeAll(";");
     }
@@ -247,9 +249,11 @@ pub fn readDecl(self: *@This()) Error!ast.Decl {
     const name = try self.expect(.ident);
 
     // Type specifier is mandatory for now.
-    _ = try self.expect(.colon);
+    const @"type" = if (self.peek().value == .colon) type_specifier: {
+        _ = try self.expect(.colon);
 
-    const @"type" = try Ranged(ast.Expr).wrap(self, readExpr);
+        break :type_specifier try Ranged(ast.Expr).wrap(self, readExpr);
+    } else null;
 
     _ = try self.expect(.equals);
 

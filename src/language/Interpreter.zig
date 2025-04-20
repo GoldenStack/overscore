@@ -48,17 +48,21 @@ fn evalDecl(self: *@This(), index: Index(ir.Decl)) Error!void {
     var decl = &self.context.decls.items[index];
 
     decl.evaluating = true;
+    defer decl.evaluating = false;
 
-    const @"type" = &decl.type.value;
-    @"type".* = try self.evalExpr(@"type".*);
+    if (decl.type) |*@"type"| {
+        // Evaluate the type
+        @"type".value = try self.evalExpr(@"type".value);
 
-    const expr = &decl.value.value;
-    expr.* = try self.evalExpr(expr.*);
+        const expr = &decl.value.value;
+        expr.* = try self.evalExpr(expr.*);
 
-    decl.evaluating = false;
-
-    try self.expectTypeExpression(decl.type);
-    try self.expectType(decl.value, @"type".type, decl.type.range);
+        try self.expectTypeExpression(@"type".*);
+        try self.expectType(decl.value, @"type".value.type, @"type".range);
+    } else {
+        const expr = &decl.value.value;
+        expr.* = try self.evalExpr(expr.*);
+    }
 }
 
 fn expectTypeExpression(self: *@This(), expr: Ranged(ir.Expr)) Error!void {

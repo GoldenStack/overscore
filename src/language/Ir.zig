@@ -35,7 +35,7 @@ pub const ir = struct {
     pub const Decl = struct {
         mutability: ast.Mutability,
         name: Ranged(Token),
-        type: Ranged(Expr),
+        type: ?Ranged(Expr),
         value: Ranged(Expr),
 
         /// Whether or not this declaration is in the process of being
@@ -147,7 +147,7 @@ pub fn convertDecl(self: *@This(), decl: ast.Decl) Error!ir.Decl {
     return .{
         .mutability = decl.mutability,
         .name = decl.name,
-        .type = try decl.type.map(self, convertExpr),
+        .type = if (decl.type) |@"type"| try @"type".map(self, convertExpr) else null,
         .value = try decl.value.map(self, convertExpr),
     };
 }
@@ -267,11 +267,13 @@ pub fn printDecl(self: *const @This(), index: Index(ir.Decl), writer: anytype) a
 
     try self.printRange(decl.name.range, writer);
     try writer.print("<{}>", .{index});
-    try writer.writeAll(": ");
 
-    try self.printExpr(decl.type.value, writer);
+    if (decl.type) |type_specifier| {
+        try writer.writeAll(": ");
+        try self.printExpr(type_specifier.value, writer);
+    }
+
     try writer.writeAll(" = ");
-
     try self.printExpr(decl.value.value, writer);
     try writer.writeAll(";");
 }
