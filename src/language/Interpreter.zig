@@ -78,11 +78,20 @@ fn expectType(self: *@This(), expr: Ranged(ir.Expr), @"type": ir.Type, cause: to
 }
 
 fn typeContainsValue(self: *@This(), expr: ir.Expr, @"type": ir.Type) bool {
-    _ = self;
     return switch (@"type") {
         .word => expr == .word,
         .type => expr == .type,
         .container => false,
+        .pointer => |ptr| {
+            // An expression `e` has type `*T` if `e` is a pointer and `e.value` has type `T`.
+            if (expr != .pointer) return false;
+
+            // Pre-evaluated pointer types must be type expressions
+            const value = self.context.decls.items[expr.pointer.value].value.value;
+            const type2 = ptr.value.type;
+
+            return self.typeContainsValue(value, type2);
+        },
     };
 }
 
@@ -90,13 +99,26 @@ fn typeContainsValue(self: *@This(), expr: ir.Expr, @"type": ir.Type) bool {
 /// the provided expression must be a *minimal* value, i.e. `.type` or `.word`.
 ///
 /// Call `evalExpr` to make sure.
-fn typeOf(self: *@This(), expr: ir.Expr) Error!ir.Type {
-    _ = self;
+pub fn typeOf(self: *@This(), expr: ir.Expr) Error!ir.Type {
     return switch (expr) {
         .type => .type,
         .word => .word,
-        else => @panic("Expected fully evaluated expression"),
+        .pointer => |ptr| {
+            const ptr_value = self.context.decls.items[ptr.value].value.value;
+            const ptr_type = try self.typeOf(ptr_value);
+
+            const type_ptr = try self.allocator.create(ir.Expr);
+            type_ptr.* = .{ .type = ptr_type };
+            return .{ .pointer = ptr.swap(type_ptr) };
+        },
+        else => |value| std.debug.panic("Expected fully evaluated expression, but found one of type {s}", .{@tagName(value)}),
     };
+}
+
+fn evalExprPtr(self: *@This(), expr: *ir.Expr) Error!*ir.Expr {
+    const ptr = try self.allocator.create(ir.Expr);
+    ptr.* = try self.evalExpr(expr.*);
+    return ptr;
 }
 
 /// Evaluates an expression until it's a raw value. This means the returned
@@ -105,43 +127,58 @@ fn evalExpr(self: *@This(), expr: ir.Expr) Error!ir.Expr {
     return switch (expr) {
         .type => |@"type"| .{ .type = try self.evalType(@"type") },
         .word => |word| .{ .word = word },
-        .ident => |ident| {
-            const decl = &self.context.decls.items[ident.value];
+        .pointer => |ptr| {
+            const decl = &self.context.decls.items[ptr.value];
 
             if (decl.evaluating) return self.fail(.{ .dependency_loop = .{
                 .declared = decl.name.range,
-                .depends = ident.range,
+                .depends = ptr.range,
             } });
 
-            try self.evalDecl(ident.value);
+            try self.evalDecl(ptr.value);
 
-            return decl.value.value;
+            return expr;
         },
         .parentheses => |parens| try self.evalExpr(parens.value.*),
         .member_access => |access| {
             const container = access.container.swap(try self.evalExpr(access.container.value.*));
-            const member = try self.memberAccessGeneric(container, access.member);
-            try self.evalDecl(member);
-            return self.context.decls.items[member].value.value;
+            return self.memberAccessGeneric(container, access.member);
         },
     };
 }
 
 fn evalType(self: *@This(), @"type": ir.Type) Error!ir.Type {
-    _ = self;
     return switch (@"type") {
         .type => .type,
         .word => .word,
         .container => |container| .{ .container = container },
+        .pointer => |ptr| {
+            const value = try ptr.map(self, evalExprPtr);
+            try self.expectTypeExpression(value.swap(value.value.*));
+            return .{ .pointer = value };
+        },
     };
 }
 
 /// Member access works in several different ways, primarily static and dynamic
 /// field access. This function figures it out.
-fn memberAccessGeneric(self: *@This(), expr: Ranged(ir.Expr), member: Ranged(Token)) Error!Index(ir.Decl) {
+fn memberAccessGeneric(self: *@This(), expr: Ranged(ir.Expr), member: Ranged(Token)) Error!ir.Expr {
+    if (expr.value == .pointer) {
+        const ptr_range = self.context.decls.items[expr.value.pointer.value].value;
+        const ptr_value = ptr_range.value;
+
+        if (ptr_value == .type and ptr_value.type == .container) {
+            const decl = try self.staticMemberAccess(ptr_range, member);
+            try self.evalDecl(decl);
+            return .{ .pointer = expr.value.pointer.swap(decl) };
+        }
+    }
+
     if (expr.value == .type and expr.value.type == .container) {
-        return self.staticMemberAccess(expr, member);
-    } // TODO: Handle struct field member access when added
+        const decl = try self.staticMemberAccess(expr, member);
+        try self.evalDecl(decl);
+        return self.context.decls.items[decl].value.value;
+    }
 
     return self.fail(.{ .unsupported_member_access = .{
         .type = try self.typeOf(expr.value),

@@ -7,75 +7,79 @@ const Ir = @import("language/Ir.zig");
 const Interpreter = @import("language/Interpreter.zig");
 
 pub fn main() !void {
-    // const stdout = std.io.getStdOut().writer();
-
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    // const src = @embedFile("example2.os");
+    const stdout = std.io.getStdOut().writer();
 
-    // const tokens = tokenizer.Tokenizer.init(src);
-    // var parser = Parser.init(allocator, tokens);
+    const src = @embedFile("example2.os");
 
-    // const container = parser.readRoot() catch |err| {
-    //     if (err == error.SyntaxError) {
-    //         try parser.error_context.?.display("example2.os", src, stdout);
-    //         return;
-    //     } else return err;
-    // };
+    const tokens = tokenizer.Tokenizer.init(src);
+    var parser = Parser.init(allocator, tokens);
 
-    // try Parser.ast.printContainer(src, container, stdout);
+    const container = parser.readRoot() catch |err| {
+        if (err == error.SyntaxError) {
+            try parser.error_context.?.display("example2.os", src, stdout);
+            return;
+        } else return err;
+    };
+
+    try Parser.ast.printContainer(src, container, stdout);
+    try stdout.writeByte('\n');
+
+    var ir = Ir.init(allocator, src);
+    const container_index = ir.convertContainer(container) catch |err| {
+        if (err == error.IrError) {
+            try ir.error_context.?.display("example2.os", src, stdout);
+            return;
+        } else return err;
+    };
+
+    try ir.printContainer(container_index, stdout);
+    try stdout.writeByte('\n');
+
+    var interpreter = Interpreter.init(allocator, src, ir);
+    const result = interpreter.evalMain(container_index) catch |err| {
+        if (err == error.InterpreterError) {
+            try interpreter.error_context.?.display("example2.os", src, stdout);
+            return;
+        } else return err;
+    };
+
+    try ir.printExpr(result, stdout);
+    try stdout.writeByte('\n');
+
+    // try ir.printType(try interpreter.typeOf(ir.decls.items[1].value.value), stdout);
+    // try ir.printType(try interpreter.typeOf(ir.decls.items[1].value.value), stdout);
     // try stdout.writeByte('\n');
 
-    // var ir = Ir.init(allocator, src);
-    // const container_index = ir.convertContainer(container) catch |err| {
-    //     if (err == error.IrError) {
-    //         try ir.error_context.?.display("example2.os", src, stdout);
-    //         return;
-    //     } else return err;
-    // };
+    // // Load the assembly and convert it to a slice
+    // const assembly = @embedFile("fibonacci.asm");
+    // const asm_slice: []const u8 = assembly[0..assembly.len];
 
-    // try ir.printContainer(container_index, stdout);
-    // try stdout.writeByte('\n');
+    // // Assemble the assembly into binary
+    // var binary = std.ArrayList(Cpu.Unit).init(allocator);
+    // try Assembler.assemble(asm_slice, allocator, binary.writer());
+    // defer binary.deinit();
 
-    // var interpreter = Interpreter.init(allocator, src, ir);
-    // const result = interpreter.evalMain(container_index) catch |err| {
-    //     if (err == error.InterpreterError) {
-    //         try interpreter.error_context.?.display("example2.os", src, stdout);
-    //         return;
-    //     } else return err;
-    // };
+    // // Display the assembled binary
+    // // std.debug.print("Assembled binary: {any}\n", .{binary.items});
 
-    // try ir.printExpr(result, stdout);
-    // try stdout.writeByte('\n');
+    // // Create a CPU and load the binary into memory
+    // var cpu = Cpu.init(sys);
+    // @memcpy(cpu.memory[0..binary.items.len], binary.items);
 
-    // Load the assembly and convert it to a slice
-    const assembly = @embedFile("fibonacci.asm");
-    const asm_slice: []const u8 = assembly[0..assembly.len];
+    // var counter: usize = 0;
 
-    // Assemble the assembly into binary
-    var binary = std.ArrayList(Cpu.Unit).init(allocator);
-    try Assembler.assemble(asm_slice, allocator, binary.writer());
-    defer binary.deinit();
+    // // Keep running instructions while they can be read
+    // while (try cpu.prepareInstruction()) |instr| {
+    //     // std.debug.print("{any}\n", .{instr});
+    //     counter += 1;
+    //     try cpu.follow(instr);
+    // }
 
-    // Display the assembled binary
-    // std.debug.print("Assembled binary: {any}\n", .{binary.items});
-
-    // Create a CPU and load the binary into memory
-    var cpu = Cpu.init(sys);
-    @memcpy(cpu.memory[0..binary.items.len], binary.items);
-
-    var counter: usize = 0;
-
-    // Keep running instructions while they can be read
-    while (try cpu.prepareInstruction()) |instr| {
-        // std.debug.print("{any}\n", .{instr});
-        counter += 1;
-        try cpu.follow(instr);
-    }
-
-    std.debug.print("instruction count: {}\n", .{counter});
+    // std.debug.print("instruction count: {}\n", .{counter});
 }
 
 fn sys(in: Cpu.Word) Cpu.Word {

@@ -52,6 +52,9 @@ pub const ast = struct {
         /// A container. See `Container` documentation for more details.
         container: Container,
 
+        /// A pointer type.
+        pointer: Ranged(*Expr),
+
         /// A type.
         ///
         /// When the value of an expression is a type, the type of the expression is
@@ -142,6 +145,10 @@ pub const ast = struct {
             .word => try writer.writeAll("word"),
             .type => try writer.writeAll("type"),
             .container => |container| try printContainer(src, container, writer),
+            .pointer => |ptr| {
+                try writer.writeByte('*');
+                try printExpr(src, ptr.value.*, writer);
+            },
         }
     }
 
@@ -252,9 +259,6 @@ pub fn readDecl(self: *@This()) Error!ast.Decl {
     };
 }
 
-// TODO: Either guarantee that it evaluates to a value, or make separate
-// functions for guaranteed values vs non-guaranteed values.
-
 pub fn readExprPtr(self: *@This()) Error!*ast.Expr {
     const ptr = try self.allocator.create(ast.Expr);
     ptr.* = try self.readExpr();
@@ -278,7 +282,7 @@ pub fn readExpr(self: *@This()) Error!ast.Expr {
 fn readExprRaw(self: *@This()) Error!ast.Expr {
     return switch (self.peek().value) {
         // Read a type
-        .word, .type, .container => .{ .type = try self.readType() },
+        .word, .type, .container, .asterisk => .{ .type = try self.readType() },
 
         // Read a word
         .number => .{ .word = try self.readWord() },
@@ -319,6 +323,13 @@ pub fn readType(self: *@This()) Error!ast.Type {
             return .type;
         },
         .container => .{ .container = try self.readContainer() },
+        .asterisk => {
+            _ = try self.expect(.asterisk);
+
+            const child = try Ranged(*ast.Expr).wrap(self, readExprPtr);
+
+            return .{ .pointer = child };
+        },
         else => self.failExpected(&.{ .word, .type, .container }),
     };
 }

@@ -48,13 +48,14 @@ pub const ir = struct {
     pub const Type = union(enum) {
         word,
         container: Index(Container),
+        pointer: Ranged(*Expr),
         type,
     };
 
     pub const Expr = union(enum) {
         word: u32,
         type: Type,
-        ident: Ranged(Index(ir.Decl)),
+        pointer: Ranged(Index(ir.Decl)),
         parentheses: Ranged(*Expr),
         member_access: struct {
             container: Ranged(*Expr),
@@ -160,7 +161,7 @@ pub fn convertExpr(self: *@This(), expr: ast.Expr) Error!ir.Expr {
     return switch (expr) {
         .word => |word| .{ .word = word },
         .type => |@"type"| .{ .type = try self.convertType(@"type") },
-        .ident => |ident| .{ .ident = ident.swap(try self.lookupNameExpected(ident)) },
+        .ident => |ident| .{ .pointer = ident.swap(try self.lookupNameExpected(ident)) },
         .parentheses => |parens| try self.convertExpr(parens.value.*),
         .member_access => |access| .{ .member_access = .{
             .container = try access.container.map(self, convertExprPtr),
@@ -173,6 +174,7 @@ pub fn convertType(self: *@This(), @"type": ast.Type) Error!ir.Type {
     return switch (@"type") {
         .word => .word,
         .container => |container| .{ .container = try self.convertContainer(container) },
+        .pointer => |ptr| .{ .pointer = try ptr.map(self, convertExprPtr) },
         .type => .type,
     };
 }
@@ -276,9 +278,9 @@ pub fn printExpr(self: *const @This(), expr: ir.Expr, writer: anytype) anyerror!
     switch (expr) {
         .word => |word| try writer.print("{}", .{word}),
         .type => |@"type"| try self.printType(@"type", writer),
-        .ident => |ident| {
-            try self.printRange(ident.range, writer);
-            try writer.print("<{}>", .{ident.value});
+        .pointer => |ptr| {
+            try self.printRange(ptr.range, writer);
+            try writer.print("<{}>", .{ptr.value});
         },
         .parentheses => |parens| {
             try writer.writeByte('(');
@@ -298,6 +300,10 @@ pub fn printType(self: *const @This(), @"type": ir.Type, writer: anytype) anyerr
         .word => try writer.writeAll("word"),
         .type => try writer.writeAll("type"),
         .container => |container| try self.printContainer(container, writer),
+        .pointer => |ptr| {
+            try writer.writeByte('*');
+            try self.printExpr(ptr.value.*, writer);
+        },
     }
 }
 
