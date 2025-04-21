@@ -67,15 +67,15 @@ fn evalDecl(self: *@This(), index: Index(ir.Decl)) Error!void {
 
 fn expectTypeExpression(self: *@This(), expr: Ranged(ir.Expr)) Error!void {
     if (!self.typeContainsValue(expr.value, .type)) return self.fail(.{ .expected_type_expression = .{
-        .found_type = try self.typeOf(expr.value),
+        .found_type = self.typeToString(try self.typeOf(expr.value)),
         .has_wrong_type = expr.range,
     } });
 }
 
 fn expectType(self: *@This(), expr: Ranged(ir.Expr), @"type": ir.Type, cause: tokenizer.Range) Error!void {
     if (!self.typeContainsValue(expr.value, @"type")) return self.fail(.{ .mismatched_type = .{
-        .expected_type = @"type",
-        .found_type = try self.typeOf(expr.value),
+        .expected_type = self.typeToString(@"type"),
+        .found_type = self.typeToString(try self.typeOf(expr.value)),
         .expected_type_declared = cause,
         .has_wrong_type = expr.range,
     } });
@@ -147,7 +147,7 @@ fn evalExpr(self: *@This(), expr: ir.Expr) Error!ir.Expr {
             const deref2 = try self.evalExpr(deref.value.*);
             if (deref2 != .pointer) return self.fail(.{ .dereferenced_non_pointer = .{
                 .expr = deref.range,
-                .@"type" = try self.typeOf(deref2),
+                .@"type" = self.typeToString(try self.typeOf(deref2)),
             } });
 
             const index = deref2.pointer.value;
@@ -198,7 +198,7 @@ fn memberAccessGeneric(self: *@This(), expr: Ranged(ir.Expr), member: Ranged(Tok
     }
 
     return self.fail(.{ .unsupported_member_access = .{
-        .type = try self.typeOf(expr.value),
+        .type = self.typeToString(try self.typeOf(expr.value)),
         .member = member.range,
     } });
 }
@@ -225,6 +225,15 @@ fn staticMemberAccess(self: *@This(), container: Ranged(ir.Expr), member: Ranged
 
     return container_decl.value.decl;
 }
+
+fn typeToString(self: *@This(), @"type": ir.Type) []u8 {
+    var out = std.ArrayListUnmanaged(u8){};
+
+    // TODO: Make this more robust
+    self.context.printType(@"type", out.writer(self.allocator)) catch |err| std.debug.panic("could not print type: {any}", .{err});
+
+    return out.items;
+} 
 
 /// Fails, storing the given error context and returning an error.
 fn fail(self: *@This(), @"error": failure.Error) error{InterpreterError} {
