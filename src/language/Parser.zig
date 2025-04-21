@@ -6,21 +6,21 @@ const Token = tokenizer.Token;
 
 /// The abstract syntax tree.
 pub const ast = struct {
-    /// A container, containing a list of declarations.
+    /// A container, containing a list of definitions.
     pub const Container = struct {
-        decls: std.ArrayList(Ranged(ContainerDecl)),
+        defs: std.ArrayList(Ranged(ContainerDef)),
     };
 
-    /// A declaration in a container. This is equivalent to a normal declaration
+    /// A definition in a container. This is equivalent to a normal definition,
     /// except that it also has an access modifier.
-    pub const ContainerDecl = struct {
+    pub const ContainerDef = struct {
         access: Access,
-        decl: Decl,
+        def: Def,
     };
 
-    /// A declaration, consisting of a mutability modifier, a name, a type
-    /// (explicit for now), and a value;
-    pub const Decl = struct {
+    /// A definition of a name, consisting of a mutability modifier, a name, an
+    /// optional type, and value.
+    pub const Def = struct {
         mutability: Mutability,
         name: Ranged(Token),
 
@@ -40,9 +40,9 @@ pub const ast = struct {
         variable,
     };
 
-    /// Type expressions. These cannot be reduced any further, but their constituent
-    /// parts (parameters, declarations, values, etc) may need to be. They must be
-    /// fully evaluated during compile time.
+    /// Type expressions. These cannot be reduced any further, but their
+    /// constituent parts (parameters, definitions, values, etc) may need to be.
+    /// They must be fully evaluated during compile time.
     pub const Type = union(enum) {
         /// An integer type, the CPU "word". For now, integers are always unsigned
         /// 32-bit integers, so they are referred to as words to reflect the
@@ -94,36 +94,36 @@ pub const ast = struct {
     pub fn printContainer(src: []const u8, container: Container, writer: anytype) anyerror!void {
         try writer.writeAll("{ ");
 
-        for (container.decls.items) |decl| {
-            try printContainerDecl(src, decl.value, writer);
+        for (container.defs.items) |def| {
+            try printContainerDef(src, def.value, writer);
             try writer.writeByte(' ');
         }
 
         try writer.writeByte('}');
     }
 
-    pub fn printContainerDecl(src: []const u8, decl: ContainerDecl, writer: anytype) anyerror!void {
-        if (decl.access == .public) try writer.writeAll("pub ");
+    pub fn printContainerDef(src: []const u8, def: ContainerDef, writer: anytype) anyerror!void {
+        if (def.access == .public) try writer.writeAll("pub ");
 
-        try printDecl(src, decl.decl, writer);
+        try printDef(src, def.def, writer);
     }
 
-    pub fn printDecl(src: []const u8, decl: Decl, writer: anytype) anyerror!void {
-        try writer.writeAll(switch (decl.mutability) {
+    pub fn printDef(src: []const u8, def: Def, writer: anytype) anyerror!void {
+        try writer.writeAll(switch (def.mutability) {
             .constant => "const",
             .variable => "var",
         });
         try writer.writeByte(' ');
 
-        try printToken(src, decl.name, writer);
+        try printToken(src, def.name, writer);
 
-        if (decl.type) |@"type"| {
+        if (def.type) |@"type"| {
             try writer.writeAll(": ");
             try printExpr(src, @"type".value, writer);
         }
 
         try writer.writeAll(" = ");
-        try printExpr(src, decl.value.value, writer);
+        try printExpr(src, def.value.value, writer);
         try writer.writeAll(";");
     }
 
@@ -199,14 +199,14 @@ pub fn init(allocator: std.mem.Allocator, tokens: tokenizer.Tokenizer) @This() {
 /// Reads the root container from this parser. This will consume the entire
 /// sorce file unless there is an error.
 pub fn readRoot(self: *@This()) Error!ast.Container {
-    var decls = std.ArrayList(Ranged(ast.ContainerDecl)).init(self.allocator);
+    var defs = std.ArrayList(Ranged(ast.ContainerDef)).init(self.allocator);
 
     while (self.peek().value != .eof) {
-        try decls.append(try Ranged(ast.ContainerDecl).wrap(self, readContainerDecl));
+        try defs.append(try Ranged(ast.ContainerDef).wrap(self, readContainerDef));
     }
 
     return .{
-        .decls = decls,
+        .defs = defs,
     };
 }
 
@@ -215,31 +215,31 @@ pub fn readContainer(self: *@This()) Error!ast.Container {
     _ = try self.expect(.container);
     _ = try self.expect(.opening_curly_bracket);
 
-    var decls = std.ArrayList(Ranged(ast.ContainerDecl)).init(self.allocator);
+    var defs = std.ArrayList(Ranged(ast.ContainerDef)).init(self.allocator);
 
     while (self.peek().value != .closing_curly_bracket) {
-        try decls.append(try Ranged(ast.ContainerDecl).wrap(self, readContainerDecl));
+        try defs.append(try Ranged(ast.ContainerDef).wrap(self, readContainerDef));
     }
 
     _ = try self.expect(.closing_curly_bracket);
 
     return .{
-        .decls = decls,
+        .defs = defs,
     };
 }
 
-/// Parses a container declaration from this parser.
-pub fn readContainerDecl(self: *@This()) Error!ast.ContainerDecl {
+/// Parses a container definition from this parser.
+pub fn readContainerDef(self: *@This()) Error!ast.ContainerDef {
     const access: ast.Access = if (self.consume(.@"pub")) |_| .public else .private;
 
     return .{
         .access = access,
-        .decl = try self.readDecl(),
+        .def = try self.readDef(),
     };
 }
 
-/// Parses a declaration from this parser.
-pub fn readDecl(self: *@This()) Error!ast.Decl {
+/// Parses a name definition from this parser.
+pub fn readDef(self: *@This()) Error!ast.Def {
     const mutability: ast.Mutability = switch ((try self.expectMany(&.{ .@"const", .@"var" })).value) {
         .@"const" => .constant,
         .@"var" => .variable,

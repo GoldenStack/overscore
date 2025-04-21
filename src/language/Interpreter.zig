@@ -35,32 +35,32 @@ pub fn init(allocator: std.mem.Allocator, src: [:0]const u8, context: Ir) @This(
 
 pub fn evalMain(self: *@This(), index: Index(ir.Container)) Error!ir.Expr {
     const container = self.context.containers.items[index];
-    const main = container.decls.get("main") orelse @panic("No main found!");
+    const main = container.defs.get("main") orelse @panic("No main found!");
 
-    const mainIndex = main.value.decl;
+    const mainIndex = main.value.def;
 
-    try self.evalDecl(mainIndex);
+    try self.evalDef(mainIndex);
 
-    return self.context.decls.items[mainIndex].value.value;
+    return self.context.defs.items[mainIndex].value.value;
 }
 
-fn evalDecl(self: *@This(), index: Index(ir.Decl)) Error!void {
-    var decl = &self.context.decls.items[index];
+fn evalDef(self: *@This(), index: Index(ir.Def)) Error!void {
+    var def = &self.context.defs.items[index];
 
-    decl.evaluating = true;
-    defer decl.evaluating = false;
+    def.evaluating = true;
+    defer def.evaluating = false;
 
-    if (decl.type) |*@"type"| {
+    if (def.type) |*@"type"| {
         // Evaluate the type
         @"type".value = try self.evalExpr(@"type".value);
 
-        const expr = &decl.value.value;
+        const expr = &def.value.value;
         expr.* = try self.evalExpr(expr.*);
 
         try self.expectTypeExpression(@"type".*);
-        try self.expectType(decl.value, @"type".value.type, @"type".range);
+        try self.expectType(def.value, @"type".value.type, @"type".range);
     } else {
-        const expr = &decl.value.value;
+        const expr = &def.value.value;
         expr.* = try self.evalExpr(expr.*);
     }
 }
@@ -91,7 +91,7 @@ fn typeContainsValue(self: *@This(), expr: ir.Expr, @"type": ir.Type) bool {
             if (expr != .pointer) return false;
 
             // Pre-evaluated pointer types must be type expressions
-            const value = self.context.decls.items[expr.pointer.value].value.value;
+            const value = self.context.defs.items[expr.pointer.value].value.value;
             const type2 = ptr.value.type;
 
             return self.typeContainsValue(value, type2);
@@ -108,7 +108,7 @@ pub fn typeOf(self: *@This(), expr: ir.Expr) Error!ir.Type {
         .type => .type,
         .word => .word,
         .pointer => |ptr| {
-            const ptr_value = self.context.decls.items[ptr.value].value.value;
+            const ptr_value = self.context.defs.items[ptr.value].value.value;
             const ptr_type = try self.typeOf(ptr_value);
 
             const type_ptr = try self.allocator.create(ir.Expr);
@@ -132,14 +132,14 @@ fn evalExpr(self: *@This(), expr: ir.Expr) Error!ir.Expr {
         .type => |@"type"| .{ .type = try self.evalType(@"type") },
         .word => |word| .{ .word = word },
         .pointer => |ptr| {
-            const decl = &self.context.decls.items[ptr.value];
+            const def = &self.context.defs.items[ptr.value];
 
-            if (decl.evaluating) return self.fail(.{ .dependency_loop = .{
-                .declared = decl.name.range,
+            if (def.evaluating) return self.fail(.{ .dependency_loop = .{
+                .declared = def.name.range,
                 .depends = ptr.range,
             } });
 
-            try self.evalDecl(ptr.value);
+            try self.evalDef(ptr.value);
 
             return expr;
         },
@@ -151,10 +151,10 @@ fn evalExpr(self: *@This(), expr: ir.Expr) Error!ir.Expr {
             } });
 
             const index = deref2.pointer.value;
-            const decl = self.context.decls.items[index];
+            const def = self.context.defs.items[index];
 
             // Can just return the direct value because evaluating an expression copies it
-            return decl.value.value;
+            return def.value.value;
         },
         .parentheses => |parens| try self.evalExpr(parens.value.*),
         .member_access => |access| {
@@ -181,20 +181,20 @@ fn evalType(self: *@This(), @"type": ir.Type) Error!ir.Type {
 /// field access. This function figures it out.
 fn memberAccessGeneric(self: *@This(), expr: Ranged(ir.Expr), member: Ranged(Token)) Error!ir.Expr {
     if (expr.value == .pointer) {
-        const ptr_range = self.context.decls.items[expr.value.pointer.value].value;
+        const ptr_range = self.context.defs.items[expr.value.pointer.value].value;
         const ptr_value = ptr_range.value;
 
         if (ptr_value == .type and ptr_value.type == .container) {
-            const decl = try self.staticMemberAccess(ptr_range, member);
-            try self.evalDecl(decl);
-            return .{ .pointer = expr.value.pointer.swap(decl) };
+            const def = try self.staticMemberAccess(ptr_range, member);
+            try self.evalDef(def);
+            return .{ .pointer = expr.value.pointer.swap(def) };
         }
     }
 
     if (expr.value == .type and expr.value.type == .container) {
-        const decl = try self.staticMemberAccess(expr, member);
-        try self.evalDecl(decl);
-        return self.context.decls.items[decl].value.value;
+        const def = try self.staticMemberAccess(expr, member);
+        try self.evalDef(def);
+        return self.context.defs.items[def].value.value;
     }
 
     return self.fail(.{ .unsupported_member_access = .{
@@ -203,27 +203,27 @@ fn memberAccessGeneric(self: *@This(), expr: Ranged(ir.Expr), member: Ranged(Tok
     } });
 }
 
-/// Access declarations (static members, essentially) on a container.
-/// This assumes that the provided expression is a container type.
-fn staticMemberAccess(self: *@This(), container: Ranged(ir.Expr), member: Ranged(Token)) Error!Index(ir.Decl) {
+/// Access definitions on a container. This assumes that the provided expression
+/// is a container type.
+fn staticMemberAccess(self: *@This(), container: Ranged(ir.Expr), member: Ranged(Token)) Error!Index(ir.Def) {
     const container_index = container.value.type.container;
-    const decls = self.context.containers.items[container_index].decls;
+    const defs = self.context.containers.items[container_index].defs;
 
     const key = member.range.substr(self.src);
 
-    const container_decl = decls.get(key) orelse return self.fail(.{ .unknown_member = .{
+    const container_def = defs.get(key) orelse return self.fail(.{ .unknown_member = .{
         .container = container.range,
         .member = member.range,
     } });
 
-    const decl = self.context.decls.items[container_decl.value.decl];
+    const def = self.context.defs.items[container_def.value.def];
 
-    if (container_decl.value.access == .private) return self.fail(.{ .private_member = .{
-        .declaration = decl.name.range,
+    if (container_def.value.access == .private) return self.fail(.{ .private_member = .{
+        .declaration = def.name.range,
         .member = member.range,
     } });
 
-    return container_decl.value.decl;
+    return container_def.value.def;
 }
 
 fn typeToString(self: *@This(), @"type": ir.Type) []u8 {

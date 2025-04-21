@@ -24,24 +24,24 @@ pub const ir = struct {
         // resolution.
         parent: ?Index(Container),
 
-        decls: std.StringArrayHashMap(Ranged(ContainerDecl)),
+        defs: std.StringArrayHashMap(Ranged(ContainerDef)),
     };
 
-    pub const ContainerDecl = struct {
+    pub const ContainerDef = struct {
         access: ast.Access,
-        decl: Index(Decl),
+        def: Index(Def),
     };
 
-    pub const Decl = struct {
+    pub const Def = struct {
         mutability: ast.Mutability,
         name: Ranged(Token),
         type: ?Ranged(Expr),
         value: Ranged(Expr),
 
-        /// Whether or not this declaration is in the process of being
-        /// evaluated. When a declaration needs to be evaluated while it's
-        /// already being evaluated, this means its value depends on itself, and
-        /// thus a dependency loop exists.
+        /// Whether or not this definition is in the process of being evaluated.
+        /// When a definition needs to be evaluated while it's already being
+        /// evaluated, this means its value depends on itself, and thus a
+        /// dependency loop exists.
         evaluating: bool = false,
     };
 
@@ -55,7 +55,7 @@ pub const ir = struct {
     pub const Expr = union(enum) {
         word: u32,
         type: Type,
-        pointer: Ranged(Index(ir.Decl)),
+        pointer: Ranged(Index(ir.Def)),
         dereference: Ranged(*Expr),
         parentheses: Ranged(*Expr),
         member_access: struct {
@@ -80,7 +80,7 @@ allocator: std.mem.Allocator,
 error_context: ?failure.Error = null,
 
 containers: std.ArrayList(ir.Container),
-decls: std.ArrayList(ir.Decl),
+defs: std.ArrayList(ir.Def),
 
 // TODO: Will need to refactor when functions are added
 current: ?Index(ir.Container) = null,
@@ -90,44 +90,44 @@ pub fn init(allocator: std.mem.Allocator, src: [:0]const u8) @This() {
         .src = src,
         .allocator = allocator,
         .containers = std.ArrayList(ir.Container).init(allocator),
-        .decls = std.ArrayList(ir.Decl).init(allocator),
+        .defs = std.ArrayList(ir.Def).init(allocator),
     };
 }
 
 pub fn convertContainer(self: *@This(), container: ast.Container) Error!Index(ir.Container) {
-    var decls = std.StringArrayHashMap(Ranged(ir.ContainerDecl)).init(self.allocator);
+    var defs = std.StringArrayHashMap(Ranged(ir.ContainerDef)).init(self.allocator);
 
     // Add references with no values
-    for (container.decls.items) |decl| {
-        const name = decl.value.decl.name;
+    for (container.defs.items) |def| {
+        const name = def.value.def.name;
         const key = name.range.substr(self.src);
 
-        const decl_index = self.decls.items.len;
+        const def_index = self.defs.items.len;
 
-        try self.lookupNameDeclareContainer(name, &decls);
-        try decls.putNoClobber(key, decl.swap(ir.ContainerDecl{
-            .access = decl.value.access,
-            .decl = decl_index,
+        try self.lookupNameCurrentContainerForDefine(name, &defs);
+        try defs.putNoClobber(key, def.swap(ir.ContainerDef{
+            .access = def.value.access,
+            .def = def_index,
         }));
 
-        try self.decls.append(undefined);
+        try self.defs.append(undefined);
     }
 
     const index = self.containers.items.len;
     try self.containers.append(.{
-        .decls = decls,
+        .defs = defs,
         .parent = self.current,
     });
 
     self.current = index;
 
     // Add the values of the references
-    for (container.decls.items) |decl| {
-        const key = decl.value.decl.name.range.substr(self.src);
-        const stored_decl = self.containers.items[index].decls.get(key) orelse unreachable; // We just added it, so it must exist
+    for (container.defs.items) |def| {
+        const key = def.value.def.name.range.substr(self.src);
+        const stored_def = self.containers.items[index].defs.get(key) orelse unreachable; // We just added it, so it must exist
 
-        const converted = try self.convertDecl(decl.value.decl);
-        self.decls.items[stored_decl.value.decl] = converted;
+        const converted = try self.convertDef(def.value.def);
+        self.defs.items[stored_def.value.def] = converted;
     }
 
     // We set current above, so it must be valid
@@ -136,19 +136,19 @@ pub fn convertContainer(self: *@This(), container: ast.Container) Error!Index(ir
     return index;
 }
 
-pub fn convertContainerDecl(self: *@This(), decl: ast.ContainerDecl) Error!ir.ContainerDecl {
+pub fn convertContainerDef(self: *@This(), def: ast.ContainerDef) Error!ir.ContainerDef {
     return .{
-        .access = decl.access,
-        .decl = try self.convertDecl(decl.decl),
+        .access = def.access,
+        .def = try self.convertDef(def.def),
     };
 }
 
-pub fn convertDecl(self: *@This(), decl: ast.Decl) Error!ir.Decl {
+pub fn convertDef(self: *@This(), def: ast.Def) Error!ir.Def {
     return .{
-        .mutability = decl.mutability,
-        .name = decl.name,
-        .type = if (decl.type) |@"type"| try @"type".map(self, convertExpr) else null,
-        .value = try decl.value.map(self, convertExpr),
+        .mutability = def.mutability,
+        .name = def.name,
+        .type = if (def.type) |@"type"| try @"type".map(self, convertExpr) else null,
+        .value = try def.value.map(self, convertExpr),
     };
 }
 
@@ -181,53 +181,53 @@ pub fn convertType(self: *@This(), @"type": ast.Type) Error!ir.Type {
     };
 }
 
-pub fn lookupName(self: *@This(), name: Ranged(Token)) ?Index(ir.Decl) {
+pub fn lookupName(self: *@This(), name: Ranged(Token)) ?Index(ir.Def) {
     var current = self.current;
 
     while (current) |scope| {
         const container = self.containers.items[scope];
 
-        if (container.decls.getPtr(name.range.substr(self.src))) |decl| {
-            return decl.value.decl;
+        if (container.defs.getPtr(name.range.substr(self.src))) |def| {
+            return def.value.def;
         }
 
         current = container.parent;
     } else return null;
 }
 
-pub fn lookupNameExpected(self: *@This(), name: Ranged(Token)) Error!Index(ir.Decl) {
+pub fn lookupNameExpected(self: *@This(), name: Ranged(Token)) Error!Index(ir.Def) {
     const index = self.lookupName(name);
 
     return index orelse self.fail(.{ .unknown_identifier = name.range });
 }
 
-pub fn lookupNameDeclare(self: *@This(), name: Ranged(Token)) Error!void {
+pub fn lookupNameForDefine(self: *@This(), name: Ranged(Token)) Error!void {
     const maybe_index = self.lookupName(name);
 
     if (maybe_index) |index| {
         return self.fail(.{ .redeclared_identifier = .{
-            .declared = self.decls.items[index].name.range,
+            .declared = self.defs.items[index].name.range,
             .redeclared = name.range,
         } });
     }
 }
 
-pub fn lookupNameDeclareContainer(self: *@This(), name: Ranged(Token), decls: *std.StringArrayHashMap(Ranged(ir.ContainerDecl))) Error!void {
+pub fn lookupNameCurrentContainerForDefine(self: *@This(), name: Ranged(Token), defs: *std.StringArrayHashMap(Ranged(ir.ContainerDef))) Error!void {
     const value = name.range.substr(self.src);
 
-    // This used to be merged into one with a `decls.getOrPut`, which has better
+    // This used to be merged into one with a `defs.getOrPut`, which has better
     // performance, but unfortunately has different semantics (would require
     // removing on fail, etc.).
-    if (decls.get(value)) |decl| {
-        const index = decl.value.decl;
+    if (defs.get(value)) |def| {
+        const index = def.value.def;
 
         return self.fail(.{ .duplicate_member_name = .{
-            .declared = self.decls.items[index].name.range,
+            .declared = self.defs.items[index].name.range,
             .redeclared = name.range,
         } });
     }
 
-    try self.lookupNameDeclare(name);
+    try self.lookupNameForDefine(name);
 }
 
 /// Fails, storing the given error context and returning an error.
@@ -241,40 +241,40 @@ pub fn printContainer(self: *const @This(), index: Index(ir.Container), writer: 
 
     try writer.writeAll("{ ");
 
-    var iter = container.decls.iterator();
-    while (iter.next()) |decl| {
-        try self.printContainerDecl(decl.value_ptr.value, writer);
+    var iter = container.defs.iterator();
+    while (iter.next()) |def| {
+        try self.printContainerDef(def.value_ptr.value, writer);
         try writer.writeByte(' ');
     }
 
     try writer.writeByte('}');
 }
 
-pub fn printContainerDecl(self: *const @This(), decl: ir.ContainerDecl, writer: anytype) anyerror!void {
-    if (decl.access == .public) try writer.writeAll("pub ");
+pub fn printContainerDef(self: *const @This(), def: ir.ContainerDef, writer: anytype) anyerror!void {
+    if (def.access == .public) try writer.writeAll("pub ");
 
-    try self.printDecl(decl.decl, writer);
+    try self.printDef(def.def, writer);
 }
 
-pub fn printDecl(self: *const @This(), index: Index(ir.Decl), writer: anytype) anyerror!void {
-    const decl = self.decls.items[index];
+pub fn printDef(self: *const @This(), index: Index(ir.Def), writer: anytype) anyerror!void {
+    const def = self.defs.items[index];
 
-    try writer.writeAll(switch (decl.mutability) {
+    try writer.writeAll(switch (def.mutability) {
         .constant => "const",
         .variable => "var",
     });
     try writer.writeByte(' ');
 
-    try self.printRange(decl.name.range, writer);
+    try self.printRange(def.name.range, writer);
     try writer.print("<{}>", .{index});
 
-    if (decl.type) |type_specifier| {
+    if (def.type) |type_specifier| {
         try writer.writeAll(": ");
         try self.printExpr(type_specifier.value, writer);
     }
 
     try writer.writeAll(" = ");
-    try self.printExpr(decl.value.value, writer);
+    try self.printExpr(def.value.value, writer);
     try writer.writeAll(";");
 }
 
