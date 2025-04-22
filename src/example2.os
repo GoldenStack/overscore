@@ -5,7 +5,9 @@
 
 //pub const main: word = main;
 
-pub const main = main2.*.*.*.*;
+pub const beep: type = *word;
+pub const main: interface { aa: (**(beep.*)); a: **word; } = other.*;
+//pub const main = main2.*.*.*.*;
 pub const main2: ***word = main3;
 pub const main3: **word = main4;
 pub const main4: *word = main5;
@@ -13,12 +15,12 @@ pub const main5: word = 2;
 
 pub const value: *word = other2.value2;
 
-pub const other: type = container {
+pub const other: interface { aa: ***word; a: **word; } = container {
     pub const aa: ***word = a;
     pub const a: **word = value;
 };
 
-pub const other2: type = container {
+pub const other2: interface { value2: word; } = container {
     pub const value2: word = 2;
 };
 

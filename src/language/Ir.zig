@@ -27,6 +27,10 @@ pub const ir = struct {
         defs: std.StringArrayHashMap(Ranged(ContainerDef)),
     };
 
+    pub const Interface = struct {
+        decls: std.StringArrayHashMap(Ranged(Decl)),
+    };
+
     pub const ContainerDef = struct {
         access: ast.Access,
         def: Index(Def),
@@ -45,16 +49,28 @@ pub const ir = struct {
         evaluating: bool = false,
     };
 
+    pub const Decl = struct {
+        name: Ranged(Token),
+        type: Ranged(Expr),
+
+        /// Whether or not this definition is in the process of being evaluated.
+        /// When a definition needs to be evaluated while it's already being
+        /// evaluated, this means its value depends on itself, and thus a
+        /// dependency loop exists.
+        evaluating: bool = false,
+    };
+
     pub const Type = union(enum) {
         word,
-        container: Index(Container),
         pointer: Ranged(*Expr),
+        interface: Interface,
         type,
     };
 
     pub const Expr = union(enum) {
         word: u32,
         type: Type,
+        container: Index(Container),
         pointer: Ranged(Index(ir.Def)),
         dereference: Ranged(*Expr),
         parentheses: Ranged(*Expr),
@@ -136,6 +152,27 @@ pub fn convertContainer(self: *@This(), container: ast.Container) Error!Index(ir
     return index;
 }
 
+pub fn convertInterface(self: *@This(), interface: ast.Interface) Error!ir.Interface {
+    var decls = std.StringArrayHashMap(Ranged(ir.Decl)).init(self.allocator);
+
+    for (interface.decls.items) |decl| {
+        const name = decl.value.name.range.substr(self.src);
+
+        const result = try decls.getOrPut(name);
+
+        if (result.found_existing) return self.fail(.{ .duplicate_member_name = .{
+            .declared = result.value_ptr.value.name.range,
+            .redeclared = decl.value.name.range,
+        } });
+
+        result.value_ptr.* = try decl.map(self, convertDecl);
+    }
+
+    return .{
+        .decls = decls,
+    };
+}
+
 pub fn convertContainerDef(self: *@This(), def: ast.ContainerDef) Error!ir.ContainerDef {
     return .{
         .access = def.access,
@@ -152,6 +189,13 @@ pub fn convertDef(self: *@This(), def: ast.Def) Error!ir.Def {
     };
 }
 
+pub fn convertDecl(self: *@This(), decl: ast.Decl) Error!ir.Decl {
+    return .{
+        .name = decl.name,
+        .type = try decl.type.map(self, convertExpr),
+    };
+}
+
 pub fn convertExprPtr(self: *@This(), expr: *ast.Expr) Error!*ir.Expr {
     const ptr = try self.allocator.create(ir.Expr);
     ptr.* = try self.convertExpr(expr.*);
@@ -162,6 +206,7 @@ pub fn convertExpr(self: *@This(), expr: ast.Expr) Error!ir.Expr {
     return switch (expr) {
         .word => |word| .{ .word = word },
         .type => |@"type"| .{ .type = try self.convertType(@"type") },
+        .container => |container| .{ .container = try self.convertContainer(container) },
         .ident => |ident| .{ .pointer = ident.swap(try self.lookupNameExpected(ident)) },
         .dereference => |deref| .{ .dereference = try deref.map(self, convertExprPtr) },
         .parentheses => |parens| try self.convertExpr(parens.value.*),
@@ -175,7 +220,7 @@ pub fn convertExpr(self: *@This(), expr: ast.Expr) Error!ir.Expr {
 pub fn convertType(self: *@This(), @"type": ast.Type) Error!ir.Type {
     return switch (@"type") {
         .word => .word,
-        .container => |container| .{ .container = try self.convertContainer(container) },
+        .interface => |interface| .{ .interface = try self.convertInterface(interface) },
         .pointer => |ptr| .{ .pointer = try ptr.map(self, convertExprPtr) },
         .type => .type,
     };
@@ -239,11 +284,23 @@ fn fail(self: *@This(), @"error": failure.Error) error{IrError} {
 pub fn printContainer(self: *const @This(), index: Index(ir.Container), writer: anytype) anyerror!void {
     const container = self.containers.items[index];
 
-    try writer.writeAll("{ ");
+    try writer.writeAll("container { ");
 
     var iter = container.defs.iterator();
     while (iter.next()) |def| {
         try self.printContainerDef(def.value_ptr.value, writer);
+        try writer.writeByte(' ');
+    }
+
+    try writer.writeByte('}');
+}
+
+pub fn printInterface(self: *const @This(), interface: ir.Interface, writer: anytype) anyerror!void {
+    try writer.writeAll("interface { ");
+
+    var iter = interface.decls.iterator();
+    while (iter.next()) |decl| {
+        try self.printDecl(decl.value_ptr.value, writer);
         try writer.writeByte(' ');
     }
 
@@ -278,10 +335,18 @@ pub fn printDef(self: *const @This(), index: Index(ir.Def), writer: anytype) any
     try writer.writeAll(";");
 }
 
+pub fn printDecl(self: *const @This(), decl: ir.Decl, writer: anytype) anyerror!void {
+    try self.printRange(decl.name.range, writer);
+    try writer.writeAll(": ");
+    try self.printExpr(decl.type.value, writer);
+    try writer.writeAll(";");
+}
+
 pub fn printExpr(self: *const @This(), expr: ir.Expr, writer: anytype) anyerror!void {
     switch (expr) {
         .word => |word| try writer.print("{}", .{word}),
         .type => |@"type"| try self.printType(@"type", writer),
+        .container => |container| try self.printContainer(container, writer),
         .pointer => |ptr| {
             try self.printRange(ptr.range, writer);
             try writer.print("<{}>", .{ptr.value});
@@ -307,7 +372,7 @@ pub fn printType(self: *const @This(), @"type": ir.Type, writer: anytype) anyerr
     switch (@"type") {
         .word => try writer.writeAll("word"),
         .type => try writer.writeAll("type"),
-        .container => |container| try self.printContainer(container, writer),
+        .interface => |interface| try self.printInterface(interface, writer),
         .pointer => |ptr| {
             try writer.writeByte('*');
             try self.printExpr(ptr.value.*, writer);

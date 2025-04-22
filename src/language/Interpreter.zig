@@ -44,6 +44,18 @@ pub fn evalMain(self: *@This(), index: Index(ir.Container)) Error!ir.Expr {
     return self.context.defs.items[mainIndex].value.value;
 }
 
+fn evalContainer(self: *@This(), index: Index(ir.Container)) Error!void {
+    var container = &self.context.containers.items[index];
+
+    for (container.defs.values()) |def| try self.evalDef(def.value.def);
+}
+
+fn evalInterface(self: *@This(), interface: *ir.Interface) Error!void {
+    for (interface.decls.values()) |*def| {
+        def.value.type.value = try self.evalExpr(def.value.type.value);
+    }
+}
+
 fn evalDef(self: *@This(), index: Index(ir.Def)) Error!void {
     var def = &self.context.defs.items[index];
 
@@ -66,14 +78,14 @@ fn evalDef(self: *@This(), index: Index(ir.Def)) Error!void {
 }
 
 fn expectTypeExpression(self: *@This(), expr: Ranged(ir.Expr)) Error!void {
-    if (!self.typeContainsValue(expr.value, .type)) return self.fail(.{ .expected_type_expression = .{
+    if (!try self.typeContainsValue(expr.value, .type)) return self.fail(.{ .expected_type_expression = .{
         .found_type = self.typeToString(try self.typeOf(expr.value)),
         .has_wrong_type = expr.range,
     } });
 }
 
 fn expectType(self: *@This(), expr: Ranged(ir.Expr), @"type": ir.Type, cause: tokenizer.Range) Error!void {
-    if (!self.typeContainsValue(expr.value, @"type")) return self.fail(.{ .mismatched_type = .{
+    if (!try self.typeContainsValue(expr.value, @"type")) return self.fail(.{ .mismatched_type = .{
         .expected_type = self.typeToString(@"type"),
         .found_type = self.typeToString(try self.typeOf(expr.value)),
         .expected_type_declared = cause,
@@ -81,11 +93,38 @@ fn expectType(self: *@This(), expr: Ranged(ir.Expr), @"type": ir.Type, cause: to
     } });
 }
 
-fn typeContainsValue(self: *@This(), expr: ir.Expr, @"type": ir.Type) bool {
+fn typeContainsValue(self: *@This(), expr: ir.Expr, @"type": ir.Type) Error!bool {
     return switch (@"type") {
         .word => expr == .word,
         .type => expr == .type,
-        .container => false,
+        .interface => {
+            if (expr != .container) return false;
+            
+            // TODO: This copies the interface and will thus recalculate often.
+            var interface = @"type".interface;
+
+            try self.evalInterface(&interface);
+            
+            // TODO: This makes container evaluation mandatory pretty much everywhere. Is this actually necessary?
+            try self.evalContainer(expr.container); 
+
+            const container = self.context.containers.items[expr.container];
+
+            if (interface.decls.keys().len != container.defs.keys().len) return false;
+
+            var iter = interface.decls.iterator();
+            while (iter.next()) |decl| {
+                if (container.defs.get(decl.key_ptr.*)) |def| {
+                    const def_value = self.context.defs.items[def.value.def];
+
+                    if (!try self.typeContainsValue(def_value.value.value, decl.value_ptr.value.type.value.type)) {
+                        return false;
+                    }
+                } else return false;
+            }
+
+            return true;
+        },
         .pointer => |ptr| {
             // An expression `e` has type `*T` if `e` is a pointer and `e.value` has type `T`.
             if (expr != .pointer) return false;
@@ -107,6 +146,26 @@ pub fn typeOf(self: *@This(), expr: ir.Expr) Error!ir.Type {
     return switch (expr) {
         .type => .type,
         .word => .word,
+        .container => |container_index| {
+            const container = self.context.containers.items[container_index];
+            var decls = std.StringArrayHashMap(Ranged(ir.Decl)).init(self.allocator);
+
+            var iter = container.defs.iterator();
+            while (iter.next()) |def| {
+                const def_value = self.context.defs.items[def.value_ptr.value.def];
+                const def_type = if (def_value.type) |@"type"| @"type"
+                    else def_value.value.swap(ir.Expr{ .type = try self.typeOf(def_value.value.value) }); // TODO: Range doesn't make sense
+
+                const custom_decl: ir.Decl = .{
+                    .name = def_value.name,
+                    .type = def_type,
+                };
+
+                try decls.putNoClobber(def.key_ptr.*, def.value_ptr.swap(custom_decl)); // TODO: Range doesn't make sense
+            }
+
+            return .{ .interface = .{ .decls = decls } };
+        },
         .pointer => |ptr| {
             const ptr_value = self.context.defs.items[ptr.value].value.value;
             const ptr_type = try self.typeOf(ptr_value);
@@ -125,12 +184,13 @@ fn evalExprPtr(self: *@This(), expr: *ir.Expr) Error!*ir.Expr {
     return ptr;
 }
 
-/// Evaluates an expression until it's a raw value. This means the returned
-/// expression is only ever `.type` or `.word`.
+/// Evaluates an expression until it is a raw value that cannot be decomposed
+/// any further.
 fn evalExpr(self: *@This(), expr: ir.Expr) Error!ir.Expr {
     return switch (expr) {
         .type => |@"type"| .{ .type = try self.evalType(@"type") },
         .word => |word| .{ .word = word },
+        .container => |container| .{ .container = container },
         .pointer => |ptr| {
             const def = &self.context.defs.items[ptr.value];
 
@@ -154,6 +214,7 @@ fn evalExpr(self: *@This(), expr: ir.Expr) Error!ir.Expr {
             const def = self.context.defs.items[index];
 
             // Can just return the direct value because evaluating an expression copies it
+            // TODO: This doesn't work for container instances.
             return def.value.value;
         },
         .parentheses => |parens| try self.evalExpr(parens.value.*),
@@ -168,7 +229,7 @@ fn evalType(self: *@This(), @"type": ir.Type) Error!ir.Type {
     return switch (@"type") {
         .type => .type,
         .word => .word,
-        .container => |container| .{ .container = container },
+        .interface => |interface| .{ .interface = interface }, // TODO: Do fields need to be evaluated?
         .pointer => |ptr| {
             const value = try ptr.map(self, evalExprPtr);
             try self.expectTypeExpression(value.swap(value.value.*));
@@ -184,14 +245,14 @@ fn memberAccessGeneric(self: *@This(), expr: Ranged(ir.Expr), member: Ranged(Tok
         const ptr_range = self.context.defs.items[expr.value.pointer.value].value;
         const ptr_value = ptr_range.value;
 
-        if (ptr_value == .type and ptr_value.type == .container) {
+        if (ptr_value == .container) {
             const def = try self.staticMemberAccess(ptr_range, member);
             try self.evalDef(def);
             return .{ .pointer = expr.value.pointer.swap(def) };
         }
     }
 
-    if (expr.value == .type and expr.value.type == .container) {
+    if (expr.value == .container) {
         const def = try self.staticMemberAccess(expr, member);
         try self.evalDef(def);
         return self.context.defs.items[def].value.value;
@@ -206,7 +267,7 @@ fn memberAccessGeneric(self: *@This(), expr: Ranged(ir.Expr), member: Ranged(Tok
 /// Access definitions on a container. This assumes that the provided expression
 /// is a container type.
 fn staticMemberAccess(self: *@This(), container: Ranged(ir.Expr), member: Ranged(Token)) Error!Index(ir.Def) {
-    const container_index = container.value.type.container;
+    const container_index = container.value.container;
     const defs = self.context.containers.items[container_index].defs;
 
     const key = member.range.substr(self.src);

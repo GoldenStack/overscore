@@ -11,6 +11,11 @@ pub const ast = struct {
         defs: std.ArrayList(Ranged(ContainerDef)),
     };
 
+    /// An interface, containing a list of declarations.
+    pub const Interface = struct {
+        decls: std.ArrayList(Ranged(Decl)),
+    };
+
     /// A definition in a container. This is equivalent to a normal definition,
     /// except that it also has an access modifier.
     pub const ContainerDef = struct {
@@ -26,6 +31,13 @@ pub const ast = struct {
 
         type: ?Ranged(Expr),
         value: Ranged(Expr),
+    };
+
+    /// A declaration of a name, consisting of a name and a type, but no value.
+    pub const Decl = struct {
+        name: Ranged(Token),
+
+        type: Ranged(Expr),
     };
 
     /// An access modifier - either public or private.
@@ -49,8 +61,8 @@ pub const ast = struct {
         /// intention of this to be changed.
         word,
 
-        /// A container. See `Container` documentation for more details.
-        container: Container,
+        /// An interface. See `Interface` documentation for more details.
+        interface: Interface,
 
         /// A pointer type.
         pointer: Ranged(*Expr),
@@ -75,6 +87,9 @@ pub const ast = struct {
         /// indicating that a type expression will follow.
         type: Type,
 
+        /// A container. See `Container` documentation for more details.
+        container: Container,
+
         /// An identifier that contains a value.
         ident: Ranged(Token),
 
@@ -96,6 +111,17 @@ pub const ast = struct {
 
         for (container.defs.items) |def| {
             try printContainerDef(src, def.value, writer);
+            try writer.writeByte(' ');
+        }
+
+        try writer.writeByte('}');
+    }
+
+    pub fn printInterface(src: []const u8, interface: Interface, writer: anytype) anyerror!void {
+        try writer.writeAll("{ ");
+
+        for (interface.decls.items) |decl| {
+            try printDecl(src, decl.value, writer);
             try writer.writeByte(' ');
         }
 
@@ -127,10 +153,18 @@ pub const ast = struct {
         try writer.writeAll(";");
     }
 
+    pub fn printDecl(src: []const u8, decl: Decl, writer: anytype) anyerror!void {
+        try printToken(src, decl.name, writer);
+
+        try writer.writeAll(": ");
+        try printExpr(src, decl.type.value, writer);
+    }
+
     pub fn printExpr(src: []const u8, expr: Expr, writer: anytype) anyerror!void {
         switch (expr) {
             .word => |word| try writer.print("{}", .{word}),
             .type => |@"type"| try printType(src, @"type", writer),
+            .container => |container| try printContainer(src, container, writer),
             .ident => |ident| try printToken(src, ident, writer),
             .dereference => |deref| {
                 try printExpr(src, deref.value.*, writer);
@@ -153,7 +187,7 @@ pub const ast = struct {
         switch (@"type") {
             .word => try writer.writeAll("word"),
             .type => try writer.writeAll("type"),
-            .container => |container| try printContainer(src, container, writer),
+            .interface => |interface| try printInterface(src, interface, writer),
             .pointer => |ptr| {
                 try writer.writeByte('*');
                 try printExpr(src, ptr.value.*, writer);
@@ -228,6 +262,24 @@ pub fn readContainer(self: *@This()) Error!ast.Container {
     };
 }
 
+/// Reads an interface from this parser.
+pub fn readInterface(self: *@This()) Error!ast.Interface {
+    _ = try self.expect(.interface);
+    _ = try self.expect(.opening_curly_bracket);
+
+    var decls = std.ArrayList(Ranged(ast.Decl)).init(self.allocator);
+
+    while (self.peek().value != .closing_curly_bracket) {
+        try decls.append(try Ranged(ast.Decl).wrap(self, readDecl));
+    }
+
+    _ = try self.expect(.closing_curly_bracket);
+
+    return .{
+        .decls = decls,
+    };
+}
+
 /// Parses a container definition from this parser.
 pub fn readContainerDef(self: *@This()) Error!ast.ContainerDef {
     const access: ast.Access = if (self.consume(.@"pub")) |_| .public else .private;
@@ -269,6 +321,21 @@ pub fn readDef(self: *@This()) Error!ast.Def {
     };
 }
 
+pub fn readDecl(self: *@This()) Error!ast.Decl {
+    const name = try self.expect(.ident);
+
+    _ = try self.expect(.colon);
+
+    const @"type" = try Ranged(ast.Expr).wrap(self, readExpr);
+
+    _ = try self.expect(.semicolon);
+
+    return .{
+        .name = name,
+        .type = @"type",
+    };
+}
+
 pub fn readExprPtr(self: *@This()) Error!*ast.Expr {
     const ptr = try self.allocator.create(ast.Expr);
     ptr.* = try self.readExpr();
@@ -293,7 +360,10 @@ pub fn readExpr(self: *@This()) Error!ast.Expr {
 fn readExprRaw(self: *@This()) Error!ast.Expr {
     return switch (self.peek().value) {
         // Read a type
-        .word, .type, .container, .asterisk => .{ .type = try self.readType() },
+        .word, .type, .interface, .asterisk => .{ .type = try self.readType() },
+
+        // Read a container
+        .container => .{ .container = try self.readContainer() },
 
         // Read a word
         .number => .{ .word = try self.readWord() },
@@ -304,7 +374,7 @@ fn readExprRaw(self: *@This()) Error!ast.Expr {
         // Read an expression surrounded with parentheses
         .opening_parentheses => try self.readParentheses(),
 
-        else => self.failExpected(&.{ .word, .type, .container, .number, .ident, .opening_parentheses }),
+        else => self.failExpected(&.{ .word, .type, .interface, .asterisk, .container, .number, .ident, .opening_parentheses }),
     };
 }
 
@@ -342,7 +412,7 @@ pub fn readType(self: *@This()) Error!ast.Type {
             _ = try self.expect(.type);
             return .type;
         },
-        .container => .{ .container = try self.readContainer() },
+        .interface => .{ .interface = try self.readInterface() },
         .asterisk => {
             _ = try self.expect(.asterisk);
 
@@ -350,7 +420,7 @@ pub fn readType(self: *@This()) Error!ast.Type {
 
             return .{ .pointer = child };
         },
-        else => self.failExpected(&.{ .word, .type, .container }),
+        else => self.failExpected(&.{ .word, .type, .interface, .asterisk }),
     };
 }
 
