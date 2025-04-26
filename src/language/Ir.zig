@@ -10,8 +10,12 @@ const failure = @import("failure.zig");
 /// Represents an index of a type. The type annotation currently doesn't do
 /// anything; it just makes code more legible.
 pub fn Index(T: type) type {
-    _ = T;
-    return usize;
+    return struct {
+        index: usize,
+        comptime {
+            _ = T;
+        }
+    };
 }
 
 /// The intermediate representation (IR).
@@ -39,8 +43,8 @@ pub const ir = struct {
     pub const Def = struct {
         mutability: ast.Mutability,
         name: Ranged(Token),
-        type: ?Ranged(Expr),
-        value: Ranged(Expr),
+        type: ?Ranged(Index(Expr)),
+        value: Ranged(Index(Expr)),
 
         /// Whether or not this definition is in the process of being evaluated.
         /// When a definition needs to be evaluated while it's already being
@@ -51,7 +55,7 @@ pub const ir = struct {
 
     pub const Decl = struct {
         name: Ranged(Token),
-        type: Ranged(Expr),
+        type: Ranged(Index(Expr)),
 
         /// Whether or not this definition is in the process of being evaluated.
         /// When a definition needs to be evaluated while it's already being
@@ -62,7 +66,7 @@ pub const ir = struct {
 
     pub const Type = union(enum) {
         word,
-        pointer: Ranged(*Expr),
+        pointer: Ranged(Index(Expr)),
         interface: Interface,
         type,
     };
@@ -72,10 +76,10 @@ pub const ir = struct {
         type: Type,
         container: Index(Container),
         pointer: Ranged(Index(ir.Def)),
-        dereference: Ranged(*Expr),
-        parentheses: Ranged(*Expr),
+        dereference: Ranged(Index(Expr)),
+        parentheses: Ranged(Index(Expr)),
         member_access: struct {
-            container: Ranged(*Expr),
+            container: Ranged(Index(Expr)),
             member: Ranged(Token),
         },
     };
@@ -97,6 +101,7 @@ error_context: ?failure.Error = null,
 
 containers: std.ArrayList(ir.Container),
 defs: std.ArrayList(ir.Def),
+exprs: std.ArrayList(ir.Expr),
 
 // TODO: Will need to refactor when functions are added
 current: ?Index(ir.Container) = null,
@@ -107,6 +112,7 @@ pub fn init(allocator: std.mem.Allocator, src: [:0]const u8) @This() {
         .allocator = allocator,
         .containers = std.ArrayList(ir.Container).init(allocator),
         .defs = std.ArrayList(ir.Def).init(allocator),
+        .exprs = std.ArrayList(ir.Expr).init(allocator),
     };
 }
 
@@ -118,19 +124,16 @@ pub fn convertContainer(self: *@This(), container: ast.Container) Error!Index(ir
         const name = def.value.def.name;
         const key = name.range.substr(self.src);
 
-        const def_index = self.defs.items.len;
+        const def_index = try self.pushDef(undefined);
 
         try self.lookupNameCurrentContainerForDefine(name, &defs);
         try defs.putNoClobber(key, def.swap(ir.ContainerDef{
             .access = def.value.access,
             .def = def_index,
         }));
-
-        try self.defs.append(undefined);
     }
 
-    const index = self.containers.items.len;
-    try self.containers.append(.{
+    const index = try self.pushContainer(.{
         .defs = defs,
         .parent = self.current,
     });
@@ -140,14 +143,14 @@ pub fn convertContainer(self: *@This(), container: ast.Container) Error!Index(ir
     // Add the values of the references
     for (container.defs.items) |def| {
         const key = def.value.def.name.range.substr(self.src);
-        const stored_def = self.containers.items[index].defs.get(key) orelse unreachable; // We just added it, so it must exist
+        const stored_def = self.indexContainer(index).defs.get(key) orelse unreachable; // We just added it, so it must exist
 
         const converted = try self.convertDef(def.value.def);
-        self.defs.items[stored_def.value.def] = converted;
+        self.indexDef(stored_def.value.def).* = converted;
     }
 
     // We set current above, so it must be valid
-    self.current = self.containers.items[self.current.?].parent;
+    self.current = self.indexContainer(self.current.?).parent;
 
     return index;
 }
@@ -196,20 +199,22 @@ pub fn convertDecl(self: *@This(), decl: ast.Decl) Error!ir.Decl {
     };
 }
 
-pub fn convertExprPtr(self: *@This(), expr: *ast.Expr) Error!*ir.Expr {
-    const ptr = try self.allocator.create(ir.Expr);
-    ptr.* = try self.convertExpr(expr.*);
-    return ptr;
+fn convertExprPtr(self: *@This(), expr: *ast.Expr) Error!Index(ir.Expr) {
+    return self.convertExpr(expr.*);
 }
 
-pub fn convertExpr(self: *@This(), expr: ast.Expr) Error!ir.Expr {
+pub fn convertExpr(self: *@This(), expr: ast.Expr) Error!Index(ir.Expr) {
+    return self.pushExpr(try self.convertExprRaw(expr));
+}
+
+fn convertExprRaw(self: *@This(), expr: ast.Expr) Error!ir.Expr {
     return switch (expr) {
         .word => |word| .{ .word = word },
         .type => |@"type"| .{ .type = try self.convertType(@"type") },
         .container => |container| .{ .container = try self.convertContainer(container) },
         .ident => |ident| .{ .pointer = ident.swap(try self.lookupNameExpected(ident)) },
         .dereference => |deref| .{ .dereference = try deref.map(self, convertExprPtr) },
-        .parentheses => |parens| try self.convertExpr(parens.value.*),
+        .parentheses => |parens| try self.convertExprRaw(parens.value.*),
         .member_access => |access| .{ .member_access = .{
             .container = try access.container.map(self, convertExprPtr),
             .member = access.member,
@@ -230,7 +235,7 @@ pub fn lookupName(self: *@This(), name: Ranged(Token)) ?Index(ir.Def) {
     var current = self.current;
 
     while (current) |scope| {
-        const container = self.containers.items[scope];
+        const container = self.indexContainer(scope);
 
         if (container.defs.getPtr(name.range.substr(self.src))) |def| {
             return def.value.def;
@@ -251,7 +256,7 @@ pub fn lookupNameForDefine(self: *@This(), name: Ranged(Token)) Error!void {
 
     if (maybe_index) |index| {
         return self.fail(.{ .redeclared_identifier = .{
-            .declared = self.defs.items[index].name.range,
+            .declared = self.indexDef(index).name.range,
             .redeclared = name.range,
         } });
     }
@@ -267,12 +272,42 @@ pub fn lookupNameCurrentContainerForDefine(self: *@This(), name: Ranged(Token), 
         const index = def.value.def;
 
         return self.fail(.{ .duplicate_member_name = .{
-            .declared = self.defs.items[index].name.range,
+            .declared = self.indexDef(index).name.range,
             .redeclared = name.range,
         } });
     }
 
     try self.lookupNameForDefine(name);
+}
+
+pub fn indexContainer(self: *@This(), index: Index(ir.Container)) *ir.Container {
+    return &self.containers.items[index.index];
+}
+
+pub fn indexDef(self: *@This(), index: Index(ir.Def)) *ir.Def {
+    return &self.defs.items[index.index];
+}
+
+pub fn indexExpr(self: *@This(), index: Index(ir.Expr)) *ir.Expr {
+    return &self.exprs.items[index.index];
+}
+
+pub fn pushContainer(self: *@This(), container: ir.Container) error{OutOfMemory}!Index(ir.Container) {
+    const index = self.containers.items.len;
+    try self.containers.append(container);
+    return .{ .index = index };
+}
+
+pub fn pushDef(self: *@This(), def: ir.Def) error{OutOfMemory}!Index(ir.Def) {
+    const index = self.defs.items.len;
+    try self.defs.append(def);
+    return .{ .index = index };
+}
+
+pub fn pushExpr(self: *@This(), expr: ir.Expr) error{OutOfMemory}!Index(ir.Expr) {
+    const index = self.exprs.items.len;
+    try self.exprs.append(expr);
+    return .{ .index = index };
 }
 
 /// Fails, storing the given error context and returning an error.
@@ -282,7 +317,7 @@ fn fail(self: *@This(), @"error": failure.Error) error{IrError} {
 }
 
 pub fn printContainer(self: *const @This(), index: Index(ir.Container), writer: anytype) anyerror!void {
-    const container = self.containers.items[index];
+    const container = self.containers.items[index.index];
 
     try writer.writeAll("container { ");
 
@@ -314,7 +349,7 @@ pub fn printContainerDef(self: *const @This(), def: ir.ContainerDef, writer: any
 }
 
 pub fn printDef(self: *const @This(), index: Index(ir.Def), writer: anytype) anyerror!void {
-    const def = self.defs.items[index];
+    const def = self.defs.items[index.index];
 
     try writer.writeAll(switch (def.mutability) {
         .constant => "const",
@@ -323,7 +358,7 @@ pub fn printDef(self: *const @This(), index: Index(ir.Def), writer: anytype) any
     try writer.writeByte(' ');
 
     try self.printRange(def.name.range, writer);
-    try writer.print("<{}>", .{index});
+    try writer.print("<{}>", .{index.index});
 
     if (def.type) |type_specifier| {
         try writer.writeAll(": ");
@@ -342,26 +377,28 @@ pub fn printDecl(self: *const @This(), decl: ir.Decl, writer: anytype) anyerror!
     try writer.writeAll(";");
 }
 
-pub fn printExpr(self: *const @This(), expr: ir.Expr, writer: anytype) anyerror!void {
+pub fn printExpr(self: *const @This(), index: Index(ir.Expr), writer: anytype) anyerror!void {
+    const expr = self.exprs.items[index.index];
+
     switch (expr) {
         .word => |word| try writer.print("{}", .{word}),
         .type => |@"type"| try self.printType(@"type", writer),
         .container => |container| try self.printContainer(container, writer),
         .pointer => |ptr| {
             try self.printRange(ptr.range, writer);
-            try writer.print("<{}>", .{ptr.value});
+            try writer.print("<{}>", .{ptr.value.index});
         },
         .dereference => |deref| {
-            try self.printExpr(deref.value.*, writer);
+            try self.printExpr(deref.value, writer);
             try writer.writeAll(".*");
         },
         .parentheses => |parens| {
             try writer.writeByte('(');
-            try self.printExpr(parens.value.*, writer);
+            try self.printExpr(parens.value, writer);
             try writer.writeByte(')');
         },
         .member_access => |member| {
-            try self.printExpr(member.container.value.*, writer);
+            try self.printExpr(member.container.value, writer);
             try writer.writeByte('.');
             try self.printRange(member.member.range, writer);
         },
@@ -375,7 +412,7 @@ pub fn printType(self: *const @This(), @"type": ir.Type, writer: anytype) anyerr
         .interface => |interface| try self.printInterface(interface, writer),
         .pointer => |ptr| {
             try writer.writeByte('*');
-            try self.printExpr(ptr.value.*, writer);
+            try self.printExpr(ptr.value, writer);
         },
     }
 }
