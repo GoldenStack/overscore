@@ -13,6 +13,7 @@ pub const ast = struct {
 
     /// An interface, containing a list of declarations.
     pub const Interface = struct {
+        variant: enum { product, sum },
         decls: std.ArrayList(Ranged(Decl)),
     };
 
@@ -264,7 +265,8 @@ pub fn readContainer(self: *@This()) Error!ast.Container {
 
 /// Reads an interface from this parser.
 pub fn readInterface(self: *@This()) Error!ast.Interface {
-    _ = try self.expect(.interface);
+    const variant = try self.expectMany(&.{ .product, .sum });
+
     _ = try self.expect(.opening_curly_bracket);
 
     var decls = std.ArrayList(Ranged(ast.Decl)).init(self.allocator);
@@ -276,6 +278,11 @@ pub fn readInterface(self: *@This()) Error!ast.Interface {
     _ = try self.expect(.closing_curly_bracket);
 
     return .{
+        .variant = switch (variant.value) {
+            .product => .product,
+            .sum => .sum,
+            else => unreachable,
+        },
         .decls = decls,
     };
 }
@@ -360,7 +367,7 @@ pub fn readExpr(self: *@This()) Error!ast.Expr {
 fn readExprRaw(self: *@This()) Error!ast.Expr {
     return switch (self.peek().value) {
         // Read a type
-        .word, .type, .interface, .asterisk => .{ .type = try self.readType() },
+        .word, .type, .product, .sum, .asterisk => .{ .type = try self.readType() },
 
         // Read a container
         .container => .{ .container = try self.readContainer() },
@@ -374,7 +381,7 @@ fn readExprRaw(self: *@This()) Error!ast.Expr {
         // Read an expression surrounded with parentheses
         .opening_parentheses => try self.readParentheses(),
 
-        else => self.failExpected(&.{ .word, .type, .interface, .asterisk, .container, .number, .ident, .opening_parentheses }),
+        else => self.failExpected(&.{ .word, .type, .product, .sum, .asterisk, .container, .number, .ident, .opening_parentheses }),
     };
 }
 
@@ -412,7 +419,7 @@ pub fn readType(self: *@This()) Error!ast.Type {
             _ = try self.expect(.type);
             return .type;
         },
-        .interface => .{ .interface = try self.readInterface() },
+        .product, .sum => .{ .interface = try self.readInterface() },
         .asterisk => {
             _ = try self.expect(.asterisk);
 
@@ -420,7 +427,7 @@ pub fn readType(self: *@This()) Error!ast.Type {
 
             return .{ .pointer = child };
         },
-        else => self.failExpected(&.{ .word, .type, .interface, .asterisk }),
+        else => self.failExpected(&.{ .word, .type, .product, .sum, .asterisk }),
     };
 }
 

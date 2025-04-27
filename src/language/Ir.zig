@@ -32,6 +32,7 @@ pub const ir = struct {
     };
 
     pub const Interface = struct {
+        variant: enum { product, sum },
         decls: std.StringArrayHashMap(Ranged(Decl)),
     };
 
@@ -172,6 +173,10 @@ pub fn convertInterface(self: *@This(), interface: ast.Interface) Error!ir.Inter
     }
 
     return .{
+        .variant = switch (interface.variant) {
+            .product => .product,
+            .sum => .sum,
+        },
         .decls = decls,
     };
 }
@@ -331,7 +336,10 @@ pub fn printContainer(self: *const @This(), index: Index(ir.Container), writer: 
 }
 
 pub fn printInterface(self: *const @This(), interface: ir.Interface, writer: anytype) anyerror!void {
-    try writer.writeAll("interface { ");
+    try writer.writeAll(switch (interface.variant) {
+        .product => "product { ",
+        .sum => "sum { ",
+    });
 
     var iter = interface.decls.iterator();
     while (iter.next()) |decl| {

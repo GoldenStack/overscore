@@ -108,6 +108,23 @@ fn typeContainsValue(self: *@This(), expr_index: Index(ir.Expr), @"type": ir.Typ
 
             const container = self.context.indexContainer(expr.container);
 
+            if (interface.variant == .sum) {
+                if (container.defs.keys().len != 1) return false;
+
+                var iter = interface.decls.iterator();
+                while (iter.next()) |decl| {
+                    if (container.defs.get(decl.key_ptr.*)) |def| {
+                        const def_value = self.context.indexDef(def.value.def).value.value;
+
+                        const expected_type = self.context.indexExpr(decl.value_ptr.value.type.value).type; // We assume it is a type because it has been evaluated previously
+
+                        return try self.typeContainsValue(def_value, expected_type);
+                    }
+                }
+
+                return false;
+            }
+
             if (interface.decls.keys().len != container.defs.keys().len) return false;
 
             var iter = interface.decls.iterator();
@@ -175,7 +192,10 @@ pub fn typeOf(self: *@This(), index: Index(ir.Expr)) Error!ir.Type {
                 try decls.putNoClobber(def.key_ptr.*, def.value_ptr.swap(custom_decl)); // TODO: Range doesn't make sense
             }
 
-            return .{ .interface = .{ .decls = decls } };
+            return .{ .interface = .{
+                .variant = .product,
+                .decls = decls,
+            } };
         },
         .pointer => |ptr| {
             const ptr_value = self.context.indexDef(ptr.value).value.value;
