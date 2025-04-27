@@ -73,27 +73,25 @@ fn evalDef(self: *@This(), index: Index(ir.Def)) Error!void {
     }
 }
 
-fn expectTypeExpression(self: *@This(), index: Ranged(Index(ir.Expr))) Error!void {
-    const expr = self.context.indexExpr(index.value);
-
-    if (!try self.typeContainsValue(expr.*, .type)) return self.fail(.{ .expected_type_expression = .{
-        .found_type = self.typeToString(try self.typeOf(index.value)),
-        .has_wrong_type = index.range,
+fn expectTypeExpression(self: *@This(), expr: Ranged(Index(ir.Expr))) Error!void {
+    if (!try self.typeContainsValue(expr.value, .type)) return self.fail(.{ .expected_type_expression = .{
+        .found_type = self.typeToString(try self.typeOf(expr.value)),
+        .has_wrong_type = expr.range,
     } });
 }
 
-fn expectType(self: *@This(), index: Ranged(Index(ir.Expr)), @"type": ir.Type, cause: tokenizer.Range) Error!void {
-    const expr = self.context.indexExpr(index.value);
-
-    if (!try self.typeContainsValue(expr.*, @"type")) return self.fail(.{ .mismatched_type = .{
+fn expectType(self: *@This(), expr: Ranged(Index(ir.Expr)), @"type": ir.Type, cause: tokenizer.Range) Error!void {
+    if (!try self.typeContainsValue(expr.value, @"type")) return self.fail(.{ .mismatched_type = .{
         .expected_type = self.typeToString(@"type"),
-        .found_type = self.typeToString(try self.typeOf(index.value)),
+        .found_type = self.typeToString(try self.typeOf(expr.value)),
         .expected_type_declared = cause,
-        .has_wrong_type = index.range,
+        .has_wrong_type = expr.range,
     } });
 }
 
-fn typeContainsValue(self: *@This(), expr: ir.Expr, @"type": ir.Type) Error!bool {
+fn typeContainsValue(self: *@This(), expr_index: Index(ir.Expr), @"type": ir.Type) Error!bool {
+    const expr = self.context.indexExpr(expr_index).*;
+
     return switch (@"type") {
         .word => expr == .word,
         .type => expr == .type,
@@ -115,12 +113,11 @@ fn typeContainsValue(self: *@This(), expr: ir.Expr, @"type": ir.Type) Error!bool
             var iter = interface.decls.iterator();
             while (iter.next()) |decl| {
                 if (container.defs.get(decl.key_ptr.*)) |def| {
-                    const def_value = self.context.indexDef(def.value.def);
+                    const def_value = self.context.indexDef(def.value.def).value.value;
 
-                    const value = self.context.indexExpr(def_value.value.value).*;
                     const expected_type = self.context.indexExpr(decl.value_ptr.value.type.value).type; // We assume it is a type because it has been evaluated previously
 
-                    if (!try self.typeContainsValue(value, expected_type)) {
+                    if (!try self.typeContainsValue(def_value, expected_type)) {
                         return false;
                     }
                 } else return false;
@@ -133,10 +130,10 @@ fn typeContainsValue(self: *@This(), expr: ir.Expr, @"type": ir.Type) Error!bool
             if (expr != .pointer) return false;
 
             // Pre-evaluated pointer types must be type expressions
-            const value = self.context.indexDef(expr.pointer.value).value.value;
+            const def_value = self.context.indexDef(expr.pointer.value).value.value;
             const type2 = self.context.indexExpr(ptr.value).type;
 
-            return self.typeContainsValue(self.context.indexExpr(value).*, type2);
+            return self.typeContainsValue(def_value, type2);
         },
     };
 }
@@ -198,7 +195,17 @@ fn evalExpr(self: *@This(), index: Index(ir.Expr)) Error!void {
     const expr = self.context.indexExpr(index);
 
     switch (expr.*) {
-        .type => try self.evalType(index),
+        .type => switch (expr.type) {
+            .type => {}, // Already minimal
+            .word => {}, // Already minimal
+            .interface => {
+                // TODO: Must fields be evaluated?
+            },
+            .pointer => |ptr| {
+                try self.evalExpr(ptr.value);
+                try self.expectTypeExpression(ptr);
+            },
+        },
         .word => {}, // Already minimal
         .container => {}, // Already minimal
         .pointer => |ptr| {
@@ -233,22 +240,6 @@ fn evalExpr(self: *@This(), index: Index(ir.Expr)) Error!void {
             try self.evalExpr(access.container.value);
 
             try self.memberAccessGeneric(index, access.container, access.member);
-        },
-    }
-}
-
-fn evalType(self: *@This(), index: Index(ir.Expr)) Error!void {
-    const expr = self.context.indexExpr(index);
-
-    switch (expr.type) {
-        .type => {}, // Already minimal
-        .word => {}, // Already minimal
-        .interface => {
-            // TODO: Must fields be evaluated?
-        },
-        .pointer => |ptr| {
-            try self.evalExpr(ptr.value);
-            try self.expectTypeExpression(ptr);
         },
     }
 }
