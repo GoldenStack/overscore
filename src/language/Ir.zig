@@ -31,11 +31,6 @@ pub const ir = struct {
         defs: std.StringArrayHashMap(Ranged(ContainerDef)),
     };
 
-    pub const Interface = struct {
-        variant: enum { product, sum },
-        decls: std.StringArrayHashMap(Ranged(Decl)),
-    };
-
     pub const ContainerDef = struct {
         access: ast.Access,
         def: Index(Def),
@@ -65,16 +60,14 @@ pub const ir = struct {
         evaluating: bool = false,
     };
 
-    pub const Type = union(enum) {
-        word,
-        pointer: Ranged(Index(Expr)),
-        interface: Interface,
-        type,
-    };
-
     pub const Expr = union(enum) {
         word: u32,
-        type: Type,
+        word_type,
+        decl: Decl,
+        product: std.ArrayList(Ranged(Index(Expr))),
+        sum: std.ArrayList(Ranged(Index(Expr))),
+        pointer_type: Ranged(Index(Expr)),
+        type,
         container: Index(Container),
         pointer: Ranged(Index(ir.Def)),
         dereference: Ranged(Index(Expr)),
@@ -156,31 +149,6 @@ pub fn convertContainer(self: *@This(), container: ast.Container) Error!Index(ir
     return index;
 }
 
-pub fn convertInterface(self: *@This(), interface: ast.Interface) Error!ir.Interface {
-    var decls = std.StringArrayHashMap(Ranged(ir.Decl)).init(self.allocator);
-
-    for (interface.decls.items) |decl| {
-        const name = decl.value.name.range.substr(self.src);
-
-        const result = try decls.getOrPut(name);
-
-        if (result.found_existing) return self.fail(.{ .duplicate_member_name = .{
-            .declared = result.value_ptr.value.name.range,
-            .redeclared = decl.value.name.range,
-        } });
-
-        result.value_ptr.* = try decl.map(self, convertDecl);
-    }
-
-    return .{
-        .variant = switch (interface.variant) {
-            .product => .product,
-            .sum => .sum,
-        },
-        .decls = decls,
-    };
-}
-
 pub fn convertContainerDef(self: *@This(), def: ast.ContainerDef) Error!ir.ContainerDef {
     return .{
         .access = def.access,
@@ -200,8 +168,18 @@ pub fn convertDef(self: *@This(), def: ast.Def) Error!ir.Def {
 pub fn convertDecl(self: *@This(), decl: ast.Decl) Error!ir.Decl {
     return .{
         .name = decl.name,
-        .type = try decl.type.map(self, convertExpr),
+        .type = try decl.type.map(self, convertExprPtr),
     };
+}
+
+fn convertExprList(self: *@This(), exprs: std.ArrayList(Ranged(ast.Expr))) Error!std.ArrayList(Ranged(Index(ir.Expr))) {
+    var out_exprs = std.ArrayList(Ranged(Index(ir.Expr))).init(self.allocator);
+
+    for (exprs.items) |item| {
+        try out_exprs.append(try item.map(self, convertExpr));
+    }
+
+    return out_exprs;
 }
 
 fn convertExprPtr(self: *@This(), expr: *ast.Expr) Error!Index(ir.Expr) {
@@ -214,8 +192,13 @@ pub fn convertExpr(self: *@This(), expr: ast.Expr) Error!Index(ir.Expr) {
 
 fn convertExprRaw(self: *@This(), expr: ast.Expr) Error!ir.Expr {
     return switch (expr) {
+        .word_type => .word_type,
+        .product => |product| .{ .product = try self.convertExprList(product) },
+        .sum => |sum| .{ .sum = try self.convertExprList(sum) },
+        .decl => |decl| .{ .decl = try self.convertDecl(decl) },
+        .pointer_type => |ptr| .{ .pointer_type = try ptr.map(self, convertExprPtr) },
         .word => |word| .{ .word = word },
-        .type => |@"type"| .{ .type = try self.convertType(@"type") },
+        .type => .type,
         .container => |container| .{ .container = try self.convertContainer(container) },
         .ident => |ident| .{ .pointer = ident.swap(try self.lookupNameExpected(ident)) },
         .dereference => |deref| .{ .dereference = try deref.map(self, convertExprPtr) },
@@ -224,15 +207,6 @@ fn convertExprRaw(self: *@This(), expr: ast.Expr) Error!ir.Expr {
             .container = try access.container.map(self, convertExprPtr),
             .member = access.member,
         } },
-    };
-}
-
-pub fn convertType(self: *@This(), @"type": ast.Type) Error!ir.Type {
-    return switch (@"type") {
-        .word => .word,
-        .interface => |interface| .{ .interface = try self.convertInterface(interface) },
-        .pointer => |ptr| .{ .pointer = try ptr.map(self, convertExprPtr) },
-        .type => .type,
     };
 }
 
@@ -382,7 +356,6 @@ pub fn printDecl(self: *const @This(), decl: ir.Decl, writer: anytype) anyerror!
     try self.printRange(decl.name.range, writer);
     try writer.writeAll(": ");
     try self.printExpr(decl.type.value, writer);
-    try writer.writeAll(";");
 }
 
 pub fn printExpr(self: *const @This(), index: Index(ir.Expr), writer: anytype) anyerror!void {
@@ -390,7 +363,29 @@ pub fn printExpr(self: *const @This(), index: Index(ir.Expr), writer: anytype) a
 
     switch (expr) {
         .word => |word| try writer.print("{}", .{word}),
-        .type => |@"type"| try self.printType(@"type", writer),
+        .word_type => try writer.writeAll("word"),
+        .type => try writer.writeAll("type"),
+        .product => |decls| {
+            try writer.writeAll("(");
+            for (0.., decls.items) |i, decl| {
+                if (i != 0) try writer.writeAll(" ** ");
+                try self.printExpr(decl.value, writer);
+            }
+            try writer.writeAll(")");
+        },
+        .sum => |decls| {
+            try writer.writeAll("(");
+            for (0.., decls.items) |i, decl| {
+                if (i != 0) try writer.writeAll(" ++ ");
+                try self.printExpr(decl.value, writer);
+            }
+            try writer.writeAll(")");
+        },
+        .decl => |decl| try self.printDecl(decl, writer),
+        .pointer_type => |ptr| {
+            try writer.writeByte('*');
+            try self.printExpr(ptr.value, writer);
+        },
         .container => |container| try self.printContainer(container, writer),
         .pointer => |ptr| {
             try self.printRange(ptr.range, writer);
@@ -409,18 +404,6 @@ pub fn printExpr(self: *const @This(), index: Index(ir.Expr), writer: anytype) a
             try self.printExpr(member.container.value, writer);
             try writer.writeByte('.');
             try self.printRange(member.member.range, writer);
-        },
-    }
-}
-
-pub fn printType(self: *const @This(), @"type": ir.Type, writer: anytype) anyerror!void {
-    switch (@"type") {
-        .word => try writer.writeAll("word"),
-        .type => try writer.writeAll("type"),
-        .interface => |interface| try self.printInterface(interface, writer),
-        .pointer => |ptr| {
-            try writer.writeByte('*');
-            try self.printExpr(ptr.value, writer);
         },
     }
 }

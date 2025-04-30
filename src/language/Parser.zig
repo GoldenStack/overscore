@@ -11,12 +11,6 @@ pub const ast = struct {
         defs: std.ArrayList(Ranged(ContainerDef)),
     };
 
-    /// An interface, containing a list of declarations.
-    pub const Interface = struct {
-        variant: enum { product, sum },
-        decls: std.ArrayList(Ranged(Decl)),
-    };
-
     /// A definition in a container. This is equivalent to a normal definition,
     /// except that it also has an access modifier.
     pub const ContainerDef = struct {
@@ -38,7 +32,7 @@ pub const ast = struct {
     pub const Decl = struct {
         name: Ranged(Token),
 
-        type: Ranged(Expr),
+        type: Ranged(*Expr),
     };
 
     /// An access modifier - either public or private.
@@ -53,20 +47,23 @@ pub const ast = struct {
         variable,
     };
 
-    /// Type expressions. These cannot be reduced any further, but their
-    /// constituent parts (parameters, definitions, values, etc) may need to be.
-    /// They must be fully evaluated during compile time.
-    pub const Type = union(enum) {
+    pub const Expr = union(enum) {
+        /// The primitive value that the CPU can handle, an unsigned 32-bit integer.
+        word: u32,
+
         /// An integer type, the CPU "word". For now, integers are always unsigned
         /// 32-bit integers, so they are referred to as words to reflect the
         /// intention of this to be changed.
-        word,
+        word_type,
 
-        /// An interface. See `Interface` documentation for more details.
-        interface: Interface,
+        decl: Decl,
+
+        product: std.ArrayList(Ranged(Expr)),
+
+        sum: std.ArrayList(Ranged(Expr)),
 
         /// A pointer type.
-        pointer: Ranged(*Expr),
+        pointer_type: Ranged(*Expr),
 
         /// A type.
         ///
@@ -75,18 +72,6 @@ pub const ast = struct {
         /// Russell's paradox, likely the only point of unsoundness, but I don't
         /// really care.
         type,
-    };
-
-    pub const Expr = union(enum) {
-        /// The primitive value that the CPU can handle, an unsigned 32-bit integer.
-        word: u32,
-
-        /// A type - see `Type`.
-        ///
-        /// This is not wrapped in a range because the values in `Type` are
-        /// conveniently stored separately, not because there's some special keyword
-        /// indicating that a type expression will follow.
-        type: Type,
 
         /// A container. See `Container` documentation for more details.
         container: Container,
@@ -112,17 +97,6 @@ pub const ast = struct {
 
         for (container.defs.items) |def| {
             try printContainerDef(src, def.value, writer);
-            try writer.writeByte(' ');
-        }
-
-        try writer.writeByte('}');
-    }
-
-    pub fn printInterface(src: []const u8, interface: Interface, writer: anytype) anyerror!void {
-        try writer.writeAll("{ ");
-
-        for (interface.decls.items) |decl| {
-            try printDecl(src, decl.value, writer);
             try writer.writeByte(' ');
         }
 
@@ -158,13 +132,35 @@ pub const ast = struct {
         try printToken(src, decl.name, writer);
 
         try writer.writeAll(": ");
-        try printExpr(src, decl.type.value, writer);
+        try printExpr(src, decl.type.value.*, writer);
     }
 
     pub fn printExpr(src: []const u8, expr: Expr, writer: anytype) anyerror!void {
         switch (expr) {
             .word => |word| try writer.print("{}", .{word}),
-            .type => |@"type"| try printType(src, @"type", writer),
+            .word_type => try writer.writeAll("word"),
+            .type => try writer.writeAll("type"),
+            .decl => |decl| try printDecl(src, decl, writer),
+            .product => |decls| {
+                try writer.writeAll("(");
+                for (0.., decls.items) |index, decl| {
+                    if (index != 0) try writer.writeAll(" ** ");
+                    try printExpr(src, decl.value, writer);
+                }
+                try writer.writeAll(")");
+            },
+            .sum => |decls| {
+                try writer.writeAll("(");
+                for (0.., decls.items) |index, decl| {
+                    if (index != 0) try writer.writeAll(" ++ ");
+                    try printExpr(src, decl.value, writer);
+                }
+                try writer.writeAll(")");
+            },
+            .pointer_type => |ptr| {
+                try writer.writeByte('*');
+                try printExpr(src, ptr.value.*, writer);
+            },
             .container => |container| try printContainer(src, container, writer),
             .ident => |ident| try printToken(src, ident, writer),
             .dereference => |deref| {
@@ -180,18 +176,6 @@ pub const ast = struct {
                 try printExpr(src, member.container.value.*, writer);
                 try writer.writeByte('.');
                 try printToken(src, member.member, writer);
-            },
-        }
-    }
-
-    pub fn printType(src: []const u8, @"type": Type, writer: anytype) anyerror!void {
-        switch (@"type") {
-            .word => try writer.writeAll("word"),
-            .type => try writer.writeAll("type"),
-            .interface => |interface| try printInterface(src, interface, writer),
-            .pointer => |ptr| {
-                try writer.writeByte('*');
-                try printExpr(src, ptr.value.*, writer);
             },
         }
     }
@@ -263,30 +247,6 @@ pub fn readContainer(self: *@This()) Error!ast.Container {
     };
 }
 
-/// Reads an interface from this parser.
-pub fn readInterface(self: *@This()) Error!ast.Interface {
-    const variant = try self.expectMany(&.{ .product, .sum });
-
-    _ = try self.expect(.opening_curly_bracket);
-
-    var decls = std.ArrayList(Ranged(ast.Decl)).init(self.allocator);
-
-    while (self.peek().value != .closing_curly_bracket) {
-        try decls.append(try Ranged(ast.Decl).wrap(self, readDecl));
-    }
-
-    _ = try self.expect(.closing_curly_bracket);
-
-    return .{
-        .variant = switch (variant.value) {
-            .product => .product,
-            .sum => .sum,
-            else => unreachable,
-        },
-        .decls = decls,
-    };
-}
-
 /// Parses a container definition from this parser.
 pub fn readContainerDef(self: *@This()) Error!ast.ContainerDef {
     const access: ast.Access = if (self.consume(.@"pub")) |_| .public else .private;
@@ -311,12 +271,12 @@ pub fn readDef(self: *@This()) Error!ast.Def {
     const @"type" = if (self.peek().value == .colon) type_specifier: {
         _ = try self.expect(.colon);
 
-        break :type_specifier try Ranged(ast.Expr).wrap(self, readExpr);
+        break :type_specifier try self.readExpr();
     } else null;
 
     _ = try self.expect(.equals);
 
-    const value = try Ranged(ast.Expr).wrap(self, readExpr);
+    const value = try self.readExpr();
 
     _ = try self.expect(.semicolon);
 
@@ -328,46 +288,121 @@ pub fn readDef(self: *@This()) Error!ast.Def {
     };
 }
 
-pub fn readDecl(self: *@This()) Error!ast.Decl {
-    const name = try self.expect(.ident);
-
-    _ = try self.expect(.colon);
-
-    const @"type" = try Ranged(ast.Expr).wrap(self, readExpr);
-
-    _ = try self.expect(.semicolon);
-
-    return .{
-        .name = name,
-        .type = @"type",
-    };
+fn box(self: *@This(), T: type, ranged: Ranged(T)) Error!Ranged(*T) {
+    const ptr = try self.allocator.create(T);
+    ptr.* = ranged.value;
+    return ranged.swap(ptr);
 }
 
-pub fn readExprPtr(self: *@This()) Error!*ast.Expr {
-    const ptr = try self.allocator.create(ast.Expr);
-    ptr.* = try self.readExpr();
-    return ptr;
-}
-
-/// Parses an expression from this parser.
-pub fn readExpr(self: *@This()) Error!ast.Expr {
-    var expr = try Ranged(ast.Expr).wrap(self, readExprRaw);
+fn composeExpr1(self: *@This()) Error!Ranged(ast.Expr) {
+    var expr = try self.composeExpr2();
 
     while (true) {
-        expr = switch (self.peek().value) {
-            .period => try expr.mapExtend(self, readMemberAccess),
-            .period_asterisk => try expr.mapExtend(self, readDereference),
+        expr = sw: switch (self.peek().value) {
+            .asterisk => {
+                const first = try self.expect(.asterisk);
+                const second = try self.expect(.asterisk);
+
+                switch (expr.value) {
+                    .product => {
+                        try expr.value.product.append(try self.composeExpr2());
+                        break :sw expr;
+                    },
+                    .sum => return self.fail(.{ .mixed_precedence = .{
+                        .expr = expr.range,
+                        .operator = .{ .start = first.range.start, .end = second.range.end },
+                    } }),
+                    else => {
+                        var product = std.ArrayList(Ranged(ast.Expr)).init(self.allocator);
+                        try product.append(expr);
+                        try product.append(try self.composeExpr2());
+                        break :sw expr.swap(ast.Expr{ .product = product });
+                    },
+                }
+            },
+            .plus_plus => { // TODO: Deduplicate code
+                const operator = try self.expect(.plus_plus);
+
+                switch (expr.value) {
+                    .sum => {
+                        try expr.value.sum.append(try self.composeExpr2());
+                        break :sw expr;
+                    },
+                    .product => return self.fail(.{ .mixed_precedence = .{
+                        .expr = expr.range,
+                        .operator = operator.range,
+                    } }),
+                    else => {
+                        var sum = std.ArrayList(Ranged(ast.Expr)).init(self.allocator);
+                        try sum.append(expr);
+                        try sum.append(try self.composeExpr2());
+                        break :sw expr.swap(ast.Expr{ .sum = sum });
+                    },
+                }
+            },
             else => break,
         };
     }
 
-    return expr.value;
+    return expr;
 }
+
+fn composeExpr2(self: *@This()) Error!Ranged(ast.Expr) {
+    var expr = try Ranged(ast.Expr).wrap(self, readExprRaw);
+
+    while (true) {
+        expr = sw: switch (self.peek().value) {
+            .period => try expr.mapExtend(self, readMemberAccess),
+            .period_asterisk => try expr.mapExtend(self, readDereference),
+            .colon => {
+                if (expr.value != .ident) break :sw expr;
+
+                break :sw try expr.mapExtend(self, readDecl);
+            },
+            else => break,
+        };
+    }
+
+    return expr;
+}
+
+/// Assumes `ident.value == .ident`.
+fn readDecl(self: *@This(), ident: Ranged(ast.Expr)) Error!ast.Expr {
+    const name = ident.value.ident;
+
+    _ = try self.expect(.colon);
+
+    const @"type" = try Ranged(ast.Expr).wrap(self, readExprRaw);
+
+    return .{ .decl = .{
+        .name = name,
+        .type = try self.box(ast.Expr, @"type"),
+    } };
+}
+
 
 fn readExprRaw(self: *@This()) Error!ast.Expr {
     return switch (self.peek().value) {
-        // Read a type
-        .word, .type, .product, .sum, .asterisk => .{ .type = try self.readType() },
+        // Read the word type
+        .word => {
+            _ = try self.expect(.word);
+            return .word_type;
+        },
+
+        // Read the type type
+        .type => {
+            _ = try self.expect(.type);
+            return .type;
+        },
+
+        // Read a pointer type
+        .asterisk => {
+            _ = try self.expect(.asterisk);
+
+            const child = try Ranged(ast.Expr).wrap(self, readExprRaw);
+
+            return .{ .pointer_type = try self.box(ast.Expr, child) };
+        },
 
         // Read a container
         .container => .{ .container = try self.readContainer() },
@@ -381,8 +416,13 @@ fn readExprRaw(self: *@This()) Error!ast.Expr {
         // Read an expression surrounded with parentheses
         .opening_parentheses => try self.readParentheses(),
 
-        else => self.failExpected(&.{ .word, .type, .product, .sum, .asterisk, .container, .number, .ident, .opening_parentheses }),
+        else => self.failExpected(&.{ .word, .type, .asterisk, .container, .number, .ident, .opening_parentheses }),
     };
+}
+
+/// Parses an expression from this parser.
+pub fn readExpr(self: *@This()) Error!Ranged(ast.Expr) {
+    return try self.composeExpr1();
 }
 
 fn readMemberAccess(self: *@This(), base: Ranged(ast.Expr)) Error!ast.Expr {
@@ -408,38 +448,15 @@ fn readDereference(self: *@This(), base: Ranged(ast.Expr)) Error!ast.Expr {
     return .{ .dereference = base.swap(ptr) };
 }
 
-/// Parses a type from this parser.
-pub fn readType(self: *@This()) Error!ast.Type {
-    return switch (self.peek().value) {
-        .word => {
-            _ = try self.expect(.word);
-            return .word;
-        },
-        .type => {
-            _ = try self.expect(.type);
-            return .type;
-        },
-        .product, .sum => .{ .interface = try self.readInterface() },
-        .asterisk => {
-            _ = try self.expect(.asterisk);
-
-            const child = try Ranged(*ast.Expr).wrap(self, readExprPtr);
-
-            return .{ .pointer = child };
-        },
-        else => self.failExpected(&.{ .word, .type, .product, .sum, .asterisk }),
-    };
-}
-
 /// Reads an expression surrounded in parentheses from this parser.
-pub fn readParentheses(self: *@This()) Error!ast.Expr {
+fn readParentheses(self: *@This()) Error!ast.Expr {
     _ = try self.expect(.opening_parentheses);
 
-    const expr = try Ranged(*ast.Expr).wrap(self, readExprPtr);
+    const expr = try self.readExpr();
 
     _ = try self.expect(.closing_parentheses);
 
-    return .{ .parentheses = expr };
+    return .{ .parentheses = try self.box(ast.Expr, expr) };
 }
 
 /// Parses a word from this parser.

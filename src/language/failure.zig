@@ -55,11 +55,8 @@ pub const Error = union(enum) {
         expected_type_declared: Range,
     },
 
-    /// Expected a type expression, but found a non-type.
-    expected_type_expression: struct {
-        found_type: []const u8,
-        has_wrong_type: Range,
-    },
+    /// Expected a type expression, but found something that isn't a type.
+    expected_type_expression: Range,
 
     /// Tried to access the member of an instance of a type that doesn't support
     /// member access.
@@ -84,6 +81,13 @@ pub const Error = union(enum) {
     dereferenced_non_pointer: struct {
         expr: Range,
         @"type": []const u8,
+    },
+
+    /// Parentheses are required to disambiguate confusing operator precedence
+    /// Stolen from [Zig#114](https://github.com/ziglang/zig/issues/114).
+    mixed_precedence: struct {
+        expr: Range,
+        operator: Range,
     },
 
     // /// Expected entirely tagged or entirely untagged fields, but found a mixture.
@@ -179,9 +183,9 @@ pub const Error = union(enum) {
                 try pointTo(src, mis.expected_type_declared, writer);
             },
             .expected_type_expression => |exp| {
-                try prefix(filename, exp.has_wrong_type, .err, writer);
-                try writer.print("expected type expression, found expression of type '{s}'\n" ++ Unbold, .{exp.found_type});
-                try pointTo(src, exp.has_wrong_type, writer);
+                try prefix(filename, exp, .err, writer);
+                try writer.writeAll("expected type expression, but found a value that isn't a type\n" ++ Unbold);
+                try pointTo(src, exp, writer);
             },
             .unsupported_member_access => |access| {
                 try prefix(filename, access.member, .err, writer);
@@ -211,8 +215,12 @@ pub const Error = union(enum) {
             .dereferenced_non_pointer => |deref| {
                 try prefix(filename, deref.expr, .err, writer);
                 try writer.print("cannot dereference non-pointer type '{s}'\n" ++ Unbold, .{deref.@"type"});
-                try pointTo(src, deref.expr, writer);
-                
+                try pointTo(src, deref.expr, writer);  
+            },
+            .mixed_precedence => |mixed| {
+                try prefix(filename, mixed.expr, .err, writer);
+                try writer.print("parentheses are required to disambiguate confusing operator precedence with operator {s}\n" ++ Unbold, .{mixed.operator.substr(src)});
+                try pointTo(src, mixed.expr, writer);
             },
             // .expected_homogenous_fields => |exp| {
             //     if (exp.tagged_example.start.pos > exp.untagged_example.start.pos) {
