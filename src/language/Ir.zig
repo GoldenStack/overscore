@@ -47,6 +47,12 @@ pub const ir = struct {
         /// evaluated, this means its value depends on itself, and thus a
         /// dependency loop exists.
         evaluating: bool = false,
+
+        /// Whether or not type checking has started for this definition.
+        /// Generally it's not a good idea to do the same thing for evaluation
+        /// (trusting that something has been evaluated is error-prone) but this
+        /// works for type checking.
+        type_checked: bool = false,
     };
 
     pub const Decl = struct {

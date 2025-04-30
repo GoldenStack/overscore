@@ -105,7 +105,8 @@ fn typeContainsValue(self: *@This(), @"type": Ranged(Index(ir.Expr)), expr: Rang
 
                 if (std.mem.eql(u8, def_name, decl_name)) {
                     // TODO: Using the expression's value creates the fake notion of having a range.
-                    return self.typeContainsValue(try self.typeOfDef(def.value.swap(container_def.value.def)), decl.type);
+                    // TODO: This ignores the type annotation of the definition;
+                    return self.typeContainsValue(decl.type, def.value);
                 }
             }
 
@@ -138,7 +139,8 @@ fn typeContainsValue(self: *@This(), @"type": Ranged(Index(ir.Expr)), expr: Rang
 
                 if (std.mem.eql(u8, def_name, decl_name)) {
                     // TODO: Using the expression's value creates the fake notion of having a range.
-                    return self.typeContainsValue(try self.typeOfDef(def.value.swap(container_def.value.def)), decl.type);
+                    // TODO: This ignores the type annotation of the definition;
+                    return self.typeContainsValue(decl.type, def.value);
                 }
             }
 
@@ -187,16 +189,22 @@ fn evalDef(self: *@This(), index: Index(ir.Def)) Error!void {
     var def = self.context.indexDef(index);
 
     def.evaluating = true;
-    defer def.evaluating = false;
 
     if (def.type) |@"type"| {
         try self.evalExpr(@"type".value);
         try self.evalExpr(def.value.value);
+        def.evaluating = false;
 
-        try self.expectIsType(@"type");
-        try self.expectTypeContainsValue(@"type", def.value);
+        // It's fine to evalute the same thing at the same time (sometimes), but don't recursively type check.
+        if (!def.type_checked) {
+            def.type_checked = true;
+            try self.expectIsType(@"type");
+            try self.expectTypeContainsValue(@"type", def.value);
+        }
     } else {
         try self.evalExpr(def.value.value);
+
+        def.evaluating = false;
     }
 }
 
