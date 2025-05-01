@@ -6,6 +6,9 @@ const Parser = @import("language/Parser.zig");
 const Ir = @import("language/Ir.zig");
 const Interpreter = @import("language/Interpreter.zig");
 
+const file = "example2.os";
+const src = @embedFile(file);
+
 pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
@@ -13,39 +16,22 @@ pub fn main() !void {
 
     const stdout = std.io.getStdOut().writer();
 
-    const src = @embedFile("example2.os");
-
     const tokens = tokenizer.Tokenizer.init(src);
     var parser = Parser.init(allocator, tokens);
 
-    const container = parser.readRoot() catch |err| {
-        if (err == error.SyntaxError) {
-            try parser.error_context.?.display("example2.os", src, stdout);
-            return;
-        } else return err;
-    };
+    const container = parser.readRoot() catch |err| return handle_error(err, parser);
 
     try Parser.ast.printContainer(src, container, stdout);
     try stdout.writeByte('\n');
 
     var ir = Ir.init(allocator, src);
-    const container_index = ir.convertContainer(container) catch |err| {
-        if (err == error.IrError) {
-            try ir.error_context.?.display("example2.os", src, stdout);
-            return;
-        } else return err;
-    };
+    const container_index = ir.convertContainer(container) catch |err| return handle_error(err, ir);
 
     try ir.printContainer(container_index, stdout);
     try stdout.writeByte('\n');
 
     var interpreter = Interpreter.init(allocator, src, ir);
-    const result = interpreter.evalMain(container_index) catch |err| {
-        if (err == error.InterpreterError) {
-            try interpreter.error_context.?.display("example2.os", src, stdout);
-            return;
-        } else return err;
-    };
+    const result = interpreter.evalMain(container_index) catch |err| return handle_error(err, interpreter);
 
     try ir.printExpr(result, stdout);
     try stdout.writeByte('\n');
@@ -80,6 +66,14 @@ pub fn main() !void {
     // }
 
     // std.debug.print("instruction count: {}\n", .{counter});
+}
+
+fn handle_error(err: error{CodeError, OutOfMemory}, ctx: anytype) !void {
+    if (err == error.CodeError) {
+        const stdout = std.io.getStdOut().writer();
+        try ctx.error_context.?.display(file, src, stdout);
+        return;
+    } else return err;
 }
 
 fn sys(in: Cpu.Word) Cpu.Word {

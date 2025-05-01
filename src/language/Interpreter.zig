@@ -11,7 +11,7 @@ const failure = @import("failure.zig");
 
 /// The error set of errors that can occur while interpreting.
 pub const Error = error{
-    InterpreterError,
+    CodeError,
     OutOfMemory,
 };
 
@@ -387,7 +387,7 @@ fn exprToString(self: *@This(), expr: Index(ir.Expr)) []u8 {
 }
 
 /// Fails, storing the given error context and returning an error.
-fn fail(self: *@This(), @"error": failure.Error) error{InterpreterError} {
+fn fail(self: *@This(), @"error": failure.Error) error{CodeError} {
     self.error_context = @"error";
-    return error.InterpreterError;
+    return error.CodeError;
 }

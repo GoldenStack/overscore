@@ -7,9 +7,9 @@ pub const other: (aa: ***word ** b: *word) = container {
     pub const b: *word = value;
 };
 
-pub const bb = other.b.*;
+pub const bb = other.b;
 
-pub const value = 2;
+pub const value = ((((2))));
 
 //.main: ( .x: word ++ .y: (.aa: ***word ** .b: *word)) = .y: other.*;
 

@@ -87,7 +87,7 @@ pub const ir = struct {
 
 /// The error set of errors that can occur while converting IR.
 pub const Error = error{
-    IrError,
+    CodeError,
     OutOfMemory,
 };
 
@@ -296,9 +296,9 @@ pub fn pushExpr(self: *@This(), expr: ir.Expr) error{OutOfMemory}!Index(ir.Expr)
 }
 
 /// Fails, storing the given error context and returning an error.
-fn fail(self: *@This(), @"error": failure.Error) error{IrError} {
+fn fail(self: *@This(), @"error": failure.Error) error{CodeError} {
     self.error_context = @"error";
-    return error.IrError;
+    return error.CodeError;
 }
 
 pub fn printContainer(self: *const @This(), index: Index(ir.Container), writer: anytype) anyerror!void {

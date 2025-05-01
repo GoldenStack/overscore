@@ -189,10 +189,7 @@ pub const ast = struct {
 /// `error.SyntaxError` represents an error in the syntax; all other errors are
 /// abnormal behaviour.
 pub const Error = error{
-    /// Represents an error that occurred while parsing. This is "normal
-    /// behaviour".
-    SyntaxError,
-
+    CodeError,
     OutOfMemory,
 };
 
@@ -490,7 +487,7 @@ pub fn expectMany(self: *@This(), comptime tags: []const Token) !Ranged(Token) {
 }
 
 /// Fails with an error message saying that the given tags were expected.
-pub fn failExpected(self: *@This(), comptime tags: []const Token) error{SyntaxError} {
+pub fn failExpected(self: *@This(), comptime tags: []const Token) error{CodeError} {
     return self.fail(.{ .expected_tag = .{
         .expected = tags,
         .found = self.peek(),
@@ -498,9 +495,9 @@ pub fn failExpected(self: *@This(), comptime tags: []const Token) error{SyntaxEr
 }
 
 /// Fails, storing the given error context and returning an error.
-pub fn fail(self: *@This(), @"error": failure.Error) error{SyntaxError} {
+pub fn fail(self: *@This(), @"error": failure.Error) error{CodeError} {
     self.error_context = @"error";
-    return error.SyntaxError;
+    return error.CodeError;
 }
 
 /// Returns the next token from the backing token iterator without advancing the
