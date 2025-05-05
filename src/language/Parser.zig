@@ -200,7 +200,7 @@ allocator: std.mem.Allocator,
 next_token: ?Ranged(Token) = null,
 
 /// The context for whatever error may have occurred. If any functions on this
-/// type return error.SyntaxErrpr, this value is significant. Otherwise, it may
+/// type return error.CodeError, this value is significant. Otherwise, it may
 /// contain anything.
 error_context: ?failure.Error = null,
 
@@ -376,7 +376,6 @@ fn readDecl(self: *@This(), ident: Ranged(ast.Expr)) Error!ast.Expr {
         .type = try self.box(ast.Expr, @"type"),
     } };
 }
-
 
 fn readExprRaw(self: *@This()) Error!ast.Expr {
     return switch (self.peek().value) {
