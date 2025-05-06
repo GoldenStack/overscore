@@ -288,7 +288,7 @@ pub fn evalExpr(self: *@This(), index: Index(ir.Expr)) Err!void {
 
             if (left.* != .pointer) return self.fail(.{ .dereferenced_non_pointer = .{
                 .expr = deref.range,
-                .@"type" = self.exprToString(try self.typeOf(deref)),
+                .type = self.exprToString(try self.typeOf(deref)),
             } });
 
             const def = self.context.indexDef(left.pointer.value);

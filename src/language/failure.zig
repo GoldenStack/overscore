@@ -67,7 +67,7 @@ pub const Error = union(enum) {
     /// Tried to access the member of an instance of a type that doesn't support
     /// member access.
     unsupported_member_access: struct {
-        @"type": []const u8,
+        type: []const u8,
         member: Range, // TODO: Point to the entire member access, e.g. `a.b`.
     },
 
@@ -86,7 +86,7 @@ pub const Error = union(enum) {
     /// Tried to dereference an expression that's not a pointer.
     dereferenced_non_pointer: struct {
         expr: Range,
-        @"type": []const u8,
+        type: []const u8,
     },
 
     /// Parentheses are required to disambiguate confusing operator precedence
@@ -195,7 +195,7 @@ pub const Error = union(enum) {
             },
             .unsupported_member_access => |access| {
                 try prefix(filename, access.member, .err, writer);
-                try writer.print("expression of type '{s}' does not support member access \n" ++ Unbold, .{access.@"type"});
+                try writer.print("expression of type '{s}' does not support member access \n" ++ Unbold, .{access.type});
                 try pointTo(src, access.member, writer);
             },
             .unknown_member => |unknown| {
@@ -220,8 +220,8 @@ pub const Error = union(enum) {
             },
             .dereferenced_non_pointer => |deref| {
                 try prefix(filename, deref.expr, .err, writer);
-                try writer.print("cannot dereference non-pointer type '{s}'\n" ++ Unbold, .{deref.@"type"});
-                try pointTo(src, deref.expr, writer);  
+                try writer.print("cannot dereference non-pointer type '{s}'\n" ++ Unbold, .{deref.type});
+                try pointTo(src, deref.expr, writer);
             },
             .mixed_precedence => |mixed| {
                 try prefix(filename, mixed.expr, .err, writer);
