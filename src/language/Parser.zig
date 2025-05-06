@@ -186,16 +186,13 @@ pub const ast = struct {
     }
 };
 
+// Standard fields
 src: [:0]const u8,
-tokens: tokenizer.Tokenizer,
 allocator: std.mem.Allocator,
-
-next_token: ?Ranged(Token) = null,
-
-/// The context for whatever error may have occurred. If any functions on this
-/// type return error.CodeError, this value is significant. Otherwise, it may
-/// contain anything.
 error_context: ?failure.Error = null,
+
+tokens: tokenizer.Tokenizer,
+next_token: ?Ranged(Token) = null,
 
 pub fn init(allocator: std.mem.Allocator, tokens: tokenizer.Tokenizer) @This() {
     return .{

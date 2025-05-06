@@ -86,12 +86,9 @@ pub const ir = struct {
     };
 };
 
+// Standard fields
 src: [:0]const u8,
 allocator: std.mem.Allocator,
-
-/// The context for whatever error may have occurred. If any functions on this
-/// type return error.CodeError, this value is significant. Otherwise, it may
-/// contain anything.
 error_context: ?failure.Error = null,
 
 containers: std.ArrayList(ir.Container),
