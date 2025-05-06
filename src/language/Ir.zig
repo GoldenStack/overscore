@@ -6,6 +6,7 @@ const Ranged = tokenizer.Ranged;
 
 const ast = @import("Parser.zig").ast;
 const failure = @import("failure.zig");
+const Err = failure.ErrorSet;
 
 /// Represents an index of a type. The type annotation currently doesn't do
 /// anything; it just makes code more legible.
@@ -85,12 +86,6 @@ pub const ir = struct {
     };
 };
 
-/// The error set of errors that can occur while converting IR.
-pub const Error = error{
-    CodeError,
-    OutOfMemory,
-};
-
 src: [:0]const u8,
 allocator: std.mem.Allocator,
 
@@ -116,7 +111,7 @@ pub fn init(allocator: std.mem.Allocator, src: [:0]const u8) @This() {
     };
 }
 
-pub fn convertContainer(self: *@This(), container: ast.Container) Error!Index(ir.Container) {
+pub fn convertContainer(self: *@This(), container: ast.Container) Err!Index(ir.Container) {
     var defs = std.StringArrayHashMap(Ranged(ir.ContainerDef)).init(self.allocator);
 
     // Add references with no values
@@ -155,14 +150,14 @@ pub fn convertContainer(self: *@This(), container: ast.Container) Error!Index(ir
     return index;
 }
 
-pub fn convertContainerDef(self: *@This(), def: ast.ContainerDef) Error!ir.ContainerDef {
+pub fn convertContainerDef(self: *@This(), def: ast.ContainerDef) Err!ir.ContainerDef {
     return .{
         .access = def.access,
         .def = try self.convertDef(def.def),
     };
 }
 
-pub fn convertDef(self: *@This(), def: ast.Def) Error!ir.Def {
+pub fn convertDef(self: *@This(), def: ast.Def) Err!ir.Def {
     return .{
         .mutability = def.mutability,
         .name = def.name,
@@ -171,14 +166,14 @@ pub fn convertDef(self: *@This(), def: ast.Def) Error!ir.Def {
     };
 }
 
-pub fn convertDecl(self: *@This(), decl: ast.Decl) Error!ir.Decl {
+pub fn convertDecl(self: *@This(), decl: ast.Decl) Err!ir.Decl {
     return .{
         .name = decl.name,
         .type = try decl.type.map(self, convertExprPtr),
     };
 }
 
-fn convertExprList(self: *@This(), exprs: std.ArrayList(Ranged(ast.Expr))) Error!std.ArrayList(Ranged(Index(ir.Expr))) {
+fn convertExprList(self: *@This(), exprs: std.ArrayList(Ranged(ast.Expr))) Err!std.ArrayList(Ranged(Index(ir.Expr))) {
     var out_exprs = std.ArrayList(Ranged(Index(ir.Expr))).init(self.allocator);
 
     for (exprs.items) |item| {
@@ -188,15 +183,15 @@ fn convertExprList(self: *@This(), exprs: std.ArrayList(Ranged(ast.Expr))) Error
     return out_exprs;
 }
 
-fn convertExprPtr(self: *@This(), expr: *ast.Expr) Error!Index(ir.Expr) {
+fn convertExprPtr(self: *@This(), expr: *ast.Expr) Err!Index(ir.Expr) {
     return self.convertExpr(expr.*);
 }
 
-pub fn convertExpr(self: *@This(), expr: ast.Expr) Error!Index(ir.Expr) {
+pub fn convertExpr(self: *@This(), expr: ast.Expr) Err!Index(ir.Expr) {
     return self.pushExpr(try self.convertExprRaw(expr));
 }
 
-fn convertExprRaw(self: *@This(), expr: ast.Expr) Error!ir.Expr {
+fn convertExprRaw(self: *@This(), expr: ast.Expr) Err!ir.Expr {
     return switch (expr) {
         .word_type => .word_type,
         .product => |product| .{ .product = try self.convertExprList(product) },
@@ -230,13 +225,13 @@ pub fn lookupName(self: *@This(), name: Ranged(Token)) ?Index(ir.Def) {
     } else return null;
 }
 
-pub fn lookupNameExpected(self: *@This(), name: Ranged(Token)) Error!Index(ir.Def) {
+pub fn lookupNameExpected(self: *@This(), name: Ranged(Token)) Err!Index(ir.Def) {
     const index = self.lookupName(name);
 
     return index orelse self.fail(.{ .unknown_identifier = name.range });
 }
 
-pub fn lookupNameForDefine(self: *@This(), name: Ranged(Token)) Error!void {
+pub fn lookupNameForDefine(self: *@This(), name: Ranged(Token)) Err!void {
     const maybe_index = self.lookupName(name);
 
     if (maybe_index) |index| {
@@ -247,7 +242,7 @@ pub fn lookupNameForDefine(self: *@This(), name: Ranged(Token)) Error!void {
     }
 }
 
-pub fn lookupNameCurrentContainerForDefine(self: *@This(), name: Ranged(Token), defs: *std.StringArrayHashMap(Ranged(ir.ContainerDef))) Error!void {
+pub fn lookupNameCurrentContainerForDefine(self: *@This(), name: Ranged(Token), defs: *std.StringArrayHashMap(Ranged(ir.ContainerDef))) Err!void {
     const value = name.range.substr(self.src);
 
     // This used to be merged into one with a `defs.getOrPut`, which has better

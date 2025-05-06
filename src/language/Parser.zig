@@ -1,8 +1,9 @@
 const std = @import("std");
 const tokenizer = @import("tokenizer.zig");
-const failure = @import("failure.zig");
 const Ranged = tokenizer.Ranged;
 const Token = tokenizer.Token;
+const failure = @import("failure.zig");
+const Err = failure.ErrorSet;
 
 /// The abstract syntax tree.
 pub const ast = struct {
@@ -185,14 +186,6 @@ pub const ast = struct {
     }
 };
 
-/// The error set of errors that can occur while parsing the AST.
-/// `error.SyntaxError` represents an error in the syntax; all other errors are
-/// abnormal behaviour.
-pub const Error = error{
-    CodeError,
-    OutOfMemory,
-};
-
 src: [:0]const u8,
 tokens: tokenizer.Tokenizer,
 allocator: std.mem.Allocator,
@@ -214,7 +207,7 @@ pub fn init(allocator: std.mem.Allocator, tokens: tokenizer.Tokenizer) @This() {
 
 /// Reads the root container from this parser. This will consume the entire
 /// sorce file unless there is an error.
-pub fn readRoot(self: *@This()) Error!ast.Container {
+pub fn readRoot(self: *@This()) Err!ast.Container {
     var defs = std.ArrayList(Ranged(ast.ContainerDef)).init(self.allocator);
 
     while (self.peek().value != .eof) {
@@ -227,7 +220,7 @@ pub fn readRoot(self: *@This()) Error!ast.Container {
 }
 
 /// Reads a container from this parser.
-pub fn readContainer(self: *@This()) Error!ast.Container {
+pub fn readContainer(self: *@This()) Err!ast.Container {
     _ = try self.expect(.container);
     _ = try self.expect(.opening_curly_bracket);
 
@@ -245,7 +238,7 @@ pub fn readContainer(self: *@This()) Error!ast.Container {
 }
 
 /// Parses a container definition from this parser.
-pub fn readContainerDef(self: *@This()) Error!ast.ContainerDef {
+pub fn readContainerDef(self: *@This()) Err!ast.ContainerDef {
     const access: ast.Access = if (self.consume(.@"pub")) |_| .public else .private;
 
     return .{
@@ -255,7 +248,7 @@ pub fn readContainerDef(self: *@This()) Error!ast.ContainerDef {
 }
 
 /// Parses a name definition from this parser.
-pub fn readDef(self: *@This()) Error!ast.Def {
+pub fn readDef(self: *@This()) Err!ast.Def {
     const mutability: ast.Mutability = switch ((try self.expectMany(&.{ .@"const", .@"var" })).value) {
         .@"const" => .constant,
         .@"var" => .variable,
@@ -285,13 +278,13 @@ pub fn readDef(self: *@This()) Error!ast.Def {
     };
 }
 
-fn box(self: *@This(), T: type, ranged: Ranged(T)) Error!Ranged(*T) {
+fn box(self: *@This(), T: type, ranged: Ranged(T)) Err!Ranged(*T) {
     const ptr = try self.allocator.create(T);
     ptr.* = ranged.value;
     return ranged.swap(ptr);
 }
 
-fn composeExpr1(self: *@This()) Error!Ranged(ast.Expr) {
+fn composeExpr1(self: *@This()) Err!Ranged(ast.Expr) {
     var expr = try self.composeExpr2();
 
     while (true) {
@@ -344,7 +337,7 @@ fn composeExpr1(self: *@This()) Error!Ranged(ast.Expr) {
     return expr;
 }
 
-fn composeExpr2(self: *@This()) Error!Ranged(ast.Expr) {
+fn composeExpr2(self: *@This()) Err!Ranged(ast.Expr) {
     var expr = try Ranged(ast.Expr).wrap(self, readExprRaw);
 
     while (true) {
@@ -364,7 +357,7 @@ fn composeExpr2(self: *@This()) Error!Ranged(ast.Expr) {
 }
 
 /// Assumes `ident.value == .ident`.
-fn readDecl(self: *@This(), ident: Ranged(ast.Expr)) Error!ast.Expr {
+fn readDecl(self: *@This(), ident: Ranged(ast.Expr)) Err!ast.Expr {
     const name = ident.value.ident;
 
     _ = try self.expect(.colon);
@@ -377,7 +370,7 @@ fn readDecl(self: *@This(), ident: Ranged(ast.Expr)) Error!ast.Expr {
     } };
 }
 
-fn readExprRaw(self: *@This()) Error!ast.Expr {
+fn readExprRaw(self: *@This()) Err!ast.Expr {
     return switch (self.peek().value) {
         // Read the word type
         .word => {
@@ -417,11 +410,11 @@ fn readExprRaw(self: *@This()) Error!ast.Expr {
 }
 
 /// Parses an expression from this parser.
-pub fn readExpr(self: *@This()) Error!Ranged(ast.Expr) {
+pub fn readExpr(self: *@This()) Err!Ranged(ast.Expr) {
     return try self.composeExpr1();
 }
 
-fn readMemberAccess(self: *@This(), base: Ranged(ast.Expr)) Error!ast.Expr {
+fn readMemberAccess(self: *@This(), base: Ranged(ast.Expr)) Err!ast.Expr {
     _ = try self.expect(.period);
 
     const member = try self.expect(.ident);
@@ -435,7 +428,7 @@ fn readMemberAccess(self: *@This(), base: Ranged(ast.Expr)) Error!ast.Expr {
     } };
 }
 
-fn readDereference(self: *@This(), base: Ranged(ast.Expr)) Error!ast.Expr {
+fn readDereference(self: *@This(), base: Ranged(ast.Expr)) Err!ast.Expr {
     _ = try self.expect(.period_asterisk);
 
     const ptr = try self.allocator.create(ast.Expr);
@@ -445,7 +438,7 @@ fn readDereference(self: *@This(), base: Ranged(ast.Expr)) Error!ast.Expr {
 }
 
 /// Reads an expression surrounded in parentheses from this parser.
-fn readParentheses(self: *@This()) Error!ast.Expr {
+fn readParentheses(self: *@This()) Err!ast.Expr {
     _ = try self.expect(.opening_parentheses);
 
     const expr = try self.readExpr();
@@ -456,7 +449,7 @@ fn readParentheses(self: *@This()) Error!ast.Expr {
 }
 
 /// Parses a word from this parser.
-pub fn readWord(self: *@This()) Error!u32 {
+pub fn readWord(self: *@This()) Err!u32 {
     const token = try self.expect(.number);
 
     return std.fmt.parseUnsigned(u32, token.range.substr(self.src), 10) catch self.fail(.{ .number_too_large = token.range });

@@ -8,12 +8,7 @@ const Ir = @import("Ir.zig");
 const ir = Ir.ir;
 const Index = Ir.Index;
 const failure = @import("failure.zig");
-
-/// The error set of errors that can occur while interpreting.
-pub const Error = error{
-    CodeError,
-    OutOfMemory,
-};
+const Err = failure.ErrorSet;
 
 src: [:0]const u8,
 allocator: std.mem.Allocator,
@@ -33,7 +28,7 @@ pub fn init(allocator: std.mem.Allocator, src: [:0]const u8, context: Ir) @This(
     };
 }
 
-pub fn expectIsType(self: *@This(), expr: Ranged(Index(ir.Expr))) Error!void {
+pub fn expectIsType(self: *@This(), expr: Ranged(Index(ir.Expr))) Err!void {
     if (!self.isType(expr)) {
         return self.fail(.{ .expected_type_expression = expr.range });
     }
@@ -48,7 +43,7 @@ pub fn isType(self: *@This(), expr: Ranged(Index(ir.Expr))) bool {
     };
 }
 
-pub fn expectEvaluated(self: *@This(), expr: Ranged(Index(ir.Expr))) Error!void {
+pub fn expectEvaluated(self: *@This(), expr: Ranged(Index(ir.Expr))) Err!void {
     const value = self.context.indexExpr(expr.value).*;
 
     return switch (value) {
@@ -57,7 +52,7 @@ pub fn expectEvaluated(self: *@This(), expr: Ranged(Index(ir.Expr))) Error!void 
     };
 }
 
-pub fn expectTypeContainsValue(self: *@This(), @"type": Ranged(Index(ir.Expr)), expr: Ranged(Index(ir.Expr))) Error!void {
+pub fn expectTypeContainsValue(self: *@This(), @"type": Ranged(Index(ir.Expr)), expr: Ranged(Index(ir.Expr))) Err!void {
     const type_contains_value = try self.typeContainsValue(@"type", expr);
 
     if (!type_contains_value) {
@@ -70,7 +65,7 @@ pub fn expectTypeContainsValue(self: *@This(), @"type": Ranged(Index(ir.Expr)), 
     }
 }
 
-pub fn typeContainsValue(self: *@This(), @"type": Ranged(Index(ir.Expr)), expr: Ranged(Index(ir.Expr))) Error!bool {
+pub fn typeContainsValue(self: *@This(), @"type": Ranged(Index(ir.Expr)), expr: Ranged(Index(ir.Expr))) Err!bool {
     try self.expectIsType(@"type");
     try self.expectEvaluated(expr);
 
@@ -161,7 +156,7 @@ pub fn typeContainsValue(self: *@This(), @"type": Ranged(Index(ir.Expr)), expr: 
     };
 }
 
-pub fn evalMain(self: *@This(), index: Index(ir.Container)) Error!Index(ir.Expr) {
+pub fn evalMain(self: *@This(), index: Index(ir.Container)) Err!Index(ir.Expr) {
     const container = self.context.indexContainer(index);
 
     const main = container.defs.get("main") orelse @panic("No main expression found!");
@@ -172,7 +167,7 @@ pub fn evalMain(self: *@This(), index: Index(ir.Container)) Error!Index(ir.Expr)
     return self.context.indexDef(main_index).value.value;
 }
 
-pub fn typeOfDef(self: *@This(), index: Ranged(Index(ir.Def))) Error!Ranged(Index(ir.Expr)) {
+pub fn typeOfDef(self: *@This(), index: Ranged(Index(ir.Def))) Err!Ranged(Index(ir.Expr)) {
     const def = self.context.indexDef(index.value);
 
     if (def.type) |@"type"| {
@@ -185,7 +180,7 @@ pub fn typeOfDef(self: *@This(), index: Ranged(Index(ir.Def))) Error!Ranged(Inde
     }
 }
 
-pub fn evalDef(self: *@This(), index: Index(ir.Def)) Error!void {
+pub fn evalDef(self: *@This(), index: Index(ir.Def)) Err!void {
     var def = self.context.indexDef(index);
 
     def.evaluating = true;
@@ -208,7 +203,7 @@ pub fn evalDef(self: *@This(), index: Index(ir.Def)) Error!void {
     }
 }
 
-pub fn typeOf(self: *@This(), expr: Ranged(Index(ir.Expr))) Error!Index(ir.Expr) {
+pub fn typeOf(self: *@This(), expr: Ranged(Index(ir.Expr))) Err!Index(ir.Expr) {
     try self.expectEvaluated(expr);
 
     const expr_value = self.context.indexExpr(expr.value);
@@ -253,7 +248,7 @@ pub fn typeOf(self: *@This(), expr: Ranged(Index(ir.Expr))) Error!Index(ir.Expr)
 
 /// Evaluates an expression until it is a raw value that cannot be decomposed
 /// any further.
-pub fn evalExpr(self: *@This(), index: Index(ir.Expr)) Error!void {
+pub fn evalExpr(self: *@This(), index: Index(ir.Expr)) Err!void {
     const expr = self.context.indexExpr(index);
 
     switch (expr.*) {
@@ -319,7 +314,7 @@ pub fn evalExpr(self: *@This(), index: Index(ir.Expr)) Error!void {
 }
 
 /// Product type elimination on containers or pointers.
-pub fn containerOrPtrMemberAccess(self: *@This(), expr: Index(ir.Expr), container: Ranged(Index(ir.Expr)), member: Ranged(Token)) Error!void {
+pub fn containerOrPtrMemberAccess(self: *@This(), expr: Index(ir.Expr), container: Ranged(Index(ir.Expr)), member: Ranged(Token)) Err!void {
     const container_expr = self.context.indexExpr(container.value);
 
     switch (container_expr.*) {
@@ -356,7 +351,7 @@ pub fn containerOrPtrMemberAccess(self: *@This(), expr: Index(ir.Expr), containe
 
 /// Product type elimination on containers or pointers. This assumes that the
 /// provided container is a container.
-pub fn containerMemberAccess(self: *@This(), container: Ranged(Index(ir.Expr)), member: Ranged(Token)) Error!Index(ir.Def) {
+pub fn containerMemberAccess(self: *@This(), container: Ranged(Index(ir.Expr)), member: Ranged(Token)) Err!Index(ir.Def) {
     const container_expr = self.context.indexExpr(container.value);
     const defs = self.context.indexContainer(container_expr.container).defs;
 

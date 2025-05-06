@@ -16,6 +16,12 @@ const Reset = Csi ++ "0m";
 const Red = Csi ++ "31m";
 const Cyan = Csi ++ "36m";
 
+/// The error set of errors that can occur while dealing with code.
+pub const ErrorSet = error{
+    CodeError,
+    OutOfMemory,
+};
+
 pub const Error = union(enum) {
     /// We expected one of several tags, but found an incorrect one.
     expected_tag: struct {
