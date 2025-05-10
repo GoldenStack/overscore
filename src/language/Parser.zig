@@ -9,19 +9,13 @@ const Err = failure.ErrorSet;
 pub const ast = struct {
     /// A container, containing a list of definitions.
     pub const Container = struct {
-        defs: std.ArrayList(Ranged(ContainerDef)),
+        defs: std.ArrayList(Ranged(Def)),
     };
 
-    /// A definition in a container. This is equivalent to a normal definition,
-    /// except that it also has an access modifier.
-    pub const ContainerDef = struct {
-        access: Access,
-        def: Def,
-    };
-
-    /// A definition of a name, consisting of a mutability modifier, a name, an
-    /// optional type, and value.
+    /// A definition of a name, consisting of an access modifier, a mutability
+    /// modifier, a name, an optional type, and value.
     pub const Def = struct {
+        access: Access,
         mutability: Mutability,
         name: Ranged(Token),
 
@@ -97,20 +91,16 @@ pub const ast = struct {
         try writer.writeAll("{ ");
 
         for (container.defs.items) |def| {
-            try printContainerDef(src, def.value, writer);
+            try printDef(src, def.value, writer);
             try writer.writeByte(' ');
         }
 
         try writer.writeByte('}');
     }
 
-    pub fn printContainerDef(src: []const u8, def: ContainerDef, writer: anytype) anyerror!void {
-        if (def.access == .public) try writer.writeAll("pub ");
-
-        try printDef(src, def.def, writer);
-    }
-
     pub fn printDef(src: []const u8, def: Def, writer: anytype) anyerror!void {
+        if (def.access == .public) try writer.writeAll("pub ");
+        
         try writer.writeAll(switch (def.mutability) {
             .constant => "const",
             .variable => "var",
@@ -205,10 +195,10 @@ pub fn init(allocator: std.mem.Allocator, tokens: tokenizer.Tokenizer) @This() {
 /// Reads the root container from this parser. This will consume the entire
 /// sorce file unless there is an error.
 pub fn readRoot(self: *@This()) Err!ast.Container {
-    var defs = std.ArrayList(Ranged(ast.ContainerDef)).init(self.allocator);
+    var defs = std.ArrayList(Ranged(ast.Def)).init(self.allocator);
 
     while (self.peek().value != .eof) {
-        try defs.append(try Ranged(ast.ContainerDef).wrap(self, readContainerDef));
+        try defs.append(try Ranged(ast.Def).wrap(self, readDef));
     }
 
     return .{
@@ -221,10 +211,10 @@ pub fn readContainer(self: *@This()) Err!ast.Container {
     _ = try self.expect(.container);
     _ = try self.expect(.opening_curly_bracket);
 
-    var defs = std.ArrayList(Ranged(ast.ContainerDef)).init(self.allocator);
+    var defs = std.ArrayList(Ranged(ast.Def)).init(self.allocator);
 
     while (self.peek().value != .closing_curly_bracket) {
-        try defs.append(try Ranged(ast.ContainerDef).wrap(self, readContainerDef));
+        try defs.append(try Ranged(ast.Def).wrap(self, readDef));
     }
 
     _ = try self.expect(.closing_curly_bracket);
@@ -234,18 +224,10 @@ pub fn readContainer(self: *@This()) Err!ast.Container {
     };
 }
 
-/// Parses a container definition from this parser.
-pub fn readContainerDef(self: *@This()) Err!ast.ContainerDef {
-    const access: ast.Access = if (self.consume(.@"pub")) |_| .public else .private;
-
-    return .{
-        .access = access,
-        .def = try self.readDef(),
-    };
-}
-
 /// Parses a name definition from this parser.
 pub fn readDef(self: *@This()) Err!ast.Def {
+    const access: ast.Access = if (self.consume(.@"pub")) |_| .public else .private;
+
     const mutability: ast.Mutability = switch ((try self.expectMany(&.{ .@"const", .@"var" })).value) {
         .@"const" => .constant,
         .@"var" => .variable,
@@ -268,6 +250,7 @@ pub fn readDef(self: *@This()) Err!ast.Def {
     _ = try self.expect(.semicolon);
 
     return .{
+        .access = access,
         .mutability = mutability,
         .name = name,
         .type = @"type",

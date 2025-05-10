@@ -25,10 +25,10 @@ pub fn main() !void {
     try stdout.writeByte('\n');
 
     var ir = Ir.init(allocator, src);
-    const container_index = try ir.pushExpr(undefined);
+    const container_index = try ir.indexOfPush(.container, undefined);
     ir.convertContainer(container, container_index) catch |err| return handle_error(err, ir);
 
-    try ir.printExpr(container_index, stdout);
+    try ir.printExpr(container_index.index, stdout);
     try stdout.writeByte('\n');
 
     var interpreter = Interpreter.init(allocator, src, ir);
