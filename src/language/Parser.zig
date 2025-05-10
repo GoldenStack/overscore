@@ -100,7 +100,7 @@ pub const ast = struct {
 
     pub fn printDef(src: []const u8, def: Def, writer: anytype) anyerror!void {
         if (def.access == .public) try writer.writeAll("pub ");
-        
+
         try writer.writeAll(switch (def.mutability) {
             .constant => "const",
             .variable => "var",

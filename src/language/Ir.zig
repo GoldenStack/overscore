@@ -66,9 +66,7 @@ pub const ir = struct {
     };
 
     pub const Expr = union(Tag) {
-        pub const Tag = enum {
-            word, word_type, def, decl, product, sum, pointer_type, type, container, pointer, dereference, parentheses, member_access,
-        };
+        pub const Tag = enum { word, word_type, def, decl, product, sum, pointer_type, type, container, pointer, dereference, parentheses, member_access };
         word: u32,
         word_type,
         def: Def,
