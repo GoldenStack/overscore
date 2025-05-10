@@ -27,7 +27,7 @@ pub const ir = struct {
     pub const Container = struct {
         // Stores the parent scope of this container. This allows namespace
         // resolution.
-        parent: ?Index(Container),
+        parent: ?Index(Expr),
 
         defs: std.StringArrayHashMap(Ranged(ContainerDef)),
     };
@@ -75,7 +75,7 @@ pub const ir = struct {
         sum: std.ArrayList(Ranged(Index(Expr))),
         pointer_type: Ranged(Index(Expr)),
         type,
-        container: Index(Container),
+        container: Container,
         pointer: Ranged(Index(ir.Def)),
         dereference: Ranged(Index(Expr)),
         parentheses: Ranged(Index(Expr)),
@@ -91,24 +91,22 @@ src: [:0]const u8,
 allocator: std.mem.Allocator,
 error_context: ?failure.Error = null,
 
-containers: std.ArrayList(ir.Container),
 defs: std.ArrayList(ir.Def),
 exprs: std.ArrayList(ir.Expr),
 
 // TODO: Will need to refactor when functions are added
-current: ?Index(ir.Container) = null,
+current: ?Index(ir.Expr) = null,
 
 pub fn init(allocator: std.mem.Allocator, src: [:0]const u8) @This() {
     return .{
         .src = src,
         .allocator = allocator,
-        .containers = std.ArrayList(ir.Container).init(allocator),
         .defs = std.ArrayList(ir.Def).init(allocator),
         .exprs = std.ArrayList(ir.Expr).init(allocator),
     };
 }
 
-pub fn convertContainer(self: *@This(), container: ast.Container) Err!Index(ir.Container) {
+pub fn convertContainer(self: *@This(), container: ast.Container, index: Index(ir.Expr)) Err!void {
     var defs = std.StringArrayHashMap(Ranged(ir.ContainerDef)).init(self.allocator);
 
     // Add references with no values
@@ -125,26 +123,24 @@ pub fn convertContainer(self: *@This(), container: ast.Container) Err!Index(ir.C
         }));
     }
 
-    const index = try self.pushContainer(.{
+    self.indexExpr(index).* = .{ .container = .{
         .defs = defs,
         .parent = self.current,
-    });
+    } };
 
     self.current = index;
 
     // Add the values of the references
     for (container.defs.items) |def| {
         const key = def.value.def.name.range.substr(self.src);
-        const stored_def = self.indexContainer(index).defs.get(key) orelse unreachable; // We just added it, so it must exist
+        const stored_def = self.indexExpr(index).container.defs.get(key) orelse unreachable; // We just added it, so it must exist
 
         const converted = try self.convertDef(def.value.def);
         self.indexDef(stored_def.value.def).* = converted;
     }
 
     // We set current above, so it must be valid
-    self.current = self.indexContainer(self.current.?).parent;
-
-    return index;
+    self.current = self.indexExpr(self.current.?).container.parent;
 }
 
 pub fn convertContainerDef(self: *@This(), def: ast.ContainerDef) Err!ir.ContainerDef {
@@ -184,12 +180,16 @@ fn convertExprPtr(self: *@This(), expr: *ast.Expr) Err!Index(ir.Expr) {
     return self.convertExpr(expr.*);
 }
 
-pub fn convertExpr(self: *@This(), expr: ast.Expr) Err!Index(ir.Expr) {
-    return self.pushExpr(try self.convertExprRaw(expr));
-}
+fn convertExpr(self: *@This(), expr: ast.Expr) Err!Index(ir.Expr) {
+    const index = try self.pushExpr(undefined);
 
-fn convertExprRaw(self: *@This(), expr: ast.Expr) Err!ir.Expr {
-    return switch (expr) {
+    const value: ir.Expr = value: switch (expr) {
+        // Edge case where an expression requires its index
+        .container => |container| {
+            try self.convertContainer(container, index);
+            return index;
+        },
+        
         .word_type => .word_type,
         .product => |product| .{ .product = try self.convertExprList(product) },
         .sum => |sum| .{ .sum = try self.convertExprList(sum) },
@@ -197,22 +197,24 @@ fn convertExprRaw(self: *@This(), expr: ast.Expr) Err!ir.Expr {
         .pointer_type => |ptr| .{ .pointer_type = try ptr.map(self, convertExprPtr) },
         .word => |word| .{ .word = word },
         .type => .type,
-        .container => |container| .{ .container = try self.convertContainer(container) },
         .ident => |ident| .{ .pointer = ident.swap(try self.lookupNameExpected(ident)) },
         .dereference => |deref| .{ .dereference = try deref.map(self, convertExprPtr) },
-        .parentheses => |parens| try self.convertExprRaw(parens.value.*),
+        .parentheses => |parens| continue :value parens.value.*,
         .member_access => |access| .{ .member_access = .{
             .container = try access.container.map(self, convertExprPtr),
             .member = access.member,
         } },
     };
+
+    self.indexExpr(index).* = value;
+    return index;
 }
 
 pub fn lookupName(self: *@This(), name: Ranged(Token)) ?Index(ir.Def) {
     var current = self.current;
 
     while (current) |scope| {
-        const container = self.indexContainer(scope);
+        const container = &self.indexExpr(scope).container;
 
         if (container.defs.getPtr(name.range.substr(self.src))) |def| {
             return def.value.def;
@@ -257,22 +259,12 @@ pub fn lookupNameCurrentContainerForDefine(self: *@This(), name: Ranged(Token), 
     try self.lookupNameForDefine(name);
 }
 
-pub fn indexContainer(self: *@This(), index: Index(ir.Container)) *ir.Container {
-    return &self.containers.items[index.index];
-}
-
 pub fn indexDef(self: *@This(), index: Index(ir.Def)) *ir.Def {
     return &self.defs.items[index.index];
 }
 
 pub fn indexExpr(self: *@This(), index: Index(ir.Expr)) *ir.Expr {
     return &self.exprs.items[index.index];
-}
-
-pub fn pushContainer(self: *@This(), container: ir.Container) error{OutOfMemory}!Index(ir.Container) {
-    const index = self.containers.items.len;
-    try self.containers.append(container);
-    return .{ .index = index };
 }
 
 pub fn pushDef(self: *@This(), def: ir.Def) error{OutOfMemory}!Index(ir.Def) {
@@ -293,9 +285,7 @@ fn fail(self: *@This(), @"error": failure.Error) error{CodeError} {
     return error.CodeError;
 }
 
-pub fn printContainer(self: *const @This(), index: Index(ir.Container), writer: anytype) anyerror!void {
-    const container = self.containers.items[index.index];
-
+pub fn printContainer(self: *const @This(), container: ir.Container, writer: anytype) anyerror!void {
     try writer.writeAll("container { ");
 
     var iter = container.defs.iterator();

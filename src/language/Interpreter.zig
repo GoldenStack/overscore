@@ -74,7 +74,7 @@ pub fn typeContainsValue(self: *@This(), @"type": Ranged(Index(ir.Expr)), expr: 
         .decl => |decl| try self.typeContainsValue(decl.type, expr), // TODO: Change when definitions are made expressions
         .product => |product| {
             if (expr_value.* != .container) return false;
-            const container = self.context.indexContainer(expr_value.container);
+            const container = &expr_value.container;
 
             // TODO: We shouldn't have to evaluate every container definition here.
             // Can probably replace with something like #evalTypeOf.
@@ -106,7 +106,7 @@ pub fn typeContainsValue(self: *@This(), @"type": Ranged(Index(ir.Expr)), expr: 
         },
         .sum => |sum| {
             if (expr_value.* != .container) return false;
-            const container = self.context.indexContainer(expr_value.container);
+            const container = &expr_value.container;
 
             // TODO: We shouldn't have to evaluate every container definition here.
             // Can probably replace with something like #evalTypeOf.
@@ -153,8 +153,8 @@ pub fn typeContainsValue(self: *@This(), @"type": Ranged(Index(ir.Expr)), expr: 
     };
 }
 
-pub fn evalMain(self: *@This(), index: Index(ir.Container)) Err!Index(ir.Expr) {
-    const container = self.context.indexContainer(index);
+pub fn evalMain(self: *@This(), index: Index(ir.Expr)) Err!Index(ir.Expr) {
+    const container = &self.context.indexExpr(index).container;
 
     const main = container.defs.get("main") orelse @panic("No main expression found!");
 
@@ -209,8 +209,7 @@ pub fn typeOf(self: *@This(), expr: Ranged(Index(ir.Expr))) Err!Index(ir.Expr) {
 
     return switch (expr_value.*) {
         .word => try self.context.pushExpr(.word_type),
-        .container => |container_index| {
-            const container = self.context.indexContainer(container_index);
+        .container => |container| {
             var decls = std.ArrayList(Ranged(Index(ir.Expr))).init(self.allocator);
 
             for (container.defs.values()) |def| {
@@ -349,8 +348,7 @@ pub fn containerOrPtrMemberAccess(self: *@This(), expr: Index(ir.Expr), containe
 /// Product type elimination on containers or pointers. This assumes that the
 /// provided container is a container.
 pub fn containerMemberAccess(self: *@This(), container: Ranged(Index(ir.Expr)), member: Ranged(Token)) Err!Index(ir.Def) {
-    const container_expr = self.context.indexExpr(container.value);
-    const defs = self.context.indexContainer(container_expr.container).defs;
+    const defs = self.context.indexExpr(container.value).container.defs;
 
     const key = member.range.substr(self.src);
 
