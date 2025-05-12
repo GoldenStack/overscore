@@ -2,7 +2,7 @@ const std = @import("std");
 
 const tokenizer = @import("tokenizer.zig");
 const Token = tokenizer.Token;
-const Ranged = tokenizer.Ranged;
+const Range = tokenizer.Range;
 
 const Ir = @import("Ir.zig");
 const ir = Ir.ir;
@@ -26,65 +26,65 @@ pub fn init(allocator: std.mem.Allocator, src: [:0]const u8, context: Ir) @This(
     };
 }
 
-pub fn expectIsType(self: *@This(), expr: Ranged(Index)) Err!void {
-    if (!self.isType(expr)) {
-        return self.fail(.{ .expected_type_expression = expr.range });
+pub fn expectIsType(self: *@This(), index: Index) Err!void {
+    if (!self.isType(index)) {
+        return self.fail(.{ .expected_type_expression = self.context.indexGet(index).expr_range });
     }
 }
 
-pub fn isType(self: *@This(), expr: Ranged(Index)) bool {
-    const value = self.context.indexGet(expr.value).*;
+pub fn isType(self: *@This(), index: Index) bool {
+    const value = self.context.indexGet(index);
 
-    return switch (value) {
+    return switch (value.expr) {
         .word_type, .decl, .product, .sum, .pointer_type, .type => true,
         else => false,
     };
 }
 
-pub fn expectEvaluated(self: *@This(), expr: Ranged(Index)) Err!void {
-    const value = self.context.indexGet(expr.value).*;
+pub fn expectEvaluated(self: *@This(), index: Index) Err!void {
+    const value = self.context.indexGet(index);
 
-    return switch (value) {
-        .word, .word_type, .decl, .product, .sum, .pointer_type, .type, .container, .pointer => {},
+    return switch (value.expr) {
+        .word, .word_type, .decl, .def, .product, .sum, .pointer_type, .type, .container, .pointer => {},
         else => @panic("Expected fully evaluated expression"),
     };
 }
 
-pub fn expectTypeContainsValue(self: *@This(), @"type": Ranged(Index), expr: Ranged(Index)) Err!void {
-    const type_contains_value = try self.typeContainsValue(@"type", expr);
+pub fn expectTypeContainsValue(self: *@This(), @"type": Index, index: Index) Err!void {
+    const type_contains_value = try self.typeContainsValue(@"type", index);
 
     if (!type_contains_value) {
         return self.fail(.{ .mismatched_type = .{
-            .expected_type = self.exprToString(@"type".value),
-            .found_type = self.exprToString(try self.typeOf(expr)),
-            .expected_type_declared = @"type".range,
-            .has_wrong_type = expr.range,
+            .expected_type = self.exprToString(@"type"),
+            .found_type = self.exprToString(try self.typeOf(index)),
+            .expected_type_declared = self.context.indexGet(@"type").expr_range,
+            .has_wrong_type = self.context.indexGet(index).expr_range,
         } });
     }
 }
 
-pub fn typeContainsValue(self: *@This(), @"type": Ranged(Index), expr: Ranged(Index)) Err!bool {
+pub fn typeContainsValue(self: *@This(), @"type": Index, expr: Index) Err!bool {
     try self.expectIsType(@"type");
     try self.expectEvaluated(expr);
 
-    const type_value = self.context.indexGet(@"type".value);
-    const expr_value = self.context.indexGet(expr.value);
+    const type_value = self.context.indexGet(@"type");
+    const expr_value = self.context.indexGet(expr);
 
-    return switch (type_value.*) {
-        .word_type => expr_value.* == .word,
+    return switch (type_value.expr) {
+        .word_type => expr_value.expr == .word,
         .decl => |decl| try self.typeContainsValue(decl.type, expr), // TODO: Change when definitions are made expressions
         .product => |product| {
-            if (expr_value.* != .container) return false;
-            const container = &expr_value.container;
+            if (expr_value.expr != .container) return false;
+            const container = &expr_value.expr.container;
 
             // TODO: We shouldn't have to evaluate every container definition here.
             // Can probably replace with something like #evalTypeOf.
             // TODO: Should also disallow duplicates.
             var container_iter = container.defs.iterator();
-            while (container_iter.next()) |def| try self.evalDef(def.value_ptr.value);
+            while (container_iter.next()) |def| try self.evalDef(def.value_ptr.*);
 
             for (product.items) |def| {
-                try self.evalExpr(def.value);
+                try self.evalExpr(def);
                 // TODO: Expect the value to be a declaration.
             }
 
@@ -92,46 +92,48 @@ pub fn typeContainsValue(self: *@This(), @"type": Ranged(Index), expr: Ranged(In
             if (container.defs.keys().len != product.items.len) return false;
 
             for (product.items) |item| {
-                const decl = &self.context.indexGet(item.value).decl;
-                const decl_name = decl.name.range.substr(self.src);
+                const decl = &self.context.indexGet(item).expr.decl;
+                const decl_name = decl.name.substr(self.src);
 
                 const container_def = container.defs.get(decl_name) orelse return false;
-                const def = self.context.indexOfGet(.def, container_def.value);
-                const def_name = def.name.range.substr(self.src);
+                const def = self.context.indexOfGet(.def, container_def);
+                const def_name = def.name.substr(self.src);
 
                 if (std.mem.eql(u8, def_name, decl_name)) {
                     // TODO: Using the expression's value creates the fake notion of having a range.
                     // TODO: This ignores the type annotation of the definition;
-                    return self.typeContainsValue(decl.type, def.value);
+                    if (!try self.typeContainsValue(decl.type, def.value)) {
+                        return false;
+                    }
                 }
             }
 
-            return false;
+            return true;
         },
         .sum => |sum| {
-            if (expr_value.* != .container) return false;
-            const container = &expr_value.container;
+            if (expr_value.expr != .container) return false;
+            const container = &expr_value.expr.container;
 
             // TODO: We shouldn't have to evaluate every container definition here.
             // Can probably replace with something like #evalTypeOf.
             // TODO: Should also disallow duplicates.
             var container_iter = container.defs.iterator();
-            while (container_iter.next()) |def| try self.evalDef(def.value_ptr.value);
+            while (container_iter.next()) |def| try self.evalDef(def.value_ptr.*);
 
             for (sum.items) |def| {
-                try self.evalExpr(def.value);
+                try self.evalExpr(def);
                 // TODO: Expect the value to be a declaration.
             }
 
             // Check if the singular container definition fits within the sum type.
             if (container.defs.keys().len != 1) return false;
             const container_def = container.defs.values()[0];
-            const def = self.context.indexOfGet(.def, container_def.value);
-            const def_name = def.name.range.substr(self.src);
+            const def = self.context.indexOfGet(.def, container_def);
+            const def_name = def.name.substr(self.src);
 
             for (sum.items) |item| {
-                const decl = &self.context.indexGet(item.value).decl;
-                const decl_name = decl.name.range.substr(self.src);
+                const decl = &self.context.indexGet(item).expr.decl;
+                const decl_name = decl.name.substr(self.src);
 
                 if (std.mem.eql(u8, def_name, decl_name)) {
                     // TODO: Using the expression's value creates the fake notion of having a range.
@@ -143,9 +145,9 @@ pub fn typeContainsValue(self: *@This(), @"type": Ranged(Index), expr: Ranged(In
             return false;
         },
         .pointer_type => |ptr_type| {
-            if (expr_value.* != .pointer) return false;
+            if (expr_value.expr != .pointer) return false;
 
-            const ptr_value = self.context.indexOfGet(.def, expr_value.pointer.value).value;
+            const ptr_value = self.context.indexOfGet(.def, expr_value.expr.pointer).value;
 
             try self.expectEvaluated(ptr_value);
             try self.expectIsType(ptr_type);
@@ -157,27 +159,16 @@ pub fn typeContainsValue(self: *@This(), @"type": Ranged(Index), expr: Ranged(In
     };
 }
 
-pub fn evalMain(self: *@This(), index: IndexOf(.container)) Err!Index {
-    const container = self.context.indexOfGet(.container, index);
-
-    const main = container.defs.get("main") orelse @panic("No main expression found!");
-
-    const main_index = main.value;
-    try self.evalDef(main_index);
-
-    return self.context.indexOfGet(.def, main_index).value.value;
-}
-
-pub fn typeOfDef(self: *@This(), index: Ranged(IndexOf(.def))) Err!Ranged(Index) {
-    const def = self.context.indexOfGet(.def, index.value);
+pub fn typeOfDef(self: *@This(), index: IndexOf(.def)) Err!Index {
+    const def = self.context.indexOfGet(.def, index);
 
     if (def.type) |@"type"| {
         // TODO: Type mismatch can potentially evade detection if the type of a
         // definition is needed but not its value.
         return @"type";
     } else {
-        try self.evalDef(index.value);
-        return index.swap(try self.typeOf(def.value));
+        try self.evalDef(index);
+        return self.typeOf(def.value);
     }
 }
 
@@ -187,8 +178,8 @@ pub fn evalDef(self: *@This(), index: IndexOf(.def)) Err!void {
     def.evaluating = true;
 
     if (def.type) |@"type"| {
-        try self.evalExpr(@"type".value);
-        try self.evalExpr(def.value.value);
+        try self.evalExpr(@"type");
+        try self.evalExpr(def.value);
         def.evaluating = false;
 
         // It's fine to evalute the same thing at the same time (sometimes), but don't recursively type check.
@@ -198,43 +189,42 @@ pub fn evalDef(self: *@This(), index: IndexOf(.def)) Err!void {
             try self.expectTypeContainsValue(@"type", def.value);
         }
     } else {
-        try self.evalExpr(def.value.value);
+        try self.evalExpr(def.value);
 
         def.evaluating = false;
     }
 }
 
-pub fn typeOf(self: *@This(), expr: Ranged(Index)) Err!Index {
-    try self.expectEvaluated(expr);
+pub fn typeOf(self: *@This(), index: Index) Err!Index {
+    try self.expectEvaluated(index);
 
-    const expr_value = self.context.indexGet(expr.value);
+    const expr_value = self.context.indexGet(index);
 
-    if (self.isType(expr)) return self.context.indexPush(.type);
+    if (self.isType(index)) return self.context.indexPush(.type, expr_value.expr_range);
 
-    return switch (expr_value.*) {
-        .word => try self.context.indexPush(.word_type),
+    return switch (expr_value.expr) {
+        .word => try self.context.indexPush(.word_type, expr_value.expr_range),
         .container => |container| {
-            var decls = std.ArrayList(Ranged(Index)).init(self.allocator);
+            var decls = std.ArrayList(Index).init(self.allocator);
 
             for (container.defs.values()) |def| {
-                const def_value = self.context.indexOfGet(.def, def.value);
+                const def_value = self.context.indexGet(def.index);
 
                 // TODO: Using the expression's value creates the fake notion of having a range.
-                const def_type = try self.typeOfDef(def_value.value.swap(def.value));
+                const def_type = try self.typeOfDef(def);
 
                 // TODO: We don't have ranges for values.
-                const fake_decl = try self.context.indexOfPush(.decl, .{
-                    .name = def_value.name,
+                const fake_decl = try self.context.indexPush(.{ .decl = .{
+                    .name = def_value.expr.def.name,
                     .type = def_type,
-                });
+                } }, def_value.expr_range); // TODO: Using the decl's range creates the fake notion of having a range.
 
-                // TODO: Using the decl's range creates the fake notion of having a range.
-                try decls.append(def.swap(fake_decl.index)); // Fake-out!
+                try decls.append(fake_decl); // Fake-out!
             }
 
-            return try self.context.indexPush(.{ .product = decls });
+            return try self.context.indexPush(.{ .product = decls }, expr_value.expr_range);
         },
-        .pointer => |ptr| self.context.indexPush(.{ .pointer_type = try self.typeOfDef(ptr) }),
+        .pointer => |ptr| self.context.indexPush(.{ .pointer_type = try self.typeOfDef(ptr) }, expr_value.expr_range),
         else => unreachable,
     };
 }
@@ -244,7 +234,7 @@ pub fn typeOf(self: *@This(), expr: Ranged(Index)) Err!Index {
 pub fn evalExpr(self: *@This(), index: Index) Err!void {
     const expr = self.context.indexGet(index);
 
-    switch (expr.*) {
+    switch (expr.expr) {
         .word, .word_type, .type => {}, // Minimal types
 
         .container => {}, // Already minimal, and containers are lazy (at least during interpretation)
@@ -267,43 +257,43 @@ pub fn evalExpr(self: *@This(), index: Index) Err!void {
         },
 
         .pointer_type => |ptr| {
-            try self.evalExpr(ptr.value);
+            try self.evalExpr(ptr);
             try self.expectIsType(ptr);
         },
 
         .pointer => |ptr| {
-            const def = self.context.indexOfGet(.def, ptr.value);
+            const def = self.context.indexOfGet(.def, ptr);
 
             if (def.evaluating) return self.fail(.{ .dependency_loop = .{
-                .declared = def.name.range,
-                .depends = ptr.range,
+                .declared = def.name,
+                .depends = self.context.indexGet(ptr.index).expr_range,
             } });
 
-            try self.evalDef(ptr.value);
+            try self.evalDef(ptr);
         },
 
         .dereference => |deref| {
-            try self.evalExpr(deref.value);
-            const left = self.context.indexGet(deref.value);
+            try self.evalExpr(deref);
+            const left = self.context.indexGet(deref);
 
-            if (left.* != .pointer) return self.fail(.{ .dereferenced_non_pointer = .{
-                .expr = deref.range,
+            if (left.expr != .pointer) return self.fail(.{ .dereferenced_non_pointer = .{
+                .expr = left.expr_range,
                 .type = self.exprToString(try self.typeOf(deref)),
             } });
 
-            const def = self.context.indexOfGet(.def, left.pointer.value);
+            const def = self.context.indexOfGet(.def, left.expr.pointer);
 
             // TODO: Shallow copy the expression on dereference.
-            expr.* = self.context.indexGet(def.value.value).*;
+            expr.* = self.context.indexGet(def.value).*;
         },
 
         .parentheses => |parens| {
-            expr.* = self.context.indexGet(parens.value).*; // Clone it (suboptimal)
+            expr.* = self.context.indexGet(parens).*; // Clone it (suboptimal)
             try self.evalExpr(index);
         },
 
         .member_access => |access| {
-            try self.evalExpr(access.container.value);
+            try self.evalExpr(access.container);
 
             try self.containerOrPtrMemberAccess(index, access.container, access.member);
         },
@@ -311,20 +301,20 @@ pub fn evalExpr(self: *@This(), index: Index) Err!void {
 }
 
 /// Product type elimination on containers or pointers.
-pub fn containerOrPtrMemberAccess(self: *@This(), expr: Index, container: Ranged(Index), member: Ranged(Token)) Err!void {
-    const container_expr = self.context.indexGet(container.value);
+pub fn containerOrPtrMemberAccess(self: *@This(), expr: Index, container: Index, member: Range) Err!void {
+    const container_expr = self.context.indexGet(container);
 
-    switch (container_expr.*) {
+    switch (container_expr.expr) {
         .pointer => |ptr| {
-            const ptr_range = self.context.indexOfGet(.def, ptr.value);
-            const ptr_value = self.context.indexGet(ptr_range.value.value);
+            const ptr_index = self.context.indexOfGet(.def, ptr);
+            const ptr_value = self.context.indexGet(ptr_index.value);
 
-            if (ptr_value.* == .container) {
+            if (ptr_value.expr == .container) {
                 // Access the field and then evaluate it
-                const def = try self.containerMemberAccess(container.swap(ptr_range.value.value), member);
+                const def = try self.containerMemberAccess(ptr_index.value, member);
                 try self.evalDef(def);
 
-                self.context.indexGet(expr).* = .{ .pointer = container.swap(def) };
+                self.context.indexGet(expr).expr = .{ .pointer = def };
                 return;
             }
         },
@@ -334,7 +324,7 @@ pub fn containerOrPtrMemberAccess(self: *@This(), expr: Index, container: Ranged
             try self.evalDef(def);
 
             // Clone the field (suboptimal) into the current expression
-            self.context.indexGet(expr).* = self.context.indexGet(self.context.indexOfGet(.def, def).value.value).*;
+            self.context.indexGet(expr).* = self.context.indexGet(self.context.indexOfGet(.def, def).value).*;
             return;
         },
         else => {},
@@ -342,30 +332,31 @@ pub fn containerOrPtrMemberAccess(self: *@This(), expr: Index, container: Ranged
 
     return self.fail(.{ .unsupported_member_access = .{
         .type = self.exprToString(try self.typeOf(container)),
-        .member = member.range,
+        .member = member,
     } });
 }
 
 /// Product type elimination on containers or pointers. This assumes that the
 /// provided container is a container.
-pub fn containerMemberAccess(self: *@This(), container: Ranged(Index), member: Ranged(Token)) Err!IndexOf(.def) {
-    const defs = self.context.indexGet(container.value).container.defs;
+pub fn containerMemberAccess(self: *@This(), container: Index, member: Range) Err!IndexOf(.def) {
+    const index = self.context.indexGet(container);
+    const defs = index.expr.container.defs;
 
-    const key = member.range.substr(self.src);
+    const key = member.substr(self.src);
 
     const def_index = defs.get(key) orelse return self.fail(.{ .unknown_member = .{
-        .container = container.range,
-        .member = member.range,
+        .container = index.expr_range,
+        .member = member,
     } });
 
-    const def = self.context.indexOfGet(.def, def_index.value);
+    const def = self.context.indexOfGet(.def, def_index);
 
     if (def.access == .private) return self.fail(.{ .private_member = .{
-        .declaration = def.name.range,
-        .member = member.range,
+        .declaration = def.name,
+        .member = member,
     } });
 
-    return def_index.value;
+    return def_index;
 }
 
 pub fn exprToString(self: *@This(), expr: Index) []u8 {

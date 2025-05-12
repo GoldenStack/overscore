@@ -10,36 +10,37 @@ const file = "example2.os";
 const src = @embedFile(file);
 
 pub fn main() !void {
+    // Create memory and stdout
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
-
     const stdout = std.io.getStdOut().writer();
 
+    // Parse the tokens into an AST
     const tokens = tokenizer.Tokenizer.init(src);
     var parser = Parser.init(allocator, tokens);
-
     const container = parser.readRoot() catch |err| return handle_error(err, parser);
 
-    try Parser.ast.printContainer(src, container, stdout);
+    // Print the AST
+    try Parser.ast.printExpr(src, container.value, stdout);
     try stdout.writeByte('\n');
 
+    // Parse the tokens into IR
     var ir = Ir.init(allocator, src);
-    const container_index = try ir.indexOfPush(.container, undefined);
-    ir.convertContainer(container, container_index) catch |err| return handle_error(err, ir);
+    const container_index = ir.convertExpr(container) catch |err| return handle_error(err, ir);
 
-    try ir.printExpr(container_index.index, stdout);
+    // Print the IR
+    try ir.printExpr(container_index, stdout);
     try stdout.writeByte('\n');
 
+    // Evaluate the 'main' variable in the IR
     var interpreter = Interpreter.init(allocator, src, ir);
-    const result = interpreter.evalMain(container_index) catch |err| return handle_error(err, interpreter);
+    const main_index = ir.indexGet(container_index).expr.container.defs.get("main") orelse @panic("No main expression found!");
+    interpreter.evalDef(main_index) catch |err| return handle_error(err, interpreter);
 
-    try ir.printExpr(result, stdout);
+    // Print the output IR
+    try ir.printExpr(main_index.index, stdout);
     try stdout.writeByte('\n');
-
-    // try ir.printType(try interpreter.typeOf(ir.decls.items[1].value.value), stdout);
-    // try ir.printType(try interpreter.typeOf(ir.decls.items[1].value.value), stdout);
-    // try stdout.writeByte('\n');
 
     // // Load the assembly and convert it to a slice
     // const assembly = @embedFile("fibonacci.asm");

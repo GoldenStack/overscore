@@ -194,16 +194,18 @@ pub fn init(allocator: std.mem.Allocator, tokens: tokenizer.Tokenizer) @This() {
 
 /// Reads the root container from this parser. This will consume the entire
 /// sorce file unless there is an error.
-pub fn readRoot(self: *@This()) Err!ast.Container {
+pub fn readRoot(self: *@This()) Err!Ranged(ast.Expr) {
+    return Ranged(ast.Expr).wrap(self, readRootRaw);
+}
+
+fn readRootRaw(self: *@This()) Err!ast.Expr {
     var defs = std.ArrayList(Ranged(ast.Def)).init(self.allocator);
 
     while (self.peek().value != .eof) {
         try defs.append(try Ranged(ast.Def).wrap(self, readDef));
     }
 
-    return .{
-        .defs = defs,
-    };
+    return .{ .container = .{ .defs = defs } };
 }
 
 /// Reads a container from this parser.
