@@ -105,8 +105,6 @@ error_context: ?failure.Error = null,
 
 values: std.ArrayList(Value),
 
-count: u64 = 0,
-
 // TODO: Will need to refactor when functions are added
 current: ?IndexOf(.container) = null,
 
@@ -344,9 +342,6 @@ pub fn printDecl(self: *const @This(), decl: ir.Decl, writer: anytype) anyerror!
 }
 
 pub fn printExpr(self: *const @This(), index: Index, writer: anytype) anyerror!void {
-    if (self.count > 100) return error.abc;
-    @constCast(self).count += 1;
-
     const expr = self.values.items[index.index];
 
     switch (expr.expr) {
