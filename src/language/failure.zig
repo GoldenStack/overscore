@@ -96,6 +96,12 @@ pub const Error = union(enum) {
         operator: Range,
     },
 
+    /// You can only multiply or add decls.
+    can_only_multiply_or_add_decls: struct {
+        invalid_field: Range,
+        typedef: Range,
+    },
+
     // /// Expected entirely tagged or entirely untagged fields, but found a mixture.
     // expected_homogenous_fields: struct {
     //     untagged_example: Range,
@@ -227,6 +233,15 @@ pub const Error = union(enum) {
                 try prefix(filename, mixed.expr, .err, writer);
                 try writer.print("parentheses are required to disambiguate confusing operator precedence with operator {s}\n" ++ Unbold, .{mixed.operator.substr(src)});
                 try pointTo(src, mixed.expr, writer);
+            },
+            .can_only_multiply_or_add_decls => |can| {
+                try prefix(filename, can.invalid_field, .err, writer);
+                try writer.writeAll("can only multiply or add declarations\n" ++ Unbold);
+                try pointTo(src, can.invalid_field, writer);
+
+                try prefix(filename, can.typedef, .note, writer);
+                try writer.writeAll("type declared here\n" ++ Unbold);
+                try pointTo(src, can.typedef, writer);
             },
             // .expected_homogenous_fields => |exp| {
             //     if (exp.tagged_example.start.pos > exp.untagged_example.start.pos) {

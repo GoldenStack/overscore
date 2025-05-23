@@ -72,8 +72,8 @@ pub const ir = struct {
         word_type,
         def: Def,
         decl: Decl,
-        product: std.ArrayList(Index),
-        sum: std.ArrayList(Index),
+        product: std.ArrayList(IndexOf(.decl)),
+        sum: std.ArrayList(IndexOf(.decl)),
         pointer_type: Index,
         type,
         container: Container,
@@ -136,8 +136,8 @@ pub fn convertExpr(self: *@This(), expr: Ranged(ast.Expr)) Err!Index {
         .word => |word| .{ .word = word },
 
         .decl => |decl| .{ .decl = try self.convertDecl(decl) },
-        .product => |product| .{ .product = try self.convertExprList(product) },
-        .sum => |sum| .{ .sum = try self.convertExprList(sum) },
+        .product => |product| .{ .product = try self.convertDefList(product, expr.range) },
+        .sum => |sum| .{ .sum = try self.convertDefList(sum, expr.range) },
 
         .pointer_type => |ptr| .{ .pointer_type = try self.convertExprPtr(ptr) },
         .ident => |ident| .{ .pointer = try self.lookupNameExpected(ident) },
@@ -159,18 +159,26 @@ pub fn convertExpr(self: *@This(), expr: Ranged(ast.Expr)) Err!Index {
     return index;
 }
 
-fn convertExprPtr(self: *@This(), expr: Ranged(*ast.Expr)) Err!Index {
-    return self.convertExpr(expr.swap(expr.value.*));
-}
-
-fn convertExprList(self: *@This(), exprs: std.ArrayList(Ranged(ast.Expr))) Err!std.ArrayList(Index) {
-    var out_exprs = std.ArrayList(Index).init(self.allocator);
+fn convertDefList(self: *@This(), exprs: std.ArrayList(Ranged(ast.Expr)), range: Range) Err!std.ArrayList(IndexOf(.decl)) {
+    var out_exprs = std.ArrayList(IndexOf(.decl)).init(self.allocator);
 
     for (exprs.items) |item| {
-        try out_exprs.append(try self.convertExpr(item));
+        const new_expr_index = try self.convertExpr(item);
+        const new_expr = self.indexGet(new_expr_index);
+
+        if (new_expr.expr != .decl) return self.fail(.{ .can_only_multiply_or_add_decls = .{
+            .invalid_field = item.range,
+            .typedef = range,
+        } });
+
+        try out_exprs.append(.{ .index = new_expr_index });
     }
 
     return out_exprs;
+}
+
+fn convertExprPtr(self: *@This(), expr: Ranged(*ast.Expr)) Err!Index {
+    return self.convertExpr(expr.swap(expr.value.*));
 }
 
 pub fn convertContainer(self: *@This(), container: ast.Container, index: Index) Err!void {
@@ -352,7 +360,7 @@ pub fn printExpr(self: *const @This(), index: Index, writer: anytype) anyerror!v
             try writer.writeAll("(");
             for (0.., decls.items) |i, decl| {
                 if (i != 0) try writer.writeAll(" ** ");
-                try self.printExpr(decl, writer);
+                try self.printExpr(decl.index, writer);
             }
             try writer.writeAll(")");
         },
@@ -360,7 +368,7 @@ pub fn printExpr(self: *const @This(), index: Index, writer: anytype) anyerror!v
             try writer.writeAll("(");
             for (0.., decls.items) |i, decl| {
                 if (i != 0) try writer.writeAll(" ++ ");
-                try self.printExpr(decl, writer);
+                try self.printExpr(decl.index, writer);
             }
             try writer.writeAll(")");
         },

@@ -1,8 +1,8 @@
-pub const main: (x: word ++ y: (aa: ***word ** b: *word)) = container {
-    pub const y = other.*;
+pub const main = container {
+    pub const y = other.b;
 };
 
-pub const other: (aa: ***word ** b: *word) = container {
+pub const other = container {
     pub const aa: ***word = bb;
     pub const b: *word = value;
 };
