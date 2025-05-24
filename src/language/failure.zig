@@ -297,11 +297,15 @@ pub const Error = union(enum) {
         try writer.print(Bold ++ "{s}:{}:{}: {s}: " ++ Reset ++ Bold, .{ filename, range.start.row, range.start.col, format });
     }
 
-    fn linePrefix(loc: tokenizer.Location, display_type: enum { line, blank, continued }, writer: anytype) !void {
-        const line_print_len = std.math.log10_int(loc.row) + 1;
-
+    fn linePrefix(loc: tokenizer.Location, line_print_len: usize, display_type: enum { line, blank, continued }, writer: anytype) !void {
         switch (display_type) {
-            .line => try writer.print(" {} | ", .{loc.row}),
+            .line => {
+                const number_len = std.math.log10_int(loc.row);
+                const spaces = @max(1, line_print_len - number_len);
+
+                try writer.writeByteNTimes(' ', spaces);
+                try writer.print("{} | ", .{loc.row});
+            },
             .blank => {
                 try writer.writeByteNTimes(' ', 1 + line_print_len + 1);
                 try writer.writeAll("| ");
@@ -319,12 +323,14 @@ pub const Error = union(enum) {
     fn pointTo(src: []const u8, range: Range, writer: anytype) !void {
         const lines_diff = range.end.row -| range.start.row;
 
+        const line_print_len = std.math.log10_int(@max(range.start.row, range.end.row)) + 1;
+
         if (lines_diff == 0) {
-            try linePrefix(range.start, .line, writer);
+            try linePrefix(range.start, line_print_len, .line, writer);
             try writer.writeAll(lineAround(src, range.start));
             try writer.writeAll("\n");
 
-            try linePrefix(range.start, .blank, writer);
+            try linePrefix(range.start, line_print_len, .blank, writer);
 
             try writer.writeByteNTimes(' ', range.start.col - 1);
             try writer.writeByteNTimes('^', range.end.col - range.start.col);
@@ -332,21 +338,21 @@ pub const Error = union(enum) {
         } else {
             const first_line = lineAround(src, range.start);
 
-            try linePrefix(range.start, .line, writer);
+            try linePrefix(range.start, line_print_len, .line, writer);
             try writer.writeAll(first_line);
             try writer.writeAll("\n");
 
-            try linePrefix(range.start, if (lines_diff > 1) .continued else .blank, writer);
+            try linePrefix(range.start, line_print_len, if (lines_diff > 1) .continued else .blank, writer);
             try writer.writeByteNTimes(' ', range.start.col - 1);
             try writer.writeAll("^");
             try writer.writeByteNTimes('~', (first_line.len -| 1) - (range.start.col - 1));
             try writer.writeAll("\n");
 
-            try linePrefix(range.end, .line, writer);
+            try linePrefix(range.end, line_print_len, .line, writer);
             try writer.writeAll(lineAround(src, range.end));
             try writer.writeAll("\n");
 
-            try linePrefix(range.end, .blank, writer);
+            try linePrefix(range.end, line_print_len, .blank, writer);
             try writer.writeByteNTimes('~', range.end.col - 1 -| 1);
             try writer.writeAll("^\n");
         }
