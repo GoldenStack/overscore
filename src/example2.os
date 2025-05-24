@@ -3,7 +3,7 @@ pub const main = container {
 };
 
 pub const other = container {
-    pub const aa: ***word = bb;
+    pub const aa = bb;
     pub const b: *word = value;
 };
 

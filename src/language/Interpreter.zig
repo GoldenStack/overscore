@@ -30,6 +30,11 @@ pub fn init(allocator: std.mem.Allocator, src: [:0]const u8, context: *Ir) @This
 /// returning the index of the type.
 pub fn typeOf(self: *@This(), index: Index) Err!Index {
     const value = self.context.indexGet(index);
+    if (value.evaluating) return self.fail(.{ .dependency_loop = value.expr_range });
+
+    value.evaluating = true;
+    defer self.context.indexGet(index).evaluating = false;
+
     const range = value.expr_range;
 
     if (value.type) |@"type"| return @"type";

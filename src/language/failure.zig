@@ -48,10 +48,7 @@ pub const Error = union(enum) {
     unknown_identifier: Range,
 
     /// An expression depends on itself.
-    dependency_loop: struct {
-        declared: Range,
-        depends: Range,
-    },
+    dependency_loop: Range,
 
     /// An expression was supposed to have a type but had a different one.
     mismatched_type: struct {
@@ -177,13 +174,9 @@ pub const Error = union(enum) {
                 try pointTo(src, unknown, writer);
             },
             .dependency_loop => |dep| {
-                try prefix(filename, dep.depends, .err, writer);
+                try prefix(filename, dep, .err, writer);
                 try writer.print("expression depends on itself\n" ++ Unbold, .{});
-                try pointTo(src, dep.depends, writer);
-
-                try prefix(filename, dep.declared, .note, writer);
-                try writer.print("expression initially declared here\n" ++ Unbold, .{});
-                try pointTo(src, dep.declared, writer);
+                try pointTo(src, dep, writer);
             },
             .mismatched_type => |mis| {
                 try prefix(filename, mis.has_wrong_type, .err, writer);

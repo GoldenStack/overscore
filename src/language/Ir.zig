@@ -42,12 +42,6 @@ pub const ir = struct {
         type: ?Index,
         value: Index,
 
-        /// Whether or not this definition is in the process of being evaluated.
-        /// When a definition needs to be evaluated while it's already being
-        /// evaluated, this means its value depends on itself, and thus a
-        /// dependency loop exists.
-        evaluating: bool = false,
-
         /// Whether or not type checking has started for this definition.
         /// Generally it's not a good idea to do the same thing for evaluation
         /// (trusting that something has been evaluated is error-prone) but this
@@ -58,12 +52,6 @@ pub const ir = struct {
     pub const Decl = struct {
         name: Range,
         type: Index,
-
-        /// Whether or not this definition is in the process of being evaluated.
-        /// When a definition needs to be evaluated while it's already being
-        /// evaluated, this means its value depends on itself, and thus a
-        /// dependency loop exists.
-        evaluating: bool = false,
     };
 
     pub const Expr = union(Tag) {
@@ -96,6 +84,12 @@ pub const Value = struct {
     ///
     /// Must be an evaluated type expression (word_type, decl, product, sum, pointer_type, type, container).
     type: ?Index,
+
+    /// Whether or not this expression is in the process of being evaluated.
+    /// When an expression needs to be evaluated while it's already being
+    /// evaluated, this means its value depends on itself, and thus a dependency
+    /// loop exists.
+    evaluating: bool = false,
 };
 
 // Standard fields
