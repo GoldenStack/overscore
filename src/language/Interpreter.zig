@@ -26,6 +26,8 @@ pub fn init(allocator: std.mem.Allocator, src: [:0]const u8, context: *Ir) @This
     };
 }
 
+// Type inference
+
 /// Determines the type of the given value, caching it in the value and
 /// returning the index of the type.
 pub fn typeOf(self: *@This(), index: Index) Err!Index {
@@ -74,6 +76,7 @@ fn typeOfDef(self: *@This(), index: Index) Err!Index {
     return try self.context.indexPush(decl, range);
 }
 
+/// Returns the type of the value of a def. Assumes the given index is a def.
 fn typeOfDefValue(self: *@This(), index: Index) Err!Index {
     const value = self.context.indexGet(index);
     const def = value.expr.def;
