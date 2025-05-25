@@ -1,9 +1,11 @@
-pub const main = container {
+pub const main: **word = 2;
+
+pub const main2 = container {
     pub const y = other.b;
 };
 
 pub const other = container {
-    pub const aa = bb;
+    pub const aa: ***word = bb;
     pub const b: *word = value;
 };
 

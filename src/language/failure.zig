@@ -99,6 +99,13 @@ pub const Error = union(enum) {
         typedef: Range,
     },
 
+    /// Cannot coerce one type to another type.
+    cannot_coerce: struct {
+        from: []const u8,
+        to: []const u8,
+        context: Range,
+    },
+
     // /// Expected entirely tagged or entirely untagged fields, but found a mixture.
     // expected_homogenous_fields: struct {
     //     untagged_example: Range,
@@ -235,6 +242,11 @@ pub const Error = union(enum) {
                 try prefix(filename, can.typedef, .note, writer);
                 try writer.writeAll("type declared here\n" ++ Unbold);
                 try pointTo(src, can.typedef, writer);
+            },
+            .cannot_coerce => |coerce| {
+                try prefix(filename, coerce.context, .err, writer);
+                try writer.print("cannot coerce from type '{s}' to '{s}' \n" ++ Unbold, .{ coerce.from, coerce.to });
+                try pointTo(src, coerce.context, writer);
             },
             // .expected_homogenous_fields => |exp| {
             //     if (exp.tagged_example.start.pos > exp.untagged_example.start.pos) {

@@ -53,6 +53,8 @@ pub fn typeOf(self: *@This(), index: Index) Err!Index {
         .container => self.typeOfContainer(index),
         .dereference => self.typeOfDereference(index),
         .member_access => self.typeOfMemberAccess(index),
+
+        .coerce => |coerce| coerce.type,
     };
 
     self.context.indexGet(index).type = value_type;
@@ -81,15 +83,29 @@ fn typeOfDefValue(self: *@This(), index: Index) Err!Index {
     const value = self.context.indexGet(index);
     const def = value.expr.def;
 
-    if (def.type) |@"type"| {
-        // TODO: Must be sure that def.value is in def.type.
-        //       When coercion is added (e.g. defs coercing to sum types) this
-        //       will need to coerce the value as well.
+    const actual_type = try self.typeOf(def.value);
 
-        return @"type";
-    } else {
-        return try self.typeOf(def.value);
-    }
+    if (def.type == null) return actual_type;
+    const def_type = def.type.?;
+
+    const can_coerce = try self.canCoerce(actual_type, def_type);
+
+    return switch (can_coerce) {
+        .NonCoercible => self.fail(.{ .cannot_coerce = .{
+            .from = self.exprToString(actual_type),
+            .to = self.exprToString(def_type),
+            .context = self.context.indexGet(index).expr_range,
+        } }),
+        .Coercible => {
+            const coerce = try self.context.indexPush(.{ .coerce = .{
+                .expr = def.value,
+                .type = def_type,
+            } }, self.context.indexGet(index).expr_range);
+
+            return try self.typeOf(coerce);
+        },
+        .Equal => def_type,
+    };
 }
 
 /// Returns the type of a container. Assumes the given index is a container.
@@ -193,6 +209,22 @@ pub fn isType(self: *@This(), index: Index) bool {
         .word_type, .decl, .product, .sum, .pointer_type, .type => true,
         else => false,
     };
+}
+
+// Type coercion
+
+pub const TypeCoercion = enum {
+    NonCoercible,
+    Coercible,
+    Equal,
+};
+
+/// Requires that the provided expressions are types.
+pub fn canCoerce(self: *@This(), from: Index, to: Index) Err!TypeCoercion {
+    _ = self;
+    _ = from;
+    _ = to;
+    return .Equal;
 }
 
 // Evaluation
