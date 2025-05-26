@@ -27,7 +27,7 @@ pub fn main() !void {
 
     // Parse the tokens into IR
     var ir = Ir.init(allocator, src);
-    const container_index = ir.convertExpr(container) catch |err| return handle_error(err,&ir);
+    const container_index = ir.convertExpr(container) catch |err| return handle_error(err, &ir);
 
     // Print the IR
     try ir.printExpr(container_index, stdout);
@@ -39,14 +39,16 @@ pub fn main() !void {
     _ = interpreter.typeOf(main_index.index) catch |err| return handle_error(err, interpreter);
     // interpreter.evalDef(main_index) catch |err| return handle_error(err, interpreter);
 
-    for (ir.values.items) |*value| {
-        if (value.type == null) continue;
-        std.debug.print("{s} is ", .{value.expr_range.substr(src)});
-        try ir.printExpr(value.type.?, stdout);
-        std.debug.print("\n", .{});
-    }
+    // for (ir.values.items) |*value| {
+    //     if (value.type == null) continue;
+    //     std.debug.print("{s} is ", .{value.expr_range.substr(src)});
+    //     try ir.printExpr(value.type.?, stdout);
+    //     std.debug.print("\n", .{});
+    // }
 
     // Print the output IR
+    try ir.printExpr(try interpreter.softEval(ir.indexOfGet(.def, main_index).value), stdout);
+    std.debug.print("\n", .{});
     try ir.printExpr(main_index.index, stdout);
     try stdout.writeByte('\n');
 

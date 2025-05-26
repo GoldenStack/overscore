@@ -30,23 +30,22 @@ pub fn init(allocator: std.mem.Allocator, src: [:0]const u8, context: *Ir) @This
 
 /// Determines the type of the given value, caching it in the value and
 /// returning the index of the type.
-pub fn typeOf(self: *@This(), index: Index) Err!Index {
-    const value = self.context.indexGet(index);
-    if (value.evaluating) return self.fail(.{ .dependency_loop = value.expr_range });
+pub fn typeOf(self: *@This(), raw_index: Index) Err!Index {
+    const index = try self.softEval(raw_index);
 
-    value.evaluating = true;
-    defer self.context.indexGet(index).evaluating = false;
+    if (self.get(index).evaluating) return self.fail(.{ .dependency_loop = self.get(index).expr_range });
 
-    const range = value.expr_range;
+    self.get(index).evaluating = true;
+    defer self.get(index).evaluating = false;
 
-    if (value.type) |@"type"| return @"type";
+    if (self.get(index).type) |@"type"| return @"type";
 
-    const value_type = try switch (value.expr) {
-        .word => self.context.indexPush(.word_type, range),
+    const value_type = try switch (self.get(index).expr) {
+        .word => self.context.indexPush(.word_type, self.get(index).expr_range),
 
-        .word_type, .decl, .product, .sum, .pointer_type, .type => self.context.indexPush(.type, range),
+        .word_type, .decl, .product, .sum, .pointer_type, .type => self.context.indexPush(.type, self.get(index).expr_range),
 
-        .pointer => |ptr| self.context.indexPush(.{ .pointer_type = try self.typeOfDefValue(ptr.index) }, range),
+        .pointer => |ptr| self.context.indexPush(.{ .pointer_type = try self.typeOfDefValue(ptr.index) }, self.get(index).expr_range),
         .parentheses => |parens| self.typeOf(parens),
 
         .def => self.typeOfDef(index),
@@ -57,31 +56,28 @@ pub fn typeOf(self: *@This(), index: Index) Err!Index {
         .coerce => |coerce| coerce.type,
     };
 
-    self.context.indexGet(index).type = value_type;
+    self.get(index).type = value_type;
 
     return value_type;
 }
 
 /// Returns the type of a def. Assumes the given index is a def.
 fn typeOfDef(self: *@This(), index: Index) Err!Index {
-    const value = self.context.indexGet(index);
-    const range = value.expr_range;
-    const def = value.expr.def;
+    const name = self.get(index).expr.def.name;
 
     const @"type" = try self.typeOfDefValue(index);
 
     const decl: ir.Expr = .{ .decl = .{
-        .name = def.name,
+        .name = name,
         .type = @"type",
     } };
 
-    return try self.context.indexPush(decl, range);
+    return try self.context.indexPush(decl, self.get(index).expr_range);
 }
 
 /// Returns the type of the value of a def. Assumes the given index is a def.
 fn typeOfDefValue(self: *@This(), index: Index) Err!Index {
-    const value = self.context.indexGet(index);
-    const def = value.expr.def;
+    const def = self.get(index).expr.def;
 
     const actual_type = try self.typeOf(def.value);
 
@@ -94,13 +90,13 @@ fn typeOfDefValue(self: *@This(), index: Index) Err!Index {
         .NonCoercible => self.fail(.{ .cannot_coerce = .{
             .from = self.exprToString(actual_type),
             .to = self.exprToString(def_type),
-            .context = self.context.indexGet(index).expr_range,
+            .context = self.get(index).expr_range,
         } }),
         .Coercible => {
             const coerce = try self.context.indexPush(.{ .coerce = .{
                 .expr = def.value,
                 .type = def_type,
-            } }, self.context.indexGet(index).expr_range);
+            } }, self.get(index).expr_range);
 
             return try self.typeOf(coerce);
         },
@@ -110,9 +106,7 @@ fn typeOfDefValue(self: *@This(), index: Index) Err!Index {
 
 /// Returns the type of a container. Assumes the given index is a container.
 fn typeOfContainer(self: *@This(), index: Index) Err!Index {
-    const value = self.context.indexGet(index);
-    const range = value.expr_range;
-    const container = value.expr.container;
+    const container = self.get(index).expr.container;
 
     var decls = std.ArrayList(IndexOf(.decl)).init(self.allocator);
 
@@ -122,22 +116,20 @@ fn typeOfContainer(self: *@This(), index: Index) Err!Index {
         try decls.append(.{ .index = def_type });
     }
 
-    return try self.context.indexPush(.{ .product = decls }, range);
+    return try self.context.indexPush(.{ .product = decls }, self.get(index).expr_range);
 }
 
 /// Returns the type of a dereference. Assumes the given index is a dereference.
 fn typeOfDereference(self: *@This(), index: Index) Err!Index {
-    const value = self.context.indexGet(index);
-    const derefed = value.expr.dereference;
+    const derefed = self.get(index).expr.dereference;
 
-    const derefed_type_index = try self.typeOf(derefed);
-    const derefed_type = self.context.indexGet(derefed_type_index);
+    const derefed_type = try self.typeOf(derefed);
 
-    return switch (derefed_type.expr) {
+    return switch (self.get(derefed_type).expr) {
         .pointer_type => |ptr| ptr,
         else => self.fail(.{ .dereferenced_non_pointer = .{
-            .expr = derefed_type.expr_range,
-            .type = self.exprToString(derefed_type_index),
+            .expr = self.get(derefed_type).expr_range,
+            .type = self.exprToString(derefed_type),
         } }),
     };
 }
@@ -145,28 +137,24 @@ fn typeOfDereference(self: *@This(), index: Index) Err!Index {
 /// Returns the type of member access. Assumes the given index is member access.
 /// This supports access via pointers.
 fn typeOfMemberAccess(self: *@This(), index: Index) Err!Index {
-    const value = self.context.indexGet(index);
-    const range = value.expr_range;
-    const access = value.expr.member_access;
+    const access = self.get(index).expr.member_access;
 
-    const left_type_index = try self.typeOf(access.container);
-    const left_type = self.context.indexGet(left_type_index);
+    const left_type = try self.typeOf(access.container);
 
-    return switch (left_type.expr) {
-        .pointer_type => |ptr_index| {
-            const ptr = self.context.indexGet(ptr_index);
-            if (ptr.expr != .product) return self.fail(.{ .unsupported_member_access = .{
-                .type = self.exprToString(left_type_index),
+    return switch (self.get(left_type).expr) {
+        .pointer_type => |ptr| {
+            if (self.get(ptr).expr != .product) return self.fail(.{ .unsupported_member_access = .{
+                .type = self.exprToString(left_type),
                 .member = access.member,
             } });
 
-            const member = try self.typeOfMemberAccessRaw(ptr_index, access.member);
+            const member = try self.typeOfMemberAccessRaw(ptr, access.member);
 
-            return try self.context.indexPush(.{ .pointer_type = member }, range);
+            return try self.context.indexPush(.{ .pointer_type = member }, self.get(index).expr_range);
         },
-        .product => self.typeOfMemberAccessRaw(left_type_index, access.member),
+        .product => self.typeOfMemberAccessRaw(left_type, access.member),
         else => self.fail(.{ .unsupported_member_access = .{
-            .type = self.exprToString(left_type_index),
+            .type = self.exprToString(left_type),
             .member = access.member,
         } }),
     };
@@ -175,13 +163,10 @@ fn typeOfMemberAccess(self: *@This(), index: Index) Err!Index {
 /// Returns the type of the member of a field. This assumes the index points
 /// to a product type.
 fn typeOfMemberAccessRaw(self: *@This(), index: Index, member: Range) Err!Index {
-    const value = self.context.indexGet(index);
-    const range = value.expr_range;
-    const product = value.expr.product;
+    const product = self.get(index).expr.product;
 
-    for (product.items) |field_index| {
-        const field = self.context.indexGet(field_index.index);
-        const decl = field.expr.decl;
+    for (product.items) |field| {
+        const decl = self.get(field.index).expr.decl;
 
         if (!std.mem.eql(u8, decl.name.substr(self.src), member.substr(self.src))) continue;
 
@@ -191,9 +176,9 @@ fn typeOfMemberAccessRaw(self: *@This(), index: Index, member: Range) Err!Index 
             .member = member,
         } });
 
-        return field_index.index;
+        return field.index;
     } else return self.fail(.{ .unknown_member = .{
-        .container = range,
+        .container = self.get(index).expr_range,
         .member = member,
     } });
 }
@@ -203,9 +188,7 @@ fn typeOfMemberAccessRaw(self: *@This(), index: Index, member: Range) Err!Index 
 /// This only applies for fully evaluated expressions; for example, this returns
 /// `false` for `container { const a = word; }.a`.
 pub fn isType(self: *@This(), index: Index) bool {
-    const value = self.context.indexGet(index);
-
-    return switch (value.expr) {
+    return switch (self.get(index).expr) {
         .word_type, .decl, .product, .sum, .pointer_type, .type => true,
         else => false,
     };
@@ -229,76 +212,138 @@ pub fn canCoerce(self: *@This(), from: Index, to: Index) Err!TypeCoercion {
 
 // Evaluation
 
-// /// Evaluates an expression until it is a raw value that cannot be decomposed
-// /// any further.
-// pub fn evalExpr(self: *@This(), index: Index) Err!void {
-//     const expr = self.context.indexGet(index);
+/// Evaluates the given expression as far as possible without any "destructive"
+/// actions. This helps namespace resolution and helps simplify expressions
+/// without messing with the AST at all. It's also useful for
+///
+/// For example, this is able to evaluate expressions like
+/// `container { const x = 5; }.x`, but does not error on expressions that
+/// depend on unknown variables.
+pub fn softEval(self: *@This(), index: Index) Err!Index {
+    self.get(index).evaluating = true;
 
-//     switch (expr.expr) {
-//         .word, .word_type, .type => {}, // Minimal types
+    defer self.get(index).evaluating = false;
 
-//         .container => {}, // Already minimal, and containers are lazy (at least during interpretation)
+    // TODO: When relying on the value of a def, we need to check its type.
+    return switch (self.get(index).expr) {
+        .word, .word_type, .decl, .product, .sum, .pointer_type, .type, .pointer, .def, .container => index,
 
-//         .def => {
-//             // TODO: Evaluate the def?
-//         },
+        .parentheses => |parens| parens,
+        .dereference => try self.softEvalDereference(index),
+        .member_access => try self.softEvalMemberAccess(index),
+        .coerce => try self.softEvalCoerce(index),
+    };
+}
 
-//         .decl => |decl| {
-//             // TODO: Is it necessary to evaluate the type?
-//             _ = decl;
-//         },
+/// Makes a shallow copy of the variable that is pointed to.
+fn softEvalDereference(self: *@This(), index: Index) Err!Index {
+    const left_raw = self.get(index).expr.dereference;
 
-//         .product => |product| {
-//             _ = product; // TODO: Evaluate fields?
-//         },
+    // Try to soft evaluate the left side.
+    //   If it's a pointer, continue
+    //   If it's not fully evaluated, exit
+    //   if it's fully evaluated but not a pointer (all other cases), fail.
 
-//         .sum => |sum| {
-//             _ = sum; // TODO: Evaluate fields?
-//         },
+    const left = try self.softEval(left_raw);
 
-//         .pointer_type => |ptr| {
-//             try self.evalExpr(ptr);
-//             try self.expectIsType(ptr);
-//         },
+    if (!self.isEvaluated(left)) return index;
 
-//         .pointer => |ptr| {
-//             const def = self.context.indexOfGet(.def, ptr);
+    if (self.get(left).expr != .pointer) return self.fail(.{ .dereferenced_non_pointer = .{
+        .expr = self.get(left).expr_range,
+        .type = self.exprToString(try self.typeOf(left)),
+    } });
 
-//             if (def.evaluating) return self.fail(.{ .dependency_loop = .{
-//                 .declared = def.name,
-//                 .depends = self.context.indexGet(ptr.index).expr_range,
-//             } });
+    // Make a shallow copy of the value that is pointed to
 
-//             try self.evalDef(ptr);
-//         },
+    const ptr_value_index = self.get(left).expr.pointer;
+    const def_value_index = self.get(ptr_value_index.index).expr.def.value;
 
-//         .dereference => |deref| {
-//             try self.evalExpr(deref);
-//             const left = self.context.indexGet(deref);
+    return try self.shallowCopy(def_value_index);
+}
 
-//             if (left.expr != .pointer) return self.fail(.{ .dereferenced_non_pointer = .{
-//                 .expr = left.expr_range,
-//                 .type = self.exprToString(try self.typeOf(deref)),
-//             } });
+/// Returns the value of member access. Assumes the given index points to member
+/// access. This supports access via pointers.
+fn softEvalMemberAccess(self: *@This(), index: Index) Err!Index {
+    const access = self.get(index).expr.member_access;
 
-//             const def = self.context.indexOfGet(.def, left.expr.pointer);
+    return switch (self.get(access.container).expr) {
+        .pointer => |def| {
+            const def_value = self.get(def.index).expr.def.value;
 
-//             // TODO: Shallow copy the expression on dereference.
-//             expr.* = self.context.indexGet(def.value).*;
-//         },
+            if (self.get(def_value).expr != .container) return self.fail(.{ .unsupported_member_access = .{
+                .type = self.exprToString(access.container),
+                .member = access.member,
+            } });
 
-//         .parentheses => |parens| {
-//             expr.* = self.context.indexGet(parens).*; // Clone it (suboptimal)
-//             try self.evalExpr(index);
-//         },
+            const member = try self.softEvalMemberAccessRaw(def_value, access.member);
 
-//         .member_access => |access| {
-//             try self.evalExpr(access.container);
+            return try self.context.indexPush(.{ .pointer = .{ .index = member } }, self.get(index).expr_range);
+        },
+        .container => try self.softEvalMemberAccessRaw(access.container, access.member),
+        else => self.fail(.{ .unsupported_member_access = .{
+            .type = self.exprToString(access.container),
+            .member = access.member,
+        } }),
+    };
+}
 
-//             try self.containerOrPtrMemberAccess(index, access.container, access.member);
-//         },
-//     }
-// }
+/// Returns the value of the member of a container. This assumes the index
+/// points to a container.
+fn softEvalMemberAccessRaw(self: *@This(), index: Index, member: Range) Err!Index {
+    const left = try self.softEval(index);
+
+    if (!self.isEvaluated(left)) return index;
+
+    // TODO: the typeOf call loops infinitely.
+    if (self.get(left).expr != .container) return self.fail(.{ .unsupported_member_access = .{
+        .type = self.exprToString(try self.typeOf(left)),
+        .member = member,
+    } });
+
+    const key = member.substr(self.src);
+    const def = self.get(left).expr.container.defs.get(key) orelse return self.fail(.{ .unknown_member = .{
+        .container = self.get(left).expr_range,
+        .member = member,
+    } });
+
+    if (self.get(def.index).expr.def.access == .private) return self.fail(.{ .private_member = .{
+        .declaration = self.get(def.index).expr_range,
+        .member = member,
+    } });
+
+    return def.index;
+}
+
+/// Coerces a value to another type. Assumes the index points to a coercion.
+fn softEvalCoerce(self: *@This(), index: Index) Err!Index {
+    // At least for now, coercion only involves converting a single-definition
+    // container to a sum type, which doesn't require modifying the value at
+    // all. This means we can just convert the value.
+    // Since coercion occurs to something that's already being dealt with (e.g.
+    // a pointer or a struct), we don't *need* to copy it.
+
+    const coerce = self.get(index).expr.coerce;
+
+    // For now, can just change the type without inducing any cost.
+    self.get(coerce.expr).type = coerce.type;
+
+    return self.get(index).expr.coerce.expr;
+}
+
+/// Returns whether or not the given value is fully evaluated.
+pub fn isEvaluated(self: *@This(), index: Index) bool {
+    return switch (self.get(index).expr) {
+        .word, .word_type, .def, .decl, .product, .sum, .pointer_type, .type, .container, .pointer => true,
+        else => false,
+    };
+}
+
+/// Makes a shallow copy of the given expression.
+pub fn shallowCopy(self: *@This(), index: Index) Err!Index {
+    // TODO: Implement once mutability is added
+    _ = self;
+    return index;
+}
 
 // pub fn evalDef(self: *@This(), index: IndexOf(.def)) Err!void {
 //     var def = self.context.indexOfGet(.def, index);
@@ -324,80 +369,12 @@ pub fn canCoerce(self: *@This(), from: Index, to: Index) Err!TypeCoercion {
 //     }
 // }
 
-// /// Product type elimination on containers or pointers.
-// pub fn containerOrPtrMemberAccess(self: *@This(), expr: Index, container: Index, member: Range) Err!void {
-//     const container_expr = self.context.indexGet(container);
-
-//     switch (container_expr.expr) {
-//         .pointer => |ptr| {
-//             const ptr_index = self.context.indexOfGet(.def, ptr);
-//             const ptr_value = self.context.indexGet(ptr_index.value);
-
-//             if (ptr_value.expr == .container) {
-//                 // Access the field and then evaluate it
-//                 const def = try self.containerMemberAccess(ptr_index.value, member);
-//                 try self.evalDef(def);
-
-//                 self.context.indexGet(expr).expr = .{ .pointer = def };
-//                 return;
-//             }
-//         },
-//         .container => {
-//             // Access the field and evaluate it
-//             const def = try self.containerMemberAccess(container, member);
-//             try self.evalDef(def);
-
-//             // Clone the field (suboptimal) into the current expression
-//             self.context.indexGet(expr).* = self.context.indexGet(self.context.indexOfGet(.def, def).value).*;
-//             return;
-//         },
-//         else => {},
-//     }
-
-//     return self.fail(.{ .unsupported_member_access = .{
-//         .type = self.exprToString(try self.typeOf(container)),
-//         .member = member,
-//     } });
-// }
-
-// /// Product type elimination on containers or pointers. This assumes that the
-// /// provided container is a container.
-// pub fn containerMemberAccess(self: *@This(), container: Index, member: Range) Err!IndexOf(.def) {
-//     const index = self.context.indexGet(container);
-//     const defs = index.expr.container.defs;
-
-//     const key = member.substr(self.src);
-
-//     const def_index = defs.get(key) orelse return self.fail(.{ .unknown_member = .{
-//         .container = index.expr_range,
-//         .member = member,
-//     } });
-
-//     const def = self.context.indexOfGet(.def, def_index);
-
-//     if (def.access == .private) return self.fail(.{ .private_member = .{
-//         .declaration = def.name,
-//         .member = member,
-//     } });
-
-//     return def_index;
-// }
-
 // Type functions
 
 // pub fn expectIsType(self: *@This(), index: Index) Err!void {
 //     if (!self.isType(index)) {
 //         return self.fail(.{ .expected_type_expression = self.context.indexGet(index).expr_range });
 //     }
-// }
-
-// pub fn expectEvaluated(self: *@This(), index: Index) Err!void {
-//     const value = self.context.indexGet(index);
-
-//     return switch (value.expr) {
-//         .word, .word_type, .decl, .def, .product, .sum, .pointer_type, .type, .container, .pointer => {},
-//         else => @panic("Expected fully evaluated expression"),
-//     };
 // }
 
 // pub fn expectTypeContainsValue(self: *@This(), @"type": Index, index: Index) Err!void {
@@ -522,4 +499,9 @@ pub fn exprToString(self: *@This(), expr: Index) []u8 {
 fn fail(self: *@This(), @"error": failure.Error) error{CodeError} {
     self.error_context = @"error";
     return error.CodeError;
+}
+
+/// Utility function for making it easier to access values
+fn get(self: *@This(), index: Index) *Ir.Value {
+    return self.context.indexGet(index);
 }

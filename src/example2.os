@@ -1,8 +1,13 @@
-pub const main: **word = 2;
+pub const main = x.b.*.*;
+
+pub const x = container {
+    pub const a: word = 2;
+    pub const b: *word = a;
+};
 
 pub const main2 = container {
-    pub const y = other.b;
-};
+    pub const y: *word = other.b.*;
+}.y;
 
 pub const other = container {
     pub const aa: ***word = bb;
