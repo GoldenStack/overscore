@@ -80,7 +80,8 @@ pub const ir = struct {
 };
 
 pub const Value = struct {
-    expr_range: Range,
+    range: Range,
+
     expr: ir.Expr,
 
     /// The type of the expression. This must always align with the expression
@@ -101,7 +102,7 @@ src: [:0]const u8,
 allocator: std.mem.Allocator,
 error_context: ?failure.Error = null,
 
-values: std.ArrayList(Value),
+values: std.MultiArrayList(Value),
 
 // TODO: Will need to refactor when functions are added
 current: ?IndexOf(.container) = null,
@@ -110,22 +111,30 @@ pub fn init(allocator: std.mem.Allocator, src: [:0]const u8) @This() {
     return .{
         .src = src,
         .allocator = allocator,
-        .values = std.ArrayList(Value).init(allocator),
+        .values = std.MultiArrayList(Value){},
     };
 }
 
-pub fn indexPush(self: *@This(), expr: ir.Expr, expr_range: Range) error{OutOfMemory}!Index {
-    const index = self.values.items.len;
-    try self.values.append(.{
+pub fn at(self: *@This(), comptime field: std.meta.FieldEnum(Value), index: Index) *std.meta.FieldType(Value, field) {
+    return &self.values.items(field)[index.index];
+}
+
+pub fn atOf(self: *@This(), comptime variant: std.meta.Tag(ir.Expr), index: IndexOf(variant)) *std.meta.TagPayload(ir.Expr, index.variant) {
+    return &@field(self.at(.expr, index.index), @tagName(index.variant));
+}
+
+pub fn push(self: *@This(), expr: ir.Expr, range: Range) error{OutOfMemory}!Index {
+    const index = self.values.len;
+    try self.values.append(self.allocator, .{
         .expr = expr,
-        .expr_range = expr_range,
+        .range = range,
         .type = null,
     });
     return .{ .index = index };
 }
 
 pub fn convertExpr(self: *@This(), expr: Ranged(ast.Expr)) Err!Index {
-    const index = try self.indexPush(undefined, expr.range);
+    const index = try self.push(undefined, expr.range);
 
     const value: ir.Expr = value: switch (expr.value) {
         .word_type => .word_type,
@@ -153,7 +162,7 @@ pub fn convertExpr(self: *@This(), expr: Ranged(ast.Expr)) Err!Index {
         },
     };
 
-    self.indexGet(index).expr = value;
+    self.at(.expr, index).* = value;
     return index;
 }
 
@@ -161,15 +170,14 @@ fn convertDefList(self: *@This(), exprs: std.ArrayList(Ranged(ast.Expr)), range:
     var out_exprs = std.ArrayList(IndexOf(.decl)).init(self.allocator);
 
     for (exprs.items) |item| {
-        const new_expr_index = try self.convertExpr(item);
-        const new_expr = self.indexGet(new_expr_index);
+        const expr = try self.convertExpr(item);
 
-        if (new_expr.expr != .decl) return self.fail(.{ .can_only_multiply_or_add_decls = .{
+        if (self.at(.expr, expr).* != .decl) return self.fail(.{ .can_only_multiply_or_add_decls = .{
             .invalid_field = item.range,
             .typedef = range,
         } });
 
-        try out_exprs.append(.{ .index = new_expr_index });
+        try out_exprs.append(.{ .index = expr });
     }
 
     return out_exprs;
@@ -187,7 +195,7 @@ pub fn convertContainer(self: *@This(), container: ast.Container, index: Index) 
         const name = def.value.name;
         const key = name.range.substr(self.src);
 
-        const raw_index = try self.indexPush(.{ .def = undefined }, def.range);
+        const raw_index = try self.push(.{ .def = undefined }, def.range);
 
         const def_index: IndexOf(.def) = .{ .index = raw_index };
 
@@ -195,7 +203,7 @@ pub fn convertContainer(self: *@This(), container: ast.Container, index: Index) 
         try defs.putNoClobber(key, def_index);
     }
 
-    self.indexGet(index).expr = .{ .container = .{
+    self.at(.expr, index).* = .{ .container = .{
         .defs = defs,
         .parent = self.current,
     } };
@@ -205,14 +213,14 @@ pub fn convertContainer(self: *@This(), container: ast.Container, index: Index) 
     // Add the values of the references
     for (container.defs.items) |def| {
         const key = def.value.name.range.substr(self.src);
-        const stored_def = self.indexOfGet(.container, self.current.?).defs.get(key) orelse unreachable; // We just added it, so it must exist
+        const stored_def = self.atOf(.container, self.current.?).defs.get(key) orelse unreachable; // We just added it, so it must exist
 
         const converted = try self.convertDef(def.value);
-        self.indexOfGet(.def, stored_def).* = converted;
+        self.atOf(.def, stored_def).* = converted;
     }
 
     // We set current above, so it must be valid
-    self.current = self.indexOfGet(.container, self.current.?).parent;
+    self.current = self.atOf(.container, self.current.?).parent;
 }
 
 pub fn convertDef(self: *@This(), def: ast.Def) Err!ir.Def {
@@ -236,7 +244,7 @@ pub fn lookupName(self: *@This(), name: Ranged(Token)) ?IndexOf(.def) {
     var current = self.current;
 
     while (current) |scope| {
-        const container = self.indexOfGet(.container, scope);
+        const container = self.atOf(.container, scope);
 
         if (container.defs.get(name.range.substr(self.src))) |def| {
             return def;
@@ -257,7 +265,7 @@ pub fn lookupNameForDefine(self: *@This(), name: Ranged(Token)) Err!void {
 
     if (maybe_index) |index| {
         return self.fail(.{ .redeclared_identifier = .{
-            .declared = self.indexOfGet(.def, index).name,
+            .declared = self.atOf(.def, index).name,
             .redeclared = name.range,
         } });
     }
@@ -271,20 +279,12 @@ pub fn lookupNameCurrentContainerForDefine(self: *@This(), name: Ranged(Token), 
     // removing on fail, etc.).
     if (defs.get(value)) |def| {
         return self.fail(.{ .duplicate_member_name = .{
-            .declared = self.indexOfGet(.def, def).name,
+            .declared = self.atOf(.def, def).name,
             .redeclared = name.range,
         } });
     }
 
     try self.lookupNameForDefine(name);
-}
-
-pub fn indexGet(self: *@This(), index: Index) *Value {
-    return &self.values.items[index.index];
-}
-
-pub fn indexOfGet(self: *@This(), comptime variant: std.meta.Tag(ir.Expr), index: IndexOf(variant)) *std.meta.TagPayload(ir.Expr, index.variant) {
-    return &@field(self.indexGet(index.index).expr, @tagName(index.variant));
 }
 
 /// Fails, storing the given error context and returning an error.
@@ -293,7 +293,7 @@ fn fail(self: *@This(), @"error": failure.Error) error{CodeError} {
     return error.CodeError;
 }
 
-pub fn printContainer(self: *const @This(), container: ir.Container, writer: anytype) anyerror!void {
+pub fn printContainer(self: *@This(), container: ir.Container, writer: anytype) anyerror!void {
     try writer.writeAll("container { ");
 
     var iter = container.defs.iterator();
@@ -305,7 +305,7 @@ pub fn printContainer(self: *const @This(), container: ir.Container, writer: any
     try writer.writeByte('}');
 }
 
-pub fn printInterface(self: *const @This(), interface: ir.Interface, writer: anytype) anyerror!void {
+pub fn printInterface(self: *@This(), interface: ir.Interface, writer: anytype) anyerror!void {
     try writer.writeAll(switch (interface.variant) {
         .product => "product { ",
         .sum => "sum { ",
@@ -320,7 +320,7 @@ pub fn printInterface(self: *const @This(), interface: ir.Interface, writer: any
     try writer.writeByte('}');
 }
 
-pub fn printDef(self: *const @This(), def: ir.Def, writer: anytype) anyerror!void {
+pub fn printDef(self: *@This(), def: ir.Def, writer: anytype) anyerror!void {
     if (def.access == .public) try writer.writeAll("pub ");
 
     try writer.writeAll(switch (def.mutability) {
@@ -341,16 +341,14 @@ pub fn printDef(self: *const @This(), def: ir.Def, writer: anytype) anyerror!voi
     try writer.writeAll(";");
 }
 
-pub fn printDecl(self: *const @This(), decl: ir.Decl, writer: anytype) anyerror!void {
+pub fn printDecl(self: *@This(), decl: ir.Decl, writer: anytype) anyerror!void {
     try self.printRange(decl.name, writer);
     try writer.writeAll(": ");
     try self.printExpr(decl.type, writer);
 }
 
-pub fn printExpr(self: *const @This(), index: Index, writer: anytype) anyerror!void {
-    const expr = self.values.items[index.index];
-
-    switch (expr.expr) {
+pub fn printExpr(self: *@This(), index: Index, writer: anytype) anyerror!void {
+    switch (self.at(.expr, index).*) {
         .word => |word| try writer.print("{}", .{word}),
         .word_type => try writer.writeAll("word"),
         .type => try writer.writeAll("type"),
@@ -378,7 +376,7 @@ pub fn printExpr(self: *const @This(), index: Index, writer: anytype) anyerror!v
         },
         .container => |container| try self.printContainer(container, writer),
         .pointer => |ptr| {
-            try self.printRange(expr.expr_range, writer);
+            try self.printRange(self.at(.range, index).*, writer);
             try writer.print("<{}>", .{ptr.index.index});
         },
         .dereference => |deref| {
@@ -403,6 +401,6 @@ pub fn printExpr(self: *const @This(), index: Index, writer: anytype) anyerror!v
     }
 }
 
-pub fn printRange(self: *const @This(), range: tokenizer.Range, writer: anytype) anyerror!void {
+pub fn printRange(self: *@This(), range: tokenizer.Range, writer: anytype) anyerror!void {
     try writer.writeAll(range.substr(self.src));
 }

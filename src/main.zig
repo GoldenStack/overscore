@@ -35,7 +35,7 @@ pub fn main() !void {
 
     // Evaluate the 'main' variable in the IR
     var interpreter = Interpreter.init(allocator, src, &ir);
-    const main_index = ir.indexGet(container_index).expr.container.defs.get("main") orelse @panic("No main expression found!");
+    const main_index = ir.at(.expr, container_index).container.defs.get("main") orelse @panic("No main expression found!");
     _ = interpreter.typeOf(main_index.index) catch |err| return handle_error(err, interpreter);
     // interpreter.evalDef(main_index) catch |err| return handle_error(err, interpreter);
 
@@ -47,7 +47,7 @@ pub fn main() !void {
     // }
 
     // Print the output IR
-    try ir.printExpr(try interpreter.softEval(ir.indexOfGet(.def, main_index).value), stdout);
+    try ir.printExpr(try interpreter.softEval(ir.atOf(.def, main_index).value), stdout);
     std.debug.print("\n", .{});
     try ir.printExpr(main_index.index, stdout);
     try stdout.writeByte('\n');

@@ -33,19 +33,19 @@ pub fn init(allocator: std.mem.Allocator, src: [:0]const u8, context: *Ir) @This
 pub fn typeOf(self: *@This(), raw_index: Index) Err!Index {
     const index = try self.softEval(raw_index);
 
-    if (self.get(index).evaluating) return self.fail(.{ .dependency_loop = self.get(index).expr_range });
+    if (self.at(.evaluating, index).*) return self.fail(.{ .dependency_loop = self.at(.range, index).* });
 
-    self.get(index).evaluating = true;
-    defer self.get(index).evaluating = false;
+    self.at(.evaluating, index).* = true;
+    defer self.at(.evaluating, index).* = false;
 
-    if (self.get(index).type) |@"type"| return @"type";
+    if (self.at(.type, index).*) |@"type"| return @"type";
 
-    const value_type = try switch (self.get(index).expr) {
-        .word => self.context.indexPush(.word_type, self.get(index).expr_range),
+    const value_type = try switch (self.at(.expr, index).*) {
+        .word => self.context.push(.word_type, self.at(.range, index).*),
 
-        .word_type, .decl, .product, .sum, .pointer_type, .type => self.context.indexPush(.type, self.get(index).expr_range),
+        .word_type, .decl, .product, .sum, .pointer_type, .type => self.context.push(.type, self.at(.range, index).*),
 
-        .pointer => |ptr| self.context.indexPush(.{ .pointer_type = try self.typeOfDefValue(ptr.index) }, self.get(index).expr_range),
+        .pointer => |ptr| self.context.push(.{ .pointer_type = try self.typeOfDefValue(ptr.index) }, self.at(.range, index).*),
         .parentheses => |parens| self.typeOf(parens),
 
         .def => self.typeOfDef(index),
@@ -56,14 +56,14 @@ pub fn typeOf(self: *@This(), raw_index: Index) Err!Index {
         .coerce => |coerce| coerce.type,
     };
 
-    self.get(index).type = value_type;
+    self.at(.type, index).* = value_type;
 
     return value_type;
 }
 
 /// Returns the type of a def. Assumes the given index is a def.
 fn typeOfDef(self: *@This(), index: Index) Err!Index {
-    const name = self.get(index).expr.def.name;
+    const name = self.at(.expr, index).def.name;
 
     const @"type" = try self.typeOfDefValue(index);
 
@@ -72,12 +72,12 @@ fn typeOfDef(self: *@This(), index: Index) Err!Index {
         .type = @"type",
     } };
 
-    return try self.context.indexPush(decl, self.get(index).expr_range);
+    return try self.context.push(decl, self.at(.range, index).*);
 }
 
 /// Returns the type of the value of a def. Assumes the given index is a def.
 fn typeOfDefValue(self: *@This(), index: Index) Err!Index {
-    const def = self.get(index).expr.def;
+    const def = self.at(.expr, index).def;
 
     const actual_type = try self.typeOf(def.value);
 
@@ -90,13 +90,13 @@ fn typeOfDefValue(self: *@This(), index: Index) Err!Index {
         .NonCoercible => self.fail(.{ .cannot_coerce = .{
             .from = self.exprToString(actual_type),
             .to = self.exprToString(def_type),
-            .context = self.get(index).expr_range,
+            .context = self.at(.range, index).*,
         } }),
         .Coercible => {
-            const coerce = try self.context.indexPush(.{ .coerce = .{
+            const coerce = try self.context.push(.{ .coerce = .{
                 .expr = def.value,
                 .type = def_type,
-            } }, self.get(index).expr_range);
+            } }, self.at(.range, index).*);
 
             return try self.typeOf(coerce);
         },
@@ -106,7 +106,7 @@ fn typeOfDefValue(self: *@This(), index: Index) Err!Index {
 
 /// Returns the type of a container. Assumes the given index is a container.
 fn typeOfContainer(self: *@This(), index: Index) Err!Index {
-    const container = self.get(index).expr.container;
+    const container = self.at(.expr, index).container;
 
     var decls = std.ArrayList(IndexOf(.decl)).init(self.allocator);
 
@@ -116,19 +116,19 @@ fn typeOfContainer(self: *@This(), index: Index) Err!Index {
         try decls.append(.{ .index = def_type });
     }
 
-    return try self.context.indexPush(.{ .product = decls }, self.get(index).expr_range);
+    return try self.context.push(.{ .product = decls }, self.at(.range, index).*);
 }
 
 /// Returns the type of a dereference. Assumes the given index is a dereference.
 fn typeOfDereference(self: *@This(), index: Index) Err!Index {
-    const derefed = self.get(index).expr.dereference;
+    const derefed = self.at(.expr, index).dereference;
 
     const derefed_type = try self.typeOf(derefed);
 
-    return switch (self.get(derefed_type).expr) {
+    return switch (self.at(.expr, derefed_type).*) {
         .pointer_type => |ptr| ptr,
         else => self.fail(.{ .dereferenced_non_pointer = .{
-            .expr = self.get(derefed_type).expr_range,
+            .expr = self.at(.range, derefed_type).*,
             .type = self.exprToString(derefed_type),
         } }),
     };
@@ -137,20 +137,20 @@ fn typeOfDereference(self: *@This(), index: Index) Err!Index {
 /// Returns the type of member access. Assumes the given index is member access.
 /// This supports access via pointers.
 fn typeOfMemberAccess(self: *@This(), index: Index) Err!Index {
-    const access = self.get(index).expr.member_access;
+    const access = self.at(.expr, index).member_access;
 
     const left_type = try self.typeOf(access.container);
 
-    return switch (self.get(left_type).expr) {
+    return switch (self.at(.expr, left_type).*) {
         .pointer_type => |ptr| {
-            if (self.get(ptr).expr != .product) return self.fail(.{ .unsupported_member_access = .{
+            if (self.at(.expr, ptr).* != .product) return self.fail(.{ .unsupported_member_access = .{
                 .type = self.exprToString(left_type),
                 .member = access.member,
             } });
 
             const member = try self.typeOfMemberAccessRaw(ptr, access.member);
 
-            return try self.context.indexPush(.{ .pointer_type = member }, self.get(index).expr_range);
+            return try self.context.push(.{ .pointer_type = member }, self.at(.range, index).*);
         },
         .product => self.typeOfMemberAccessRaw(left_type, access.member),
         else => self.fail(.{ .unsupported_member_access = .{
@@ -163,10 +163,10 @@ fn typeOfMemberAccess(self: *@This(), index: Index) Err!Index {
 /// Returns the type of the member of a field. This assumes the index points
 /// to a product type.
 fn typeOfMemberAccessRaw(self: *@This(), index: Index, member: Range) Err!Index {
-    const product = self.get(index).expr.product;
+    const product = self.at(.expr, index).product;
 
     for (product.items) |field| {
-        const decl = self.get(field.index).expr.decl;
+        const decl = self.atOf(.decl, field);
 
         if (!std.mem.eql(u8, decl.name.substr(self.src), member.substr(self.src))) continue;
 
@@ -178,7 +178,7 @@ fn typeOfMemberAccessRaw(self: *@This(), index: Index, member: Range) Err!Index 
 
         return field.index;
     } else return self.fail(.{ .unknown_member = .{
-        .container = self.get(index).expr_range,
+        .container = self.at(.range, index).*,
         .member = member,
     } });
 }
@@ -188,7 +188,7 @@ fn typeOfMemberAccessRaw(self: *@This(), index: Index, member: Range) Err!Index 
 /// This only applies for fully evaluated expressions; for example, this returns
 /// `false` for `container { const a = word; }.a`.
 pub fn isType(self: *@This(), index: Index) bool {
-    return switch (self.get(index).expr) {
+    return switch (self.at(.expr, index)) {
         .word_type, .decl, .product, .sum, .pointer_type, .type => true,
         else => false,
     };
@@ -220,12 +220,11 @@ pub fn canCoerce(self: *@This(), from: Index, to: Index) Err!TypeCoercion {
 /// `container { const x = 5; }.x`, but does not error on expressions that
 /// depend on unknown variables.
 pub fn softEval(self: *@This(), index: Index) Err!Index {
-    self.get(index).evaluating = true;
-
-    defer self.get(index).evaluating = false;
+    self.at(.evaluating, index).* = true;
+    defer self.at(.evaluating, index).* = false;
 
     // TODO: When relying on the value of a def, we need to check its type.
-    return switch (self.get(index).expr) {
+    return switch (self.at(.expr, index).*) {
         .word, .word_type, .decl, .product, .sum, .pointer_type, .type, .pointer, .def, .container => index,
 
         .parentheses => |parens| parens,
@@ -237,7 +236,7 @@ pub fn softEval(self: *@This(), index: Index) Err!Index {
 
 /// Makes a shallow copy of the variable that is pointed to.
 fn softEvalDereference(self: *@This(), index: Index) Err!Index {
-    const left_raw = self.get(index).expr.dereference;
+    const left_raw = self.at(.expr, index).dereference;
 
     // Try to soft evaluate the left side.
     //   If it's a pointer, continue
@@ -248,15 +247,15 @@ fn softEvalDereference(self: *@This(), index: Index) Err!Index {
 
     if (!self.isEvaluated(left)) return index;
 
-    if (self.get(left).expr != .pointer) return self.fail(.{ .dereferenced_non_pointer = .{
-        .expr = self.get(left).expr_range,
+    if (self.at(.expr, left).* != .pointer) return self.fail(.{ .dereferenced_non_pointer = .{
+        .expr = self.at(.range, left).*,
         .type = self.exprToString(try self.typeOf(left)),
     } });
 
     // Make a shallow copy of the value that is pointed to
 
-    const ptr_value_index = self.get(left).expr.pointer;
-    const def_value_index = self.get(ptr_value_index.index).expr.def.value;
+    const ptr_value_index = self.at(.expr, left).pointer;
+    const def_value_index = self.atOf(.def, ptr_value_index).value;
 
     return try self.shallowCopy(def_value_index);
 }
@@ -264,20 +263,20 @@ fn softEvalDereference(self: *@This(), index: Index) Err!Index {
 /// Returns the value of member access. Assumes the given index points to member
 /// access. This supports access via pointers.
 fn softEvalMemberAccess(self: *@This(), index: Index) Err!Index {
-    const access = self.get(index).expr.member_access;
+    const access = self.at(.expr, index).member_access;
 
-    return switch (self.get(access.container).expr) {
+    return switch (self.at(.expr, access.container).*) {
         .pointer => |def| {
-            const def_value = self.get(def.index).expr.def.value;
+            const def_value = self.atOf(.def, def).value;
 
-            if (self.get(def_value).expr != .container) return self.fail(.{ .unsupported_member_access = .{
+            if (self.at(.expr, def_value).* != .container) return self.fail(.{ .unsupported_member_access = .{
                 .type = self.exprToString(access.container),
                 .member = access.member,
             } });
 
             const member = try self.softEvalMemberAccessRaw(def_value, access.member);
 
-            return try self.context.indexPush(.{ .pointer = .{ .index = member } }, self.get(index).expr_range);
+            return try self.context.push(.{ .pointer = .{ .index = member } }, self.at(.range, index).*);            
         },
         .container => try self.softEvalMemberAccessRaw(access.container, access.member),
         else => self.fail(.{ .unsupported_member_access = .{
@@ -295,19 +294,19 @@ fn softEvalMemberAccessRaw(self: *@This(), index: Index, member: Range) Err!Inde
     if (!self.isEvaluated(left)) return index;
 
     // TODO: the typeOf call loops infinitely.
-    if (self.get(left).expr != .container) return self.fail(.{ .unsupported_member_access = .{
+    if (self.at(.expr, left).* != .container) return self.fail(.{ .unsupported_member_access = .{
         .type = self.exprToString(try self.typeOf(left)),
         .member = member,
     } });
 
     const key = member.substr(self.src);
-    const def = self.get(left).expr.container.defs.get(key) orelse return self.fail(.{ .unknown_member = .{
-        .container = self.get(left).expr_range,
+    const def = self.at(.expr, left).container.defs.get(key) orelse return self.fail(.{ .unknown_member = .{
+        .container = self.at(.range, left).*,
         .member = member,
     } });
 
-    if (self.get(def.index).expr.def.access == .private) return self.fail(.{ .private_member = .{
-        .declaration = self.get(def.index).expr_range,
+    if (self.atOf(.def, def).access == .private) return self.fail(.{ .private_member = .{
+        .declaration = self.at(.range, def.index).*,
         .member = member,
     } });
 
@@ -322,17 +321,17 @@ fn softEvalCoerce(self: *@This(), index: Index) Err!Index {
     // Since coercion occurs to something that's already being dealt with (e.g.
     // a pointer or a struct), we don't *need* to copy it.
 
-    const coerce = self.get(index).expr.coerce;
+    const coerce = self.at(.expr, index).coerce;
 
     // For now, can just change the type without inducing any cost.
-    self.get(coerce.expr).type = coerce.type;
+    self.at(.type, coerce.expr).* = coerce.type;
 
-    return self.get(index).expr.coerce.expr;
+    return self.at(.expr, index).coerce.expr;
 }
 
 /// Returns whether or not the given value is fully evaluated.
 pub fn isEvaluated(self: *@This(), index: Index) bool {
-    return switch (self.get(index).expr) {
+    return switch (self.at(.expr, index).*) {
         .word, .word_type, .def, .decl, .product, .sum, .pointer_type, .type, .container, .pointer => true,
         else => false,
     };
@@ -501,7 +500,12 @@ fn fail(self: *@This(), @"error": failure.Error) error{CodeError} {
     return error.CodeError;
 }
 
-/// Utility function for making it easier to access values
-fn get(self: *@This(), index: Index) *Ir.Value {
-    return self.context.indexGet(index);
+/// Utility function that proxies `self.context.at`.
+pub fn at(self: *@This(), comptime field: std.meta.FieldEnum(Ir.Value), index: Index) *std.meta.FieldType(Ir.Value, field) {
+    return self.context.at(field, index);
+}
+
+/// Utility function that proxies `self.context.atOf`.
+pub fn atOf(self: *@This(), comptime variant: std.meta.Tag(ir.Expr), index: IndexOf(variant)) *std.meta.TagPayload(ir.Expr, index.variant) {
+    return self.context.atOf(variant, index);
 }
