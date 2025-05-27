@@ -261,7 +261,7 @@ fn softEvalDereference(self: *@This(), index: Index) Err!Index {
     if (!self.isEvaluated(left)) return index;
 
     if (self.at(.expr, left).* != .pointer) return self.fail(.{ .dereferenced_non_pointer = .{
-        .expr = self.at(.range, left).*,
+        .expr = self.at(.range, index).*,
         .type = self.exprToString(try self.typeOf(left)),
     } });
 
@@ -283,7 +283,7 @@ fn softEvalMemberAccess(self: *@This(), index: Index) Err!Index {
             const def_value = self.atOf(.def, def).value;
 
             if (self.at(.expr, def_value).* != .container) return self.fail(.{ .unsupported_member_access = .{
-                .type = self.exprToString(access.container),
+                .type = self.exprToString(try self.typeOf(access.container)),
                 .member = access.member,
             } });
 
@@ -312,7 +312,6 @@ fn softEvalMemberAccessRaw(self: *@This(), index: Index, member: Range) Err!Inde
 
     if (!self.isEvaluated(left)) return index;
 
-    // TODO: the typeOf call loops infinitely.
     if (self.at(.expr, left).* != .container) return self.fail(.{ .unsupported_member_access = .{
         .type = self.exprToString(try self.typeOf(left)),
         .member = member,
