@@ -1,4 +1,6 @@
-pub const main = container {
+pub const main: *word = 2;
+
+pub const main3 = container {
     pub const b: **word = other.b;
 }.b.*.*;
 

@@ -45,7 +45,7 @@ pub fn typeOf(self: *@This(), raw_index: Index) Err!Index {
 
         .word_type, .decl, .product, .sum, .pointer_type, .type => self.context.push(.type, self.at(.range, index).*),
 
-        .pointer => |ptr| self.context.push(.{ .pointer_type = try self.typeOfDefValue(ptr.index) }, self.at(.range, index).*),
+        .pointer => |ptr| self.context.push(.{ .pointer_type = try self.typeOf(try self.defValueCoerce(ptr.index)) }, self.at(.range, index).*),
         .parentheses => |parens| self.typeOf(parens),
 
         .def => self.typeOfDef(index),
@@ -65,7 +65,7 @@ pub fn typeOf(self: *@This(), raw_index: Index) Err!Index {
 fn typeOfDef(self: *@This(), index: Index) Err!Index {
     const name = self.at(.expr, index).def.name;
 
-    const @"type" = try self.typeOfDefValue(index);
+    const @"type" = try self.typeOf(try self.defValueCoerce(index));
 
     const decl: ir.Expr = .{ .decl = .{
         .name = name,
@@ -73,35 +73,6 @@ fn typeOfDef(self: *@This(), index: Index) Err!Index {
     } };
 
     return try self.context.push(decl, self.at(.range, index).*);
-}
-
-/// Returns the type of the value of a def. Assumes the given index is a def.
-fn typeOfDefValue(self: *@This(), index: Index) Err!Index {
-    const def = self.at(.expr, index).def;
-
-    const actual_type = try self.typeOf(def.value);
-
-    if (def.type == null) return actual_type;
-    const def_type = def.type.?;
-
-    const can_coerce = try self.canCoerce(actual_type, def_type);
-
-    return switch (can_coerce) {
-        .NonCoercible => self.fail(.{ .cannot_coerce = .{
-            .from = self.exprToString(actual_type),
-            .to = self.exprToString(def_type),
-            .context = self.at(.range, index).*,
-        } }),
-        .Coercible => {
-            const coerce = try self.context.push(.{ .coerce = .{
-                .expr = def.value,
-                .type = def_type,
-            } }, self.at(.range, index).*);
-
-            return try self.typeOf(coerce);
-        },
-        .Equal => def_type,
-    };
 }
 
 /// Returns the type of a container. Assumes the given index is a container.
@@ -204,10 +175,11 @@ pub const TypeCoercion = enum {
 
 /// Requires that the provided expressions are types.
 pub fn canCoerce(self: *@This(), from: Index, to: Index) Err!TypeCoercion {
-    _ = self;
-    _ = from;
-    _ = to;
-    return .Equal;
+    if (from.index == to.index) return .Equal;
+
+    // TODO: Implement coercion checking correctly
+    if (@as(ir.Expr.Tag, self.at(.expr, from).*) == self.at(.expr, to).*) return .Equal;
+    return .NonCoercible;
 }
 
 // Evaluation
@@ -289,7 +261,7 @@ fn softEvalMemberAccess(self: *@This(), index: Index) Err!Index {
 
             const member = try self.softEvalMemberAccessRaw(def_value, access.member);
 
-            return try self.context.push(.{ .pointer = .{ .index = member } }, self.at(.range, index).*);            
+            return try self.context.push(.{ .pointer = .{ .index = member } }, self.at(.range, index).*);
         },
         .container => {
             const member = try self.softEvalMemberAccessRaw(access.container, access.member);
@@ -362,29 +334,38 @@ pub fn shallowCopy(self: *@This(), index: Index) Err!Index {
     return index;
 }
 
-// pub fn evalDef(self: *@This(), index: IndexOf(.def)) Err!void {
-//     var def = self.context.indexOfGet(.def, index);
+/// Tries to coerce a def to its type, returning an error if impossible, and the
+/// value otherwise. This will calculate its type.
+fn defValueCoerce(self: *@This(), index: Index) Err!Index {
+    const def = self.at(.expr, index).def;
 
-//     def.evaluating = true;
+    const actual_type = try self.typeOf(def.value);
 
-//     if (def.type) |@"type"| {
-//         try self.evalExpr(@"type");
-//         try self.evalExpr(def.value);
-//         def.evaluating = false;
+    if (def.type == null) return actual_type;
+    const def_type = def.type.?;
 
-//         // It's fine to evalute the same thing at the same time (sometimes), but don't recursively type check.
-//         if (!def.type_checked) {
-//             def.type_checked = true;
-//             // TODO: Coerce it if necessary
-//             try self.expectIsType(@"type");
-//             try self.expectTypeContainsValue(@"type", def.value);
-//         }
-//     } else {
-//         try self.evalExpr(def.value);
+    const can_coerce = try self.canCoerce(actual_type, def_type);
 
-//         def.evaluating = false;
-//     }
-// }
+    const def_value = self.at(.expr, index).def.value;
+
+    return switch (can_coerce) {
+        .NonCoercible => self.fail(.{ .cannot_coerce = .{
+            .from = self.exprToString(actual_type),
+            .to = self.exprToString(def_type),
+            .context = self.at(.range, def_value).*,
+        } }),
+        .Coercible => {
+            const coerce = try self.context.push(.{ .coerce = .{
+                .expr = def_value,
+                .type = def_type,
+            } }, self.at(.range, def_value).*);
+
+            self.at(.expr, index).def.value = coerce;
+            return coerce;
+        },
+        .Equal => def_value,
+    };
+}
 
 // Type functions
 
