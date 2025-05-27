@@ -60,8 +60,8 @@ pub const ir = struct {
         word_type,
         def: Def,
         decl: Decl,
-        product: std.ArrayList(IndexOf(.decl)),
-        sum: std.ArrayList(IndexOf(.decl)),
+        product: std.StringArrayHashMap(IndexOf(.decl)),
+        sum: std.StringArrayHashMap(IndexOf(.decl)),
         pointer_type: Index,
         type,
         container: Container,
@@ -166,8 +166,8 @@ pub fn convertExpr(self: *@This(), expr: Ranged(ast.Expr)) Err!Index {
     return index;
 }
 
-fn convertDefList(self: *@This(), exprs: std.ArrayList(Ranged(ast.Expr)), range: Range) Err!std.ArrayList(IndexOf(.decl)) {
-    var out_exprs = std.ArrayList(IndexOf(.decl)).init(self.allocator);
+fn convertDefList(self: *@This(), exprs: std.ArrayList(Ranged(ast.Expr)), range: Range) Err!std.StringArrayHashMap(IndexOf(.decl)) {
+    var out_exprs = std.StringArrayHashMap(IndexOf(.decl)).init(self.allocator);
 
     for (exprs.items) |item| {
         const expr = try self.convertExpr(item);
@@ -177,7 +177,16 @@ fn convertDefList(self: *@This(), exprs: std.ArrayList(Ranged(ast.Expr)), range:
             .typedef = range,
         } });
 
-        try out_exprs.append(.{ .index = expr });
+        const decl_expr: IndexOf(.decl) = .{ .index = expr };
+
+        const name = self.atOf(.decl, decl_expr).name.substr(self.src);
+
+        if (out_exprs.get(name)) |existing_expr| return self.fail(.{ .duplicate_member = .{
+            .declared = self.atOf(.decl, existing_expr).name,
+            .redeclared = self.atOf(.decl, decl_expr).name,
+        } });
+
+        try out_exprs.put(name, decl_expr);
     }
 
     return out_exprs;
@@ -278,7 +287,7 @@ pub fn lookupNameCurrentContainerForDefine(self: *@This(), name: Ranged(Token), 
     // performance, but unfortunately has different semantics (would require
     // removing on fail, etc.).
     if (defs.get(value)) |def| {
-        return self.fail(.{ .duplicate_member_name = .{
+        return self.fail(.{ .duplicate_member = .{
             .declared = self.atOf(.def, def).name,
             .redeclared = name.range,
         } });
@@ -354,7 +363,7 @@ pub fn printExpr(self: *@This(), index: Index, writer: anytype) anyerror!void {
         .type => try writer.writeAll("type"),
         .product => |decls| {
             try writer.writeAll("(");
-            for (0.., decls.items) |i, decl| {
+            for (0.., decls.values()) |i, decl| {
                 if (i != 0) try writer.writeAll(" ** ");
                 try self.printExpr(decl.index, writer);
             }
@@ -362,7 +371,7 @@ pub fn printExpr(self: *@This(), index: Index, writer: anytype) anyerror!void {
         },
         .sum => |decls| {
             try writer.writeAll("(");
-            for (0.., decls.items) |i, decl| {
+            for (0.., decls.values()) |i, decl| {
                 if (i != 0) try writer.writeAll(" ++ ");
                 try self.printExpr(decl.index, writer);
             }

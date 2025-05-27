@@ -83,13 +83,14 @@ fn typeOfDef(self: *@This(), index: Index) Err!Index {
 fn typeOfContainer(self: *@This(), index: Index) Err!Index {
     const container = self.at(.expr, index).container;
 
-    var decls = std.ArrayList(IndexOf(.decl)).init(self.allocator);
+    var decls = std.StringArrayHashMap(IndexOf(.decl)).init(self.allocator);
 
-    for (container.defs.values()) |def_index| {
-        const def_type = try self.typeOfDef(def_index.index); // TODO: Change to returning IndexOf(.decl)
-
-        try decls.append(.{ .index = def_type });
+    var iterator = container.defs.iterator();
+    while (iterator.next()) |entry| {
+        try decls.putNoClobber(entry.key_ptr.*, .{ .index = try self.typeOfDef(entry.value_ptr.index) });
     }
+    
+    // TODO: Change typeOfDef to returning IndexOf(.decl)
 
     return try self.context.push(.{ .product = decls }, self.at(.range, index).*);
 }
@@ -138,24 +139,20 @@ fn typeOfMemberAccess(self: *@This(), index: Index) Err!Index {
 /// Returns the type of the member of a field. This assumes the index points
 /// to a product type.
 fn typeOfMemberAccessRaw(self: *@This(), index: Index, member: Range) Err!Index {
-    const product = self.at(.expr, index).product;
+    const product: std.StringArrayHashMap(IndexOf(.decl)) = self.at(.expr, index).product;
 
-    for (product.items) |field| {
-        const decl = self.atOf(.decl, field);
-
-        if (!std.mem.eql(u8, decl.name.substr(self.src), member.substr(self.src))) continue;
-
-        // TODO: Handle private decls
-        if (false) return self.fail(.{ .private_member = .{
-            .declaration = decl.name,
-            .member = member,
-        } });
-
-        return self.atOf(.decl, field).type;
-    } else return self.fail(.{ .unknown_member = .{
+    const decl = product.get(member.substr(self.src)) orelse return self.fail(.{ .unknown_member = .{
         .container = self.at(.range, index).*,
         .member = member,
     } });
+
+    // TODO: Handle private decls
+    if (false) return self.fail(.{ .private_member = .{
+        .declaration = decl.name,
+        .member = member,
+    } });
+
+    return self.atOf(.decl, decl).type;
 }
 
 /// Returns whether or not the given value represents a type.
@@ -163,10 +160,15 @@ fn typeOfMemberAccessRaw(self: *@This(), index: Index, member: Range) Err!Index 
 /// This only applies for fully evaluated expressions; for example, this returns
 /// `false` for `container { const a = word; }.a`.
 pub fn isType(self: *@This(), index: Index) bool {
-    return switch (self.at(.expr, index)) {
+    return switch (self.at(.expr, index).*) {
         .word_type, .decl, .product, .sum, .pointer_type, .type => true,
         else => false,
     };
+}
+
+/// Expects that the given index points to a type, erroring if not.
+pub fn expectType(self: *@This(), index: Index) Err!void {
+    if (!self.isType(index)) return self.fail(.{ .expected_type_expression = self.at(.range, index).* });
 }
 
 // Type coercion
@@ -177,13 +179,62 @@ pub const TypeCoercion = enum {
     Equal,
 };
 
-/// Requires that the provided expressions are types.
+/// Determines if two types are equal, coercible (from left to right), or
+/// unequal and noncoercible. Errors if the provided expressions are types.
 pub fn canCoerce(self: *@This(), from: Index, to: Index) Err!TypeCoercion {
-    if (from.index == to.index) return .Equal;
+    if (from.index == to.index) return .Equal; // Helps with checking the type for defs with coercion already calculated
 
-    // TODO: Implement coercion checking correctly
-    if (@as(ir.Expr.Tag, self.at(.expr, from).*) == self.at(.expr, to).*) return .Equal;
-    return .NonCoercible;
+    try self.expectType(from);
+    try self.expectType(to);
+
+    const from_value = self.at(.expr, from).*;
+    
+    return switch (self.at(.expr, to).*) {
+        .word_type => if (from_value == .word_type) .Equal else .NonCoercible,
+        .type => if (from_value == .type) .Equal else .NonCoercible,
+        .decl => |to_decl| {
+            if (from_value != .decl) return .NonCoercible;
+
+            // TODO: Do we also ensure name equality?
+            return self.canCoerce(from_value.decl.type, to_decl.type);
+        },
+        .pointer_type => |to_ptr| {
+            if (from_value != .pointer_type) return .NonCoercible;
+
+            return self.canCoerce(from_value.pointer_type, to_ptr);
+        },
+        .product => |to_product| {
+            if (from_value != .product) return .NonCoercible;
+            const from_product = from_value.product;
+
+            if (to_product.values().len != to_product.values().len) return .NonCoercible;
+
+            var must_coerce = false;
+
+            for (to_product.values()) |to_decl_index| {
+                const to_decl: *ir.Decl = self.atOf(.decl, to_decl_index);
+                const to_decl_name = to_decl.name.substr(self.src);
+
+                const from_decl_index = from_product.get(to_decl_name) orelse return .NonCoercible;
+                const from_decl: *ir.Decl = self.atOf(.decl, from_decl_index);
+
+                const can_coerce = try self.canCoerce(from_decl.type, to_decl.type);
+
+                switch (can_coerce) {
+                    .NonCoercible => return .NonCoercible,
+                    .Coercible => must_coerce = true,
+                    .Equal => {}
+                }
+            }
+
+            return if (must_coerce) .Coercible else .Equal;
+        },
+        .sum => {
+            // TODO
+            @panic("TODO");
+        },
+        else => unreachable, // Not types
+    };
 }
 
 // Evaluation

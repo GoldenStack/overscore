@@ -39,7 +39,7 @@ pub const Error = union(enum) {
     },
 
     /// A member name was used twice in the same container.
-    duplicate_member_name: struct {
+    duplicate_member: struct {
         declared: Range,
         redeclared: Range,
     },
@@ -112,12 +112,6 @@ pub const Error = union(enum) {
     //     tagged_example: Range,
     // },
 
-    // /// A tag was declared twice in the same container or function.
-    // duplicate_tag: struct {
-    //     declared: Range,
-    //     redeclared: Range,
-    // },
-
     // /// Expected only untagged fields, but found a tagged field.
     // expected_untagged_fields: struct {
     //     counterexample: Range,
@@ -166,9 +160,9 @@ pub const Error = union(enum) {
                 try writer.writeAll("identifier initially declared here\n" ++ Unbold);
                 try pointTo(src, red.declared, writer);
             },
-            .duplicate_member_name => |dup| {
+            .duplicate_member => |dup| {
                 try prefix(filename, dup.redeclared, .err, writer);
-                try writer.print("duplicate member name '{s}' on the same container\n" ++ Unbold, .{dup.redeclared.substr(src)});
+                try writer.print("duplicate member name '{s}'\n" ++ Unbold, .{dup.redeclared.substr(src)});
                 try pointTo(src, dup.redeclared, writer);
 
                 try prefix(filename, dup.declared, .note, writer);
@@ -266,15 +260,6 @@ pub const Error = union(enum) {
             //         try writer.writeAll("tagged field was declared here\n" ++ Unbold);
             //         try pointTo(src, exp.tagged_example, writer);
             //     }
-            // },
-            // .duplicate_tag => |dup| {
-            //     try prefix(filename, dup.redeclared, .err, writer);
-            //     try writer.print("redeclaration of tag '{s}'\n" ++ Unbold, .{dup.redeclared.substr(src)});
-            //     try pointTo(src, dup.redeclared, writer);
-
-            //     try prefix(filename, dup.declared, .note, writer);
-            //     try writer.writeAll("tag initially declared here\n" ++ Unbold);
-            //     try pointTo(src, dup.declared, writer);
             // },
             // .expected_untagged_fields => |exp| {
             //     try prefix(filename, exp.counterexample, .err, writer);
