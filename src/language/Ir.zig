@@ -314,21 +314,6 @@ pub fn printContainer(self: *@This(), container: ir.Container, writer: anytype) 
     try writer.writeByte('}');
 }
 
-pub fn printInterface(self: *@This(), interface: ir.Interface, writer: anytype) anyerror!void {
-    try writer.writeAll(switch (interface.variant) {
-        .product => "product { ",
-        .sum => "sum { ",
-    });
-
-    var iter = interface.decls.iterator();
-    while (iter.next()) |decl| {
-        try self.printDecl(decl.value_ptr.value, writer);
-        try writer.writeByte(' ');
-    }
-
-    try writer.writeByte('}');
-}
-
 pub fn printDef(self: *@This(), def: ir.Def, writer: anytype) anyerror!void {
     if (def.access == .public) try writer.writeAll("pub ");
 
