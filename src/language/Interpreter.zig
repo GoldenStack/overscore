@@ -204,37 +204,53 @@ pub fn canCoerce(self: *@This(), from: Index, to: Index) Err!TypeCoercion {
             return self.canCoerce(from_value.pointer_type, to_ptr);
         },
         .product => |to_product| {
-            if (from_value != .product) return .NonCoercible;
-            const from_product = from_value.product;
+            if (from_value == .product) return self.canCoerceDeclMaps(from_value.product, to_product);
 
-            if (to_product.values().len != to_product.values().len) return .NonCoercible;
-
-            var must_coerce = false;
-
-            for (to_product.values()) |to_decl_index| {
-                const to_decl: *ir.Decl = self.atOf(.decl, to_decl_index);
-                const to_decl_name = to_decl.name.substr(self.src);
-
-                const from_decl_index = from_product.get(to_decl_name) orelse return .NonCoercible;
-                const from_decl: *ir.Decl = self.atOf(.decl, from_decl_index);
-
-                const can_coerce = try self.canCoerce(from_decl.type, to_decl.type);
-
-                switch (can_coerce) {
-                    .NonCoercible => return .NonCoercible,
-                    .Coercible => must_coerce = true,
-                    .Equal => {}
-                }
-            }
-
-            return if (must_coerce) .Coercible else .Equal;
+            return .NonCoercible;
         },
-        .sum => {
-            // TODO
-            @panic("TODO");
+        .sum => |to_sum| {
+            if (from_value == .sum) return self.canCoerceDeclMaps(from_value.sum, to_sum);
+
+            // TODO: When product type construction becomes an operator, this
+            //       will need to check for defs.
+            if (from_value != .product) return .NonCoercible;
+            const product = from_value.product;
+
+            if (product.values().len != 1) return .NonCoercible;
+            const decl = self.atOf(.decl, product.values()[0]);
+
+            // Check that the single value is contained in this sum type.
+            if (to_sum.get(decl.name.substr(self.src))) |decl_to| {
+                return self.canCoerce(product.values()[0].index, decl_to.index);
+            } else return .NonCoercible;
         },
         else => unreachable, // Not types
     };
+}
+
+/// Coercion semantics between maps of decls.
+fn canCoerceDeclMaps(self: *@This(), from: std.StringArrayHashMap(IndexOf(.decl)), to: std.StringArrayHashMap(IndexOf(.decl))) Err!TypeCoercion {
+    if (from.values().len != to.values().len) return .NonCoercible;
+
+    var must_coerce = false;
+
+    for (to.values()) |to_decl_index| {
+        const to_decl: *ir.Decl = self.atOf(.decl, to_decl_index);
+        const to_decl_name = to_decl.name.substr(self.src);
+
+        const from_decl_index = from.get(to_decl_name) orelse return .NonCoercible;
+        const from_decl: *ir.Decl = self.atOf(.decl, from_decl_index);
+
+        const can_coerce = try self.canCoerce(from_decl.type, to_decl.type);
+
+        switch (can_coerce) {
+            .NonCoercible => return .NonCoercible,
+            .Coercible => must_coerce = true,
+            .Equal => {},
+        }
+    }
+
+    return if (must_coerce) .Coercible else .Equal;
 }
 
 // Evaluation
@@ -423,14 +439,6 @@ fn defValueCoerce(self: *@This(), index: Index) Err!Index {
         .Equal => def_value,
     };
 }
-
-// Type functions
-
-// pub fn expectIsType(self: *@This(), index: Index) Err!void {
-//     if (!self.isType(index)) {
-//         return self.fail(.{ .expected_type_expression = self.context.indexGet(index).expr_range });
-//     }
-// }
 
 // pub fn expectTypeContainsValue(self: *@This(), @"type": Index, index: Index) Err!void {
 //     const type_contains_value = try self.typeContainsValue(@"type", index);
