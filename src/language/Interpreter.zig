@@ -396,7 +396,7 @@ fn defValueCoerce(self: *@This(), index: Index) Err!Index {
 
     const actual_type = try self.typeOf(def.value);
 
-    if (def.type == null) return actual_type;
+    if (def.type == null) return self.at(.expr, index).def.value;
     const def_type = def.type.?;
 
     const can_coerce = try self.canCoerce(actual_type, def_type);
