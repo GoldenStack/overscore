@@ -176,7 +176,7 @@ fn typeOfMemberAccessRaw(self: *@This(), index: Index, member: Range) Err!Index 
             .member = member,
         } });
 
-        return field.index;
+        return self.atOf(.decl, field).type;
     } else return self.fail(.{ .unknown_member = .{
         .container = self.at(.range, index).*,
         .member = member,
@@ -211,6 +211,19 @@ pub fn canCoerce(self: *@This(), from: Index, to: Index) Err!TypeCoercion {
 }
 
 // Evaluation
+
+/// Evaluates the given expression. This must be known within the current
+/// context; if not, it will error.
+pub fn eval(self: *@This(), index: Index) Err!Index {
+    const result = try self.softEval(index);
+
+    // TODO: Hard evaluation entails calling functions and doing anything that
+    //       may be "destructive". However, nothing like this currently exists,
+    //       so we can just return it directly.
+    if (!self.isEvaluated(result)) unreachable;
+
+    return result;
+}
 
 /// Evaluates the given expression as far as possible without any "destructive"
 /// actions. This helps namespace resolution and helps simplify expressions
@@ -278,7 +291,13 @@ fn softEvalMemberAccess(self: *@This(), index: Index) Err!Index {
 
             return try self.context.push(.{ .pointer = .{ .index = member } }, self.at(.range, index).*);            
         },
-        .container => try self.softEvalMemberAccessRaw(access.container, access.member),
+        .container => {
+            const member = try self.softEvalMemberAccessRaw(access.container, access.member);
+
+            const value = self.at(.expr, member).def.value;
+
+            return try self.softEval(value);
+        },
         else => self.fail(.{ .unsupported_member_access = .{
             .type = self.exprToString(access.container),
             .member = access.member,
@@ -324,9 +343,9 @@ fn softEvalCoerce(self: *@This(), index: Index) Err!Index {
     const coerce = self.at(.expr, index).coerce;
 
     // For now, can just change the type without inducing any cost.
-    self.at(.type, coerce.expr).* = coerce.type;
+    // self.at(.type, coerce.expr).* = coerce.type;
 
-    return self.at(.expr, index).coerce.expr;
+    return try self.softEval(coerce.expr);
 }
 
 /// Returns whether or not the given value is fully evaluated.
