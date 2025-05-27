@@ -394,25 +394,27 @@ pub fn shallowCopy(self: *@This(), index: Index) Err!Index {
 fn defValueCoerce(self: *@This(), index: Index) Err!Index {
     const def = self.at(.expr, index).def;
 
-    const actual_type = try self.typeOf(def.value);
+    // If there's no explicit type, no coercion is necessary.
+    if (def.type == null) return def.value;
 
-    if (def.type == null) return self.at(.expr, index).def.value;
-    const def_type = def.type.?;
+    // Otherwise, try to coerce.
+    const from = try self.typeOf(def.value);
+    const to = self.at(.expr, index).def.type.?;
 
-    const can_coerce = try self.canCoerce(actual_type, def_type);
+    const can_coerce = try self.canCoerce(from, to);
 
     const def_value = self.at(.expr, index).def.value;
 
     return switch (can_coerce) {
         .NonCoercible => self.fail(.{ .cannot_coerce = .{
-            .from = self.exprToString(actual_type),
-            .to = self.exprToString(def_type),
+            .from = self.exprToString(from),
+            .to = self.exprToString(to),
             .context = self.at(.range, def_value).*,
         } }),
         .Coercible => {
             const coerce = try self.context.push(.{ .coerce = .{
                 .expr = def_value,
-                .type = def_type,
+                .type = to,
             } }, self.at(.range, def_value).*);
 
             self.at(.expr, index).def.value = coerce;
