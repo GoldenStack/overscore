@@ -31,14 +31,18 @@ pub fn init(allocator: std.mem.Allocator, src: [:0]const u8, context: *Ir) @This
 /// Determines the type of the given value, caching it in the value and
 /// returning the index of the type.
 pub fn typeOf(self: *@This(), raw_index: Index) Err!Index {
+    // Check if the initial expression already has a type
+    if (self.at(.type, raw_index).*) |@"type"| return @"type";
+
     const index = try self.softEval(raw_index);
 
-    if (self.at(.evaluating, index).*) return self.fail(.{ .dependency_loop = self.at(.range, index).* });
+    // Check if the new expression already has a type
+    if (self.at(.type, index).*) |@"type"| return @"type";
 
+    // Make sure we're not already evaluating it (likely an infinite loop)
+    if (self.at(.evaluating, index).*) return self.fail(.{ .dependency_loop = self.at(.range, index).* });
     self.at(.evaluating, index).* = true;
     defer self.at(.evaluating, index).* = false;
-
-    if (self.at(.type, index).*) |@"type"| return @"type";
 
     const value_type = try switch (self.at(.expr, index).*) {
         .word => self.context.push(.word_type, self.at(.range, index).*),
