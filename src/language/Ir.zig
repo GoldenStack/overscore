@@ -200,11 +200,18 @@ pub fn convertContainer(self: *@This(), container: ast.Container, index: Index) 
     var defs = std.StringArrayHashMap(IndexOf(.def)).init(self.allocator);
 
     // Add references with no values
-    for (container.defs.items) |def| {
-        const name = def.value.name;
+    for (container.defs.items) |def_range| {
+        const def = def_range.value;
+        const name = def.name;
         const key = name.range.substr(self.src);
 
-        const raw_index = try self.push(.{ .def = undefined }, def.range);
+        const raw_index = try self.push(.{ .def = .{
+            .access = def.access,
+            .mutability = def.mutability,
+            .name = def.name.range,
+            .type = if (def.type == null) null else undefined,
+            .value = undefined,
+        } }, def_range.range);
 
         const def_index: IndexOf(.def) = .{ .index = raw_index };
 
