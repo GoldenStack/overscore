@@ -376,18 +376,19 @@ fn softEvalMemberAccessRaw(self: *@This(), index: Index, member: Range) Err!Inde
 
 /// Coerces a value to another type. Assumes the index points to a coercion.
 fn softEvalCoerce(self: *@This(), index: Index) Err!Index {
-    // At least for now, coercion only involves converting a single-definition
-    // container to a sum type, which doesn't require modifying the value at
-    // all. This means we can just convert the value.
-    // Since coercion occurs to something that's already being dealt with (e.g.
-    // a pointer or a struct), we don't *need* to copy it.
-
+    // Exit if the coerced value cannot be evaluated
     const coerce = self.at(.expr, index).coerce;
 
-    // For now, can just change the type without inducing any cost.
-    // self.at(.type, coerce.expr).* = coerce.type;
+    const coerce_value = try self.softEval(coerce.expr);
+    if (!self.isEvaluated(coerce_value)) return index;
 
-    return try self.softEval(coerce.expr);
+    // Make a shallow copy before coercion
+    const value_copy = try self.shallowCopy(self.at(.expr, index).coerce.expr);
+
+    // Since coercion currently can't change the value itself, we just change the expression type
+    self.at(.type, value_copy).* = self.at(.expr, index).coerce.type;
+
+    return value_copy;
 }
 
 /// Returns whether or not the given value is fully evaluated.
