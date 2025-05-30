@@ -221,7 +221,9 @@ pub fn canCoerce(self: *@This(), from: Index, to: Index) Err!TypeCoercion {
 
             // Check that the single value is contained in this sum type.
             if (to_sum.get(decl.name.substr(self.src))) |decl_to| {
-                return self.canCoerce(product.values()[0].index, decl_to.index);
+                const can_coerce = try self.canCoerce(product.values()[0].index, decl_to.index);
+
+                return if (can_coerce != .NonCoercible) .Coercible else .NonCoercible;
             } else return .NonCoercible;
         },
         else => unreachable, // Not types
