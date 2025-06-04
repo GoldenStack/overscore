@@ -4,7 +4,7 @@ const Assembler = @import("Assembler.zig");
 const tokenizer = @import("language/tokenizer.zig");
 const Parser = @import("language/Parser.zig");
 const Ir = @import("language/Ir.zig");
-const Interpreter = @import("language/Interpreter.zig");
+const interpreter = @import("language/interpreter.zig");
 
 const file = "example2.os";
 const src = @embedFile(file);
@@ -34,20 +34,24 @@ pub fn main() !void {
     try stdout.writeByte('\n');
 
     // Evaluate the 'main' variable in the IR
-    var interpreter = Interpreter.init(allocator, src, &ir);
     const main_index = ir.at(.expr, container_index).container.defs.get("main") orelse @panic("No main expression found!");
-    _ = interpreter.typeOf(main_index.index) catch |err| return handle_error(err, interpreter);
+    const t = interpreter.typeOf(&ir, main_index.index) catch |err| return handle_error(err, ir);
     // interpreter.evalDef(main_index) catch |err| return handle_error(err, interpreter);
+    const main_value = interpreter.softEval(&ir, ir.atOf(.def, main_index).value) catch |err| return handle_error(err, ir);
 
-    // for (ir.values.items) |*value| {
-    //     if (value.type == null) continue;
-    //     std.debug.print("{s} is ", .{value.expr_range.substr(src)});
-    //     try ir.printExpr(value.type.?, stdout);
+    // for (0..ir.values.len) |i| {
+    //     const index: Ir.Index = .{ .index = i };
+
+    //     if (ir.at(.type, index).* == null) continue;
+    //     std.debug.print("{s} is ", .{ir.at(.range, index).substr(src)});
+    //     try ir.printExpr(ir.at(.type, index).*.?, stdout);
     //     std.debug.print("\n", .{});
     // }
 
     // Print the output IR
-    try ir.printExpr(try interpreter.softEval(ir.atOf(.def, main_index).value), stdout);
+    try ir.printExpr(main_value, stdout);
+    try stdout.writeByte('\n');
+    try ir.printExpr(t, stdout);
     std.debug.print("\n", .{});
     try ir.printExpr(main_index.index, stdout);
     try stdout.writeByte('\n');

@@ -304,7 +304,7 @@ pub fn lookupNameCurrentContainerForDefine(self: *@This(), name: Ranged(Token), 
 }
 
 /// Fails, storing the given error context and returning an error.
-fn fail(self: *@This(), @"error": failure.Error) error{CodeError} {
+pub fn fail(self: *@This(), @"error": failure.Error) error{CodeError} {
     self.error_context = @"error";
     return error.CodeError;
 }
