@@ -24,8 +24,7 @@ pub fn typeOf(ir: *Ir, raw_index: Index) Err!Index {
     if (ir.at(.type, index).*) |@"type"| return @"type";
 
     // Make sure we're not already evaluating it (likely an infinite loop)
-    if (ir.at(.evaluating, index).*) return ir.fail(.{ .dependency_loop = ir.at(.range, index).* });
-    ir.at(.evaluating, index).* = true;
+    try markEval(ir, index);
     defer ir.at(.evaluating, index).* = false;
 
     const value_type = try switch (ir.at(.expr, index).*) {
@@ -251,6 +250,9 @@ pub fn eval(ir: *Ir, index: Index) Err!Index {
     //       so we can just return it directly.
     if (!isEvaluated(ir, result)) unreachable;
 
+    try markEval(ir, index);
+    defer ir.at(.evaluating, index).* = false;
+
     return result;
 }
 
@@ -427,114 +429,14 @@ fn defValueCoerce(ir: *Ir, index: Index) Err!Index {
     };
 }
 
-// pub fn expectTypeContainsValue(ir: *Ir, @"type": Index, index: Index) Err!void {
-//     const type_contains_value = try self.typeContainsValue(@"type", index);
+pub fn markEval(ir: *Ir, index: Index) Err!void {
+    const evaluating = ir.at(.evaluating, index);
 
-//     if (!type_contains_value) {
-//         return self.fail(.{ .mismatched_type = .{
-//             .expected_type = self.exprToString(@"type"),
-//             .found_type = self.exprToString(try self.typeOf(index)),
-//             .expected_type_declared = self.context.indexGet(@"type").expr_range,
-//             .has_wrong_type = self.context.indexGet(index).expr_range,
-//         } });
-//     }
-// }
-
-// pub fn typeContainsValue(ir: *Ir, @"type": Index, expr: Index) Err!bool {
-//     try self.expectIsType(@"type");
-//     try self.expectEvaluated(expr);
-
-//     const type_value = self.context.indexGet(@"type");
-//     const expr_value = self.context.indexGet(expr);
-
-//     return switch (type_value.expr) {
-//         .word_type => expr_value.expr == .word,
-//         .decl => |decl| try self.typeContainsValue(decl.type, expr), // TODO: Change when definitions are made expressions
-//         .product => |product| {
-//             if (expr_value.expr != .container) return false;
-//             const container = &expr_value.expr.container;
-
-//             // TODO: We shouldn't have to evaluate every container definition here.
-//             // Can probably replace with something like #evalTypeOf.
-//             // TODO: Should also disallow duplicates.
-//             var container_iter = container.defs.iterator();
-//             while (container_iter.next()) |def| try self.evalDef(def.value_ptr.*);
-
-//             for (product.items) |def| {
-//                 try self.evalExpr(def);
-//                 // TODO: Expect the value to be a declaration.
-//             }
-
-//             // Confirm a bijection between container definitions and product declarations.
-//             if (container.defs.keys().len != product.items.len) return false;
-
-//             for (product.items) |item| {
-//                 const decl = &self.context.indexGet(item).expr.decl;
-//                 const decl_name = decl.name.substr(self.src);
-
-//                 const container_def = container.defs.get(decl_name) orelse return false;
-//                 const def = self.context.indexOfGet(.def, container_def);
-//                 const def_name = def.name.substr(self.src);
-
-//                 if (std.mem.eql(u8, def_name, decl_name)) {
-//                     // TODO: Using the expression's value creates the fake notion of having a range.
-//                     // TODO: This ignores the type annotation of the definition;
-//                     if (!try self.typeContainsValue(decl.type, def.value)) {
-//                         return false;
-//                     }
-//                 }
-//             }
-
-//             return true;
-//         },
-//         .sum => |sum| {
-//             if (expr_value.expr != .container) return false;
-//             const container = &expr_value.expr.container;
-
-//             // TODO: We shouldn't have to evaluate every container definition here.
-//             // Can probably replace with something like #evalTypeOf.
-//             // TODO: Should also disallow duplicates.
-//             var container_iter = container.defs.iterator();
-//             while (container_iter.next()) |def| try self.evalDef(def.value_ptr.*);
-
-//             for (sum.items) |def| {
-//                 try self.evalExpr(def);
-//                 // TODO: Expect the value to be a declaration.
-//             }
-
-//             // Check if the singular container definition fits within the sum type.
-//             if (container.defs.keys().len != 1) return false;
-//             const container_def = container.defs.values()[0];
-//             const def = self.context.indexOfGet(.def, container_def);
-//             const def_name = def.name.substr(self.src);
-
-//             for (sum.items) |item| {
-//                 const decl = &self.context.indexGet(item).expr.decl;
-//                 const decl_name = decl.name.substr(self.src);
-
-//                 if (std.mem.eql(u8, def_name, decl_name)) {
-//                     // TODO: Using the expression's value creates the fake notion of having a range.
-//                     // TODO: This ignores the type annotation of the definition;
-//                     return self.typeContainsValue(decl.type, def.value);
-//                 }
-//             }
-
-//             return false;
-//         },
-//         .pointer_type => |ptr_type| {
-//             if (expr_value.expr != .pointer) return false;
-
-//             const ptr_value = self.context.indexOfGet(.def, expr_value.expr.pointer).value;
-
-//             try self.expectEvaluated(ptr_value);
-//             try self.expectIsType(ptr_type);
-
-//             return self.typeContainsValue(ptr_type, ptr_value);
-//         },
-//         .type => self.isType(expr),
-//         else => unreachable,
-//     };
-// }
+    if (evaluating.*) {
+        return ir.fail(.{ .dependency_loop = ir.at(.range, index).* });
+    }
+    evaluating.* = true;
+}
 
 pub fn exprToString(ir: *Ir, expr: Index) []u8 {
     var out = std.ArrayListUnmanaged(u8){};
