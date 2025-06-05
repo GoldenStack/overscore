@@ -87,7 +87,7 @@ fn typeOfDereference(ir: *Ir, index: Index) Err!Index {
     return switch (ir.at(.expr, derefed_type).*) {
         .pointer_type => |ptr| ptr,
         else => ir.fail(.{ .dereferenced_non_pointer = .{
-            .expr = ir.at(.range, derefed_type).*,
+            .expr = ir.at(.range, index).*,
             .type = exprToString(ir, derefed_type),
         } }),
     };
