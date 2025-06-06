@@ -373,7 +373,7 @@ fn softEvalCoerce(ir: *Ir, index: Index) Err!Index {
     if (!isEvaluated(ir, coerce_value)) return index;
 
     // Make a shallow copy before coercion
-    const value_copy = try shallowCopy(ir, ir.at(.expr, index).coerce.expr);
+    const value_copy = try shallowCopy(ir, coerce_value);
 
     // Since coercion currently can't change the value itself, we just change the expression type
     ir.at(.type, value_copy).* = ir.at(.expr, index).coerce.type;
