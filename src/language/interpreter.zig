@@ -291,17 +291,19 @@ fn softEvalDereference(ir: *Ir, index: Index) Err!Index {
 
     if (!isEvaluated(ir, left)) return index;
 
-    if (ir.at(.expr, left).* != .pointer) return ir.fail(.{ .dereferenced_non_pointer = .{
-        .expr = ir.at(.range, index).*,
-        .type = exprToString(ir, try typeOf(ir, left)),
-    } });
+    return switch (ir.at(.expr, left).*) {
+        .pointer => |ptr| {
+            // Make a shallow copy of the value that is pointed to
 
-    // Make a shallow copy of the value that is pointed to
-
-    const ptr_value_index = ir.at(.expr, left).pointer;
-    const def_value_index = ir.atOf(.def, ptr_value_index).value;
-
-    return try shallowCopy(ir, def_value_index);
+            const def_value_index = try defValueCoerce(ir, ptr.index);
+            
+            return try shallowCopy(ir, def_value_index);
+        },
+        else => ir.fail(.{ .dereferenced_non_pointer = .{
+            .expr = ir.at(.range, index).*,
+            .type = exprToString(ir, try typeOf(ir, left)),
+        } }),
+    };
 }
 
 /// Returns the value of member access. Assumes the given index points to member
