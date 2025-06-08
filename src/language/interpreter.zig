@@ -405,8 +405,8 @@ fn defValueCoerce(ir: *Ir, index: Index) Err!Index {
     if (def.type == null) return def.value;
 
     // Otherwise, try to coerce.
-    const from = try typeOf(ir, def.value);
-    const to = ir.at(.expr, index).def.type.?;
+    const from = try eval(ir, try typeOf(ir, def.value));
+    const to = try eval(ir, ir.at(.expr, index).def.type.?);
 
     const can_coerce = try canCoerce(ir, from, to);
 
