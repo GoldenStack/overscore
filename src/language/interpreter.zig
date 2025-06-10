@@ -399,10 +399,18 @@ pub fn shallowCopy(ir: *Ir, index: Index) Err!Index {
 /// Tries to coerce a def to its type, returning an error if impossible, and the
 /// value otherwise. This will calculate its type.
 fn defValueCoerce(ir: *Ir, index: Index) Err!Index {
-    const def = ir.at(.expr, index).def;
+    var def = ir.at(.expr, index).def;
 
     // If there's no explicit type, no coercion is necessary.
     if (def.type == null) return def.value;
+
+    // If we've already type checked, return the value.
+    if (def.type_checked) return def.value;
+
+    // Sets it immediately, so theoretically could convince the type checker
+    // that it's completed, which would have problems if expression
+    // self-dependency were not already handled.
+    def.type_checked = true;
 
     // Otherwise, try to coerce.
     const from = try eval(ir, try typeOf(ir, def.value));
