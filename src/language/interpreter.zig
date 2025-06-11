@@ -9,18 +9,14 @@ const Index = Ir.Index;
 const IndexOf = Ir.IndexOf;
 const failure = @import("failure.zig");
 const Err = failure.ErrorSet;
+const LazyDecl = Ir.ir.LazyDecl;
 
 // Type inference
 
 /// Determines the type of the given value, caching it in the value and
 /// returning the index of the type.
-pub fn typeOf(ir: *Ir, raw_index: Index) Err!Index {
-    // Check if the initial expression already has a type
-    if (ir.at(.type, raw_index).*) |@"type"| return @"type";
-
-    const index = try softEval(ir, raw_index);
-
-    // Check if the new expression already has a type
+pub fn typeOf(ir: *Ir, index: Index) Err!Index {
+    // Check if the index already has a type
     if (ir.at(.type, index).*) |@"type"| return @"type";
 
     // Make sure we're not already evaluating it (likely an infinite loop)
@@ -32,10 +28,10 @@ pub fn typeOf(ir: *Ir, raw_index: Index) Err!Index {
 
         .word_type, .decl, .product, .sum, .pointer_type, .type => ir.push(.type, ir.at(.range, index).*),
 
-        .pointer => |ptr| ir.push(.{ .pointer_type = try typeOf(ir, try defValueCoerce(ir, ptr.index)) }, ir.at(.range, index).*),
+        .pointer => |ptr| ir.push(.{ .pointer_type = try typeOf(ir, try defValueCoerce(ir, ptr)) }, ir.at(.range, index).*),
         .parentheses => |parens| typeOf(ir, parens),
 
-        .def => typeOfDef(ir, index),
+        .def => (try typeOfDef(ir, .{ .index = index })).index,
         .container => typeOfContainer(ir, index),
         .dereference => typeOfDereference(ir, index),
         .member_access => typeOfMemberAccess(ir, index),
@@ -49,8 +45,8 @@ pub fn typeOf(ir: *Ir, raw_index: Index) Err!Index {
 }
 
 /// Returns the type of a def. Assumes the given index is a def.
-fn typeOfDef(ir: *Ir, index: Index) Err!Index {
-    const name = ir.at(.expr, index).def.name;
+fn typeOfDef(ir: *Ir, index: IndexOf(.def)) Err!IndexOf(.decl) {
+    const name = ir.atOf(.def, index).name;
 
     const @"type" = try typeOf(ir, try defValueCoerce(ir, index));
 
@@ -59,18 +55,18 @@ fn typeOfDef(ir: *Ir, index: Index) Err!Index {
         .type = @"type",
     } };
 
-    return try ir.push(decl, ir.at(.range, index).*);
+    return .{ .index = try ir.push(decl, ir.at(.range, index.index).*) };
 }
 
 /// Returns the type of a container. Assumes the given index is a container.
 fn typeOfContainer(ir: *Ir, index: Index) Err!Index {
     const container = ir.at(.expr, index).container;
 
-    var decls = std.StringArrayHashMap(IndexOf(.decl)).init(ir.allocator);
+    var decls = std.StringArrayHashMap(LazyDecl).init(ir.allocator);
 
     var iterator = container.defs.iterator();
     while (iterator.next()) |entry| {
-        try decls.putNoClobber(entry.key_ptr.*, .{ .index = try typeOfDef(ir, entry.value_ptr.index) });
+        try decls.putNoClobber(entry.key_ptr.*, .{ .def = entry.value_ptr.* });
     }
 
     // TODO: Change typeOfDef to returning IndexOf(.decl)
@@ -122,20 +118,51 @@ fn typeOfMemberAccess(ir: *Ir, index: Index) Err!Index {
 /// Returns the type of the member of a field. This assumes the index points
 /// to a product type.
 fn typeOfMemberAccessRaw(ir: *Ir, index: Index, member: Range) Err!Index {
-    const product: std.StringArrayHashMap(IndexOf(.decl)) = ir.at(.expr, index).product;
+    const product: std.StringArrayHashMap(LazyDecl) = ir.at(.expr, index).product;
 
-    const decl = product.get(member.substr(ir.src)) orelse return ir.fail(.{ .unknown_member = .{
+    if (product.getIndex(member.substr(ir.src))) |member_index| {
+
+        const value = product.values()[member_index];
+        if (value == .def) {
+            const def = ir.atOf(.def, value.def);
+
+            // Make sure a private definition isn't being accessed
+            // TODO: Checking here means that only the first privacy check
+            // works, since it's erased after.
+            if (def.access == .private) return ir.fail(.{ .private_member = .{
+                .declaration = def.name,
+                .member = member,
+            } });
+        }
+
+        const decl = try typeOfMemberGivenIndex(ir, index, member_index);
+        return ir.atOf(.decl, decl).type;
+    } else return ir.fail(.{ .unknown_member = .{
         .container = ir.at(.range, index).*,
         .member = member,
     } });
+}
 
-    // TODO: Handle private decls
-    if (false) return ir.fail(.{ .private_member = .{
-        .declaration = decl.name,
-        .member = member,
-    } });
+fn typeOfMemberGivenIndex(ir: *Ir, index: Index, member_index: usize) Err!IndexOf(.decl) {
+    return switch (ir.at(.expr, index).product.values()[member_index]) {
+        .decl => |decl| decl,
+        .def => |def_index| {
+            const def_type = try typeOfDef(ir, def_index);
 
-    return ir.atOf(.decl, decl).type;
+            ir.at(.expr, index).product.values()[member_index] = .{ .decl = def_type };
+
+            return def_type;
+        },
+    };
+}
+
+/// Ensures that a lazy declaration is, in fact, a declaration, returning the
+/// declaration variant after ensuring this.
+fn ensureLazyDecl(ir: *Ir, lazy: LazyDecl) Err!IndexOf(.decl) {
+    return switch (lazy) {
+        .decl => |decl| decl,
+        .def => |def| try typeOfDef(ir, def),
+    };
 }
 
 /// Returns whether or not the given value represents a type.
@@ -192,19 +219,23 @@ pub fn canCoerce(ir: *Ir, from: Index, to: Index) Err!TypeCoercion {
             return .NonCoercible;
         },
         .sum => |to_sum| {
+            // TODO: A sum type inside a sum type won't get coerced correctly, since it'll think it's trying to coerce all values instead of coerce into a single value.
             if (from_value == .sum) return canCoerceDeclMaps(ir, from_value.sum, to_sum);
 
             // TODO: When product type construction becomes an operator, this
-            //       will need to check for defs.
+            //       will need to check for decls.
             if (from_value != .product) return .NonCoercible;
-            const product = from_value.product;
+            const product: std.StringArrayHashMap(LazyDecl) = from_value.product;
 
-            if (product.values().len != 1) return .NonCoercible;
-            const decl = ir.atOf(.decl, product.values()[0]);
+            if (product.keys().len != 1) return .NonCoercible;
+            const decl_from_name = product.keys()[0];
 
             // Check that the single value is contained in this sum type.
-            if (to_sum.get(decl.name.substr(ir.src))) |decl_to| {
-                const can_coerce = try canCoerce(ir, product.values()[0].index, decl_to.index);
+            if (to_sum.getIndex(decl_from_name)) |decl_to_index| {
+                const decl_from_type = try typeOfMemberGivenIndex(ir, from, 0);
+                const decl_to_type = try typeOfMemberGivenIndex(ir, to, decl_to_index);
+
+                const can_coerce = try canCoerce(ir, decl_from_type.index, decl_to_type.index);
 
                 return if (can_coerce != .NonCoercible) .Coercible else .NonCoercible;
             } else return .NonCoercible;
@@ -214,19 +245,16 @@ pub fn canCoerce(ir: *Ir, from: Index, to: Index) Err!TypeCoercion {
 }
 
 /// Coercion semantics between maps of decls.
-fn canCoerceDeclMaps(ir: *Ir, from: std.StringArrayHashMap(IndexOf(.decl)), to: std.StringArrayHashMap(IndexOf(.decl))) Err!TypeCoercion {
+fn canCoerceDeclMaps(ir: *Ir, from: std.StringArrayHashMap(LazyDecl), to: std.StringArrayHashMap(LazyDecl)) Err!TypeCoercion {
     if (from.values().len != to.values().len) return .NonCoercible;
 
     var must_coerce = false;
 
-    for (to.values()) |to_decl_index| {
-        const to_decl: *Ir.ir.Decl = ir.atOf(.decl, to_decl_index);
-        const to_decl_name = to_decl.name.substr(ir.src);
+    for (to.keys(), to.values()) |key, value| {
+        const from_decl = try ensureLazyDecl(ir, from.get(key) orelse return .NonCoercible);
+        const to_decl = try ensureLazyDecl(ir, value);
 
-        const from_decl_index = from.get(to_decl_name) orelse return .NonCoercible;
-        const from_decl: *Ir.ir.Decl = ir.atOf(.decl, from_decl_index);
-
-        const can_coerce = try canCoerce(ir, from_decl.type, to_decl.type);
+        const can_coerce = try canCoerce(ir, from_decl.index, to_decl.index);
 
         switch (can_coerce) {
             .NonCoercible => return .NonCoercible,
@@ -295,8 +323,8 @@ fn softEvalDereference(ir: *Ir, index: Index) Err!Index {
         .pointer => |ptr| {
             // Make a shallow copy of the value that is pointed to
 
-            const def_value_index = try defValueCoerce(ir, ptr.index);
-            
+            const def_value_index = try defValueCoerce(ir, ptr);
+
             return try shallowCopy(ir, def_value_index);
         },
         else => ir.fail(.{ .dereferenced_non_pointer = .{
@@ -398,8 +426,8 @@ pub fn shallowCopy(ir: *Ir, index: Index) Err!Index {
 
 /// Tries to coerce a def to its type, returning an error if impossible, and the
 /// value otherwise. This will calculate its type.
-fn defValueCoerce(ir: *Ir, index: Index) Err!Index {
-    var def = ir.at(.expr, index).def;
+fn defValueCoerce(ir: *Ir, index: IndexOf(.def)) Err!Index {
+    var def = ir.atOf(.def, index);
 
     // If there's no explicit type, no coercion is necessary.
     if (def.type == null) return def.value;
@@ -414,11 +442,11 @@ fn defValueCoerce(ir: *Ir, index: Index) Err!Index {
 
     // Otherwise, try to coerce.
     const from = try eval(ir, try typeOf(ir, def.value));
-    const to = try eval(ir, ir.at(.expr, index).def.type.?);
+    const to = try eval(ir, ir.atOf(.def, index).type.?);
 
     const can_coerce = try canCoerce(ir, from, to);
 
-    const def_value = ir.at(.expr, index).def.value;
+    const def_value = ir.atOf(.def, index).value;
 
     return switch (can_coerce) {
         .NonCoercible => ir.fail(.{ .cannot_coerce = .{
@@ -432,7 +460,7 @@ fn defValueCoerce(ir: *Ir, index: Index) Err!Index {
                 .type = to,
             } }, ir.at(.range, def_value).*);
 
-            ir.at(.expr, index).def.value = coerce;
+            ir.atOf(.def, index).value = coerce;
             return coerce;
         },
         .Equal => def_value,

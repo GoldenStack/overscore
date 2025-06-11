@@ -54,14 +54,22 @@ pub const ir = struct {
         type: Index,
     };
 
+    /// Represents a declaration that may or may not have its type computed yet.
+    /// This is primarily for cases of product types calculated from fields, and
+    /// prevents dependency loop issues.
+    pub const LazyDecl = union(enum) {
+        decl: IndexOf(.decl),
+        def: IndexOf(.def),
+    };
+
     pub const Expr = union(Tag) {
         pub const Tag = enum { word, word_type, def, decl, product, sum, pointer_type, type, container, pointer, dereference, parentheses, member_access, coerce };
         word: u32,
         word_type,
         def: Def,
         decl: Decl,
-        product: std.StringArrayHashMap(IndexOf(.decl)),
-        sum: std.StringArrayHashMap(IndexOf(.decl)),
+        product: std.StringArrayHashMap(LazyDecl),
+        sum: std.StringArrayHashMap(LazyDecl),
         pointer_type: Index,
         type,
         container: Container,
@@ -166,8 +174,8 @@ pub fn convertExpr(self: *@This(), expr: Ranged(ast.Expr)) Err!Index {
     return index;
 }
 
-fn convertDefList(self: *@This(), exprs: std.ArrayList(Ranged(ast.Expr)), range: Range) Err!std.StringArrayHashMap(IndexOf(.decl)) {
-    var out_exprs = std.StringArrayHashMap(IndexOf(.decl)).init(self.allocator);
+fn convertDefList(self: *@This(), exprs: std.ArrayList(Ranged(ast.Expr)), range: Range) Err!std.StringArrayHashMap(ir.LazyDecl) {
+    var out_exprs = std.StringArrayHashMap(ir.LazyDecl).init(self.allocator);
 
     for (exprs.items) |item| {
         const expr = try self.convertExpr(item);
@@ -182,14 +190,21 @@ fn convertDefList(self: *@This(), exprs: std.ArrayList(Ranged(ast.Expr)), range:
         const name = self.atOf(.decl, decl_expr).name.substr(self.src);
 
         if (out_exprs.get(name)) |existing_expr| return self.fail(.{ .duplicate_member = .{
-            .declared = self.atOf(.decl, existing_expr).name,
+            .declared = self.lazyDeclName(existing_expr),
             .redeclared = self.atOf(.decl, decl_expr).name,
         } });
 
-        try out_exprs.put(name, decl_expr);
+        try out_exprs.put(name, .{ .decl = decl_expr });
     }
 
     return out_exprs;
+}
+
+fn lazyDeclName(self: *@This(), lazy: ir.LazyDecl) Range {
+    return switch (lazy) {
+        .decl => |decl| self.atOf(.decl, decl).name,
+        .def => |def| self.atOf(.def, def).name,
+    };
 }
 
 fn convertExprPtr(self: *@This(), expr: Ranged(*ast.Expr)) Err!Index {
@@ -355,17 +370,17 @@ pub fn printExpr(self: *@This(), index: Index, writer: anytype) anyerror!void {
         .type => try writer.writeAll("type"),
         .product => |decls| {
             try writer.writeAll("(");
-            for (0.., decls.values()) |i, decl| {
+            for (0.., decls.values()) |i, lazy| {
                 if (i != 0) try writer.writeAll(" ** ");
-                try self.printExpr(decl.index, writer);
+                try self.printLazyDecl(lazy, writer);
             }
             try writer.writeAll(")");
         },
         .sum => |decls| {
             try writer.writeAll("(");
-            for (0.., decls.values()) |i, decl| {
+            for (0.., decls.values()) |i, lazy| {
                 if (i != 0) try writer.writeAll(" ++ ");
-                try self.printExpr(decl.index, writer);
+                try self.printLazyDecl(lazy, writer);
             }
             try writer.writeAll(")");
         },
@@ -402,6 +417,16 @@ pub fn printExpr(self: *@This(), index: Index, writer: anytype) anyerror!void {
     }
 }
 
-pub fn printRange(self: *@This(), range: tokenizer.Range, writer: anytype) anyerror!void {
+fn printLazyDecl(self: *@This(), lazy: ir.LazyDecl, writer: anytype) anyerror!void {
+    return switch (lazy) {
+        .decl => |decl| try self.printExpr(decl.index, writer),
+        .def => |def| {
+            try writer.writeAll("lazy ");
+            try self.printExpr(def.index, writer);
+        }
+    };
+}
+
+fn printRange(self: *@This(), range: tokenizer.Range, writer: anytype) anyerror!void {
     try writer.writeAll(range.substr(self.src));
 }
