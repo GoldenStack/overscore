@@ -271,116 +271,69 @@ fn canCoerceDeclMaps(ir: *Ir, from: std.StringArrayHashMap(LazyDecl), to: std.St
 /// Evaluates the given expression. This must be known within the current
 /// context; if not, it will error.
 pub fn eval(ir: *Ir, index: Index) Err!Index {
-    const result = try softEval(ir, index);
-
-    // TODO: Hard evaluation entails calling functions and doing anything that
-    //       may be "destructive". However, nothing like this currently exists,
-    //       so we can just return it directly.
-    if (!isEvaluated(ir, result)) unreachable;
-
     try markEval(ir, index);
-    defer ir.at(.evaluating, index).* = false;
-
-    return result;
-}
-
-/// Evaluates the given expression as far as possible without any "destructive"
-/// actions. This helps namespace resolution and helps simplify expressions
-/// without messing with the AST at all. It's also useful for
-///
-/// For example, this is able to evaluate expressions like
-/// `container { const x = 5; }.x`, but does not error on expressions that
-/// depend on unknown variables.
-pub fn softEval(ir: *Ir, index: Index) Err!Index {
-    ir.at(.evaluating, index).* = true;
     defer ir.at(.evaluating, index).* = false;
 
     // TODO: When relying on the value of a def, we need to check its type.
     return switch (ir.at(.expr, index).*) {
         .word, .word_type, .decl, .product, .sum, .pointer_type, .type, .pointer, .def, .container => index,
 
-        .parentheses => |parens| parens,
-        .dereference => try softEvalDereference(ir, index),
-        .member_access => try softEvalMemberAccess(ir, index),
-        .coerce => try softEvalCoerce(ir, index),
+        .parentheses => |parens| try eval(ir, parens),
+        .dereference => try evalDereference(ir, .{ .index = index }),
+        .member_access => try evalMemberAccess(ir, .{ .index = index }),
+        .coerce => try evalCoerce(ir, .{ .index = index }),
     };
 }
 
-/// Makes a shallow copy of the variable that is pointed to.
-fn softEvalDereference(ir: *Ir, index: Index) Err!Index {
-    const left_raw = ir.at(.expr, index).dereference;
+/// Makes a shallow copy of the definition that is pointed to, resulting in the
+/// value of the definition.
+fn evalDereference(ir: *Ir, index: IndexOf(.dereference)) Err!Index {
+    const deref = ir.atOf(.dereference, index).*;
+    const value = try eval(ir, deref);
 
-    // Try to soft evaluate the left side.
-    //   If it's a pointer, continue
-    //   If it's not fully evaluated, exit
-    //   if it's fully evaluated but not a pointer (all other cases), fail.
-
-    const left = try softEval(ir, left_raw);
-
-    if (!isEvaluated(ir, left)) return index;
-
-    return switch (ir.at(.expr, left).*) {
-        .pointer => |ptr| {
-            // Make a shallow copy of the value that is pointed to
-
-            const def_value_index = try defValueCoerce(ir, ptr);
-
-            return try shallowCopy(ir, def_value_index);
-        },
+    return switch (ir.at(.expr, value).*) {
+        .pointer => |def| try shallowCopy(ir, try eval(ir, try defValueCoerce(ir, def))),
         else => ir.fail(.{ .dereferenced_non_pointer = .{
-            .expr = ir.at(.range, index).*,
-            .type = exprToString(ir, try typeOf(ir, left)),
+            .expr = ir.at(.range, index.index).*,
+            .type = exprToString(ir, try typeOf(ir, value)),
         } }),
     };
 }
 
-/// Returns the value of member access. Assumes the given index points to member
-/// access. This supports access via pointers.
-fn softEvalMemberAccess(ir: *Ir, index: Index) Err!Index {
-    const access = ir.at(.expr, index).member_access;
+/// Definition/declaration access, product type elimination, and unsafe sum type
+/// elimination. Supports access through pointers.
+fn evalMemberAccess(ir: *Ir, index: IndexOf(.member_access)) Err!Index {
+    const member_access = ir.atOf(.member_access, index);
+    const container = try eval(ir, member_access.container);
 
-    return switch (ir.at(.expr, access.container).*) {
+    return switch (ir.at(.expr, container).*) {
         .pointer => |def| {
-            const def_value = ir.atOf(.def, def).value;
+            const def_value = try eval(ir, try defValueCoerce(ir, def));
 
-            if (ir.at(.expr, def_value).* != .container) return ir.fail(.{ .unsupported_member_access = .{
-                .type = exprToString(ir, try typeOf(ir, access.container)),
-                .member = access.member,
-            } });
+            const member = try evalMemberAccessRaw(ir, def_value, member_access.member);
 
-            const member = try softEvalMemberAccessRaw(ir, def_value, access.member);
-
-            return try ir.push(.{ .pointer = .{ .index = member } }, ir.at(.range, index).*);
+            return try ir.push(.{ .pointer = member }, ir.at(.range, index.index).*);
         },
-        .container => {
-            const member = try softEvalMemberAccessRaw(ir, access.container, access.member);
+        else => {
+            const member = try evalMemberAccessRaw(ir, container, member_access.member);
 
-            const value = ir.at(.expr, member).def.value;
-
-            return try softEval(ir, value);
+            return ir.atOf(.def, member).value;
         },
-        else => ir.fail(.{ .unsupported_member_access = .{
-            .type = exprToString(ir, access.container),
-            .member = access.member,
-        } }),
     };
 }
 
-/// Returns the value of the member of a container. This assumes the index
-/// points to a container.
-fn softEvalMemberAccessRaw(ir: *Ir, index: Index, member: Range) Err!Index {
-    const left = try softEval(ir, index);
-
-    if (!isEvaluated(ir, left)) return index;
-
-    if (ir.at(.expr, left).* != .container) return ir.fail(.{ .unsupported_member_access = .{
-        .type = exprToString(ir, try typeOf(ir, left)),
+/// Finds a member on a container (will be expanded in the future). This assumes
+/// the index points to an evaluated expression.
+fn evalMemberAccessRaw(ir: *Ir, index: Index, member: Range) Err!IndexOf(.def) {
+    if (ir.at(.expr, index).* != .container) return ir.fail(.{ .unsupported_member_access = .{
+        .type = exprToString(ir, try typeOf(ir, index)),
         .member = member,
     } });
 
     const key = member.substr(ir.src);
-    const def = ir.at(.expr, left).container.defs.get(key) orelse return ir.fail(.{ .unknown_member = .{
-        .container = ir.at(.range, left).*,
+
+    const def = ir.at(.expr, index).container.defs.get(key) orelse return ir.fail(.{ .unknown_member = .{
+        .container = ir.at(.range, index).*,
         .member = member,
     } });
 
@@ -389,24 +342,20 @@ fn softEvalMemberAccessRaw(ir: *Ir, index: Index, member: Range) Err!Index {
         .member = member,
     } });
 
-    return def.index;
+    return def;
 }
 
-/// Coerces a value to another type. Assumes the index points to a coercion.
-fn softEvalCoerce(ir: *Ir, index: Index) Err!Index {
-    // Exit if the coerced value cannot be evaluated
-    const coerce = ir.at(.expr, index).coerce;
-
-    const coerce_value = try softEval(ir, coerce.expr);
-    if (!isEvaluated(ir, coerce_value)) return index;
+/// Coerces a value to another type.
+fn evalCoerce(ir: *Ir, index: IndexOf(.coerce)) Err!Index {
+    const coerce = ir.atOf(.coerce, index);
 
     // Make a shallow copy before coercion
-    const value_copy = try shallowCopy(ir, coerce_value);
+    const expr = try shallowCopy(ir, try eval(ir, coerce.expr));
+    
+    // Since coercion currently doesn't change the value itself, we just change the type (for now)
+    ir.at(.type, expr).* = ir.atOf(.coerce, index).type;
 
-    // Since coercion currently can't change the value itself, we just change the expression type
-    ir.at(.type, value_copy).* = ir.at(.expr, index).coerce.type;
-
-    return value_copy;
+    return expr;
 }
 
 /// Returns whether or not the given value is fully evaluated.
