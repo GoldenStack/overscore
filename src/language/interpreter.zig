@@ -66,7 +66,15 @@ fn typeOfContainer(ir: *Ir, index: Index) Err!Index {
 
     var iterator = container.defs.iterator();
     while (iterator.next()) |entry| {
-        try decls.putNoClobber(entry.key_ptr.*, .{ .def = entry.value_ptr.* });
+        const def_index = entry.value_ptr.*;
+
+        // Use its type if it already exists
+        const lazy: LazyDecl = if (ir.at(.type, def_index.index).*) |def_type|
+            .{ .decl = .{ .index = def_type } } // Safe to convert because tag(type(def)) is always decl.
+        else
+            .{ .def = def_index };
+
+        try decls.putNoClobber(entry.key_ptr.*, lazy);
     }
 
     // TODO: Change typeOfDef to returning IndexOf(.decl)
@@ -270,29 +278,68 @@ fn canCoerceDeclMaps(ir: *Ir, from: std.StringArrayHashMap(LazyDecl), to: std.St
 
 /// Evaluates the given expression. This must be known within the current
 /// context; if not, it will error.
-pub fn eval(ir: *Ir, index: Index) Err!Index {
+pub fn eval(ir: *Ir, index: Index, comptime deep: bool) Err!Index {
     try markEval(ir, index);
     defer ir.at(.evaluating, index).* = false;
 
-    // TODO: When relying on the value of a def, we need to check its type.
-    return switch (ir.at(.expr, index).*) {
-        .word, .word_type, .decl, .product, .sum, .pointer_type, .type, .pointer, .def, .container => index,
+    if (deep) switch (ir.at(.expr, index).*) {
+        .product => |product| for (product.values()) |*value| {
+            value.* = .{ .decl = try ensureLazyDecl(ir, value.*) };
+        },
 
-        .parentheses => |parens| try eval(ir, parens),
-        .dereference => try evalDereference(ir, .{ .index = index }),
-        .member_access => try evalMemberAccess(ir, .{ .index = index }),
-        .coerce => try evalCoerce(ir, .{ .index = index }),
+        .sum => |sum| for (sum.values()) |*value| {
+            value.* = .{ .decl = try ensureLazyDecl(ir, value.*) };
+        },
+
+        .decl => |decl| ir.at(.expr, index).decl.type = try eval(ir, decl.type, deep),
+        .pointer_type => |ptr| ir.at(.expr, index).pointer_type = try eval(ir, ptr, deep),
+        .pointer => |ptr| _ = try evalDef(ir, ptr, deep),
+
+        .def => _ = try evalDef(ir, .{ .index = index }, deep),
+
+        .container => |container| {
+            for (container.defs.values()) |def| _ = try evalDef(ir, def, deep);
+
+            // Since deep evaluating the defs also deep evaluates their types,
+            // we can do normal shallow typeOf for this.
+            _ = try typeOf(ir, index);
+        },
+
+        else => {},
     };
+
+    return switch (ir.at(.expr, index).*) {
+        .parentheses => |parens| try eval(ir, parens, deep),
+        .dereference => try evalDereference(ir, .{ .index = index }, deep),
+        .member_access => try evalMemberAccess(ir, .{ .index = index }, deep),
+        .coerce => try evalCoerce(ir, .{ .index = index }, deep),
+
+        .word, .word_type, .type => index,
+        else => index, // Expressions that only get evaluated when deep = true
+    };
+}
+
+/// Evaluates a definition. This does nothing if deep is false, since there's no
+/// other way to depend on a definition itself (instead of its value).
+fn evalDef(ir: *Ir, index: IndexOf(.def), comptime deep: bool) Err!IndexOf(.def) {
+    if (deep) {
+        const def_value = try eval(ir, try defValueCoerce(ir, index), deep);
+
+        ir.atOf(.def, index).value = def_value;
+        ir.at(.type, index.index).* = try eval(ir, try typeOf(ir, def_value), deep);
+    }
+
+    return index;
 }
 
 /// Makes a shallow copy of the definition that is pointed to, resulting in the
 /// value of the definition.
-fn evalDereference(ir: *Ir, index: IndexOf(.dereference)) Err!Index {
+fn evalDereference(ir: *Ir, index: IndexOf(.dereference), comptime deep: bool) Err!Index {
     const deref = ir.atOf(.dereference, index).*;
-    const value = try eval(ir, deref);
+    const value = try eval(ir, deref, deep);
 
     return switch (ir.at(.expr, value).*) {
-        .pointer => |def| try shallowCopy(ir, try eval(ir, try defValueCoerce(ir, def))),
+        .pointer => |def| try shallowCopy(ir, try eval(ir, try defValueCoerce(ir, def), deep)),
         else => ir.fail(.{ .dereferenced_non_pointer = .{
             .expr = ir.at(.range, index.index).*,
             .type = exprToString(ir, try typeOf(ir, value)),
@@ -302,20 +349,20 @@ fn evalDereference(ir: *Ir, index: IndexOf(.dereference)) Err!Index {
 
 /// Definition/declaration access, product type elimination, and unsafe sum type
 /// elimination. Supports access through pointers.
-fn evalMemberAccess(ir: *Ir, index: IndexOf(.member_access)) Err!Index {
+fn evalMemberAccess(ir: *Ir, index: IndexOf(.member_access), comptime deep: bool) Err!Index {
     const member_access = ir.atOf(.member_access, index);
-    const container = try eval(ir, member_access.container);
+    const container = try eval(ir, member_access.container, false);
 
     return switch (ir.at(.expr, container).*) {
         .pointer => |def| {
-            const def_value = try eval(ir, try defValueCoerce(ir, def));
+            const def_value = try eval(ir, try defValueCoerce(ir, def), false);
 
-            const member = try evalMemberAccessRaw(ir, def_value, member_access.member);
+            const member = try evalMemberAccessRaw(ir, def_value, member_access.member, deep);
 
             return try ir.push(.{ .pointer = member }, ir.at(.range, index.index).*);
         },
         else => {
-            const member = try evalMemberAccessRaw(ir, container, member_access.member);
+            const member = try evalMemberAccessRaw(ir, container, member_access.member, deep);
 
             return ir.atOf(.def, member).value;
         },
@@ -324,7 +371,7 @@ fn evalMemberAccess(ir: *Ir, index: IndexOf(.member_access)) Err!Index {
 
 /// Finds a member on a container (will be expanded in the future). This assumes
 /// the index points to an evaluated expression.
-fn evalMemberAccessRaw(ir: *Ir, index: Index, member: Range) Err!IndexOf(.def) {
+fn evalMemberAccessRaw(ir: *Ir, index: Index, member: Range, comptime deep: bool) Err!IndexOf(.def) {
     if (ir.at(.expr, index).* != .container) return ir.fail(.{ .unsupported_member_access = .{
         .type = exprToString(ir, try typeOf(ir, index)),
         .member = member,
@@ -342,16 +389,16 @@ fn evalMemberAccessRaw(ir: *Ir, index: Index, member: Range) Err!IndexOf(.def) {
         .member = member,
     } });
 
-    return def;
+    return if (deep) try evalDef(ir, def, deep) else def;
 }
 
 /// Coerces a value to another type.
-fn evalCoerce(ir: *Ir, index: IndexOf(.coerce)) Err!Index {
+fn evalCoerce(ir: *Ir, index: IndexOf(.coerce), comptime deep: bool) Err!Index {
     const coerce = ir.atOf(.coerce, index);
 
     // Make a shallow copy before coercion
-    const expr = try shallowCopy(ir, try eval(ir, coerce.expr));
-    
+    const expr = try shallowCopy(ir, try eval(ir, coerce.expr, deep));
+
     // Since coercion currently doesn't change the value itself, we just change the type (for now)
     ir.at(.type, expr).* = ir.atOf(.coerce, index).type;
 
@@ -390,8 +437,8 @@ fn defValueCoerce(ir: *Ir, index: IndexOf(.def)) Err!Index {
     def.type_checked = true;
 
     // Otherwise, try to coerce.
-    const from = try eval(ir, try typeOf(ir, def.value));
-    const to = try eval(ir, ir.atOf(.def, index).type.?);
+    const from = try eval(ir, try typeOf(ir, def.value), false);
+    const to = try eval(ir, ir.atOf(.def, index).type.?, false);
 
     const can_coerce = try canCoerce(ir, from, to);
 
@@ -415,6 +462,18 @@ fn defValueCoerce(ir: *Ir, index: IndexOf(.def)) Err!Index {
         .Equal => def_value,
     };
 }
+
+/// Evaluates all comptime code that must be run during comptime (types) and
+/// recursively type-checks the entire expression and all of its dependencies.
+///
+/// This essentially fully evaluates all types, executes comptime code, etc.,
+/// until the code resembles some sort of C-like form, wherein the types of each
+/// expression are fully evaluated and types are no longer stored as values
+/// anywhere. If any types depend on runtime operations, this will fail.
+// pub fn runComptimeAndFullyTypeCheck(ir: *Ir, index: Index) Err!Index {
+//     // deep evaluates all type expressions.
+
+// }
 
 pub fn markEval(ir: *Ir, index: Index) Err!void {
     const evaluating = ir.at(.evaluating, index);

@@ -35,9 +35,8 @@ pub fn main() !void {
 
     // Evaluate the 'main' variable in the IR
     const main_index = ir.at(.expr, container_index).container.defs.get("main") orelse @panic("No main expression found!");
-    const t = interpreter.typeOf(&ir, main_index.index) catch |err| return handle_error(err, ir);
-    // interpreter.evalDef(main_index) catch |err| return handle_error(err, interpreter);
-    const main_value = interpreter.eval(&ir, ir.atOf(.def, main_index).value) catch |err| return handle_error(err, ir);
+    const main_type = interpreter.typeOf(&ir, main_index.index) catch |err| return handle_error(err, ir);
+    const main_value = interpreter.eval(&ir, main_index.index, true) catch |err| return handle_error(err, ir);
 
     // for (0..ir.values.len) |i| {
     //     const index: Ir.Index = .{ .index = i };
@@ -49,10 +48,8 @@ pub fn main() !void {
     // }
 
     // Print the output IR
-    try ir.printExpr(t, stdout);
+    try ir.printExpr(main_type, stdout);
     std.debug.print("\n", .{});
-    try ir.printExpr(main_index.index, stdout);
-    try stdout.writeByte('\n');
     try ir.printExpr(main_value, stdout);
     std.debug.print("\n", .{});
 
