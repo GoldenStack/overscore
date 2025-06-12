@@ -463,18 +463,6 @@ fn defValueCoerce(ir: *Ir, index: IndexOf(.def)) Err!Index {
     };
 }
 
-/// Evaluates all comptime code that must be run during comptime (types) and
-/// recursively type-checks the entire expression and all of its dependencies.
-///
-/// This essentially fully evaluates all types, executes comptime code, etc.,
-/// until the code resembles some sort of C-like form, wherein the types of each
-/// expression are fully evaluated and types are no longer stored as values
-/// anywhere. If any types depend on runtime operations, this will fail.
-// pub fn runComptimeAndFullyTypeCheck(ir: *Ir, index: Index) Err!Index {
-//     // deep evaluates all type expressions.
-
-// }
-
 pub fn markEval(ir: *Ir, index: Index) Err!void {
     const evaluating = ir.at(.evaluating, index);
 
