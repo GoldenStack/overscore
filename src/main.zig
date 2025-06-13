@@ -38,15 +38,6 @@ pub fn main() !void {
     const main_type = interpreter.typeOf(&ir, main_index.index) catch |err| return handle_error(err, ir);
     const main_value = interpreter.eval(&ir, main_index.index, .deep) catch |err| return handle_error(err, ir);
 
-    // for (0..ir.values.len) |i| {
-    //     const index: Ir.Index = .{ .index = i };
-
-    //     if (ir.at(.type, index).* == null) continue;
-    //     std.debug.print("{s} is ", .{ir.at(.range, index).substr(src)});
-    //     try ir.printExpr(ir.at(.type, index).*.?, stdout);
-    //     std.debug.print("\n", .{});
-    // }
-
     // Print the output IR
     try ir.printExpr(main_type, stdout);
     std.debug.print("\n", .{});
