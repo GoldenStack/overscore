@@ -36,7 +36,7 @@ pub fn main() !void {
     // Evaluate the 'main' variable in the IR
     const main_index = ir.at(.expr, container_index).container.defs.get("main") orelse @panic("No main expression found!");
     const main_type = interpreter.typeOf(&ir, main_index.index) catch |err| return handle_error(err, ir);
-    const main_value = interpreter.eval(&ir, main_index.index, true) catch |err| return handle_error(err, ir);
+    const main_value = interpreter.eval(&ir, main_index.index, .deep) catch |err| return handle_error(err, ir);
 
     // for (0..ir.values.len) |i| {
     //     const index: Ir.Index = .{ .index = i };
