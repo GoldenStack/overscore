@@ -129,7 +129,6 @@ fn typeOfMemberAccessRaw(ir: *Ir, index: Index, member: Range) Err!Index {
     const product: std.StringArrayHashMap(LazyDecl) = ir.at(.expr, index).product;
 
     if (product.getIndex(member.substr(ir.src))) |member_index| {
-
         const value = product.values()[member_index];
         if (value == .def) {
             const def = ir.atOf(.def, value.def);

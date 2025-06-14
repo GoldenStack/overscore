@@ -423,7 +423,7 @@ fn printLazyDecl(self: *@This(), lazy: ir.LazyDecl, writer: anytype) anyerror!vo
         .def => |def| {
             try writer.writeAll("lazy ");
             try self.printExpr(def.index, writer);
-        }
+        },
     };
 }
 
