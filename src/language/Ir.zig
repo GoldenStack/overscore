@@ -63,7 +63,7 @@ pub const ir = struct {
     };
 
     pub const Expr = union(Tag) {
-        pub const Tag = enum { word, word_type, def, decl, product, sum, pointer_type, type, container, pointer, dereference, parentheses, member_access, coerce };
+        pub const Tag = enum { word, word_type, def, decl, product, sum, pointer_type, type, container, pointer, dereference, member_access, coerce };
         word: u32,
         word_type,
         def: Def,
@@ -75,7 +75,6 @@ pub const ir = struct {
         container: Container,
         pointer: IndexOf(.def),
         dereference: Index,
-        parentheses: Index,
         member_access: struct {
             container: Index,
             member: Range,
@@ -398,11 +397,6 @@ pub fn printExpr(self: *@This(), index: Index, writer: anytype) anyerror!void {
         .dereference => |deref| {
             try self.printExpr(deref, writer);
             try writer.writeAll(".*");
-        },
-        .parentheses => |parens| {
-            try writer.writeByte('(');
-            try self.printExpr(parens, writer);
-            try writer.writeByte(')');
         },
         .member_access => |member| {
             try self.printExpr(member.container, writer);

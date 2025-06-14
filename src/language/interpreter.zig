@@ -29,7 +29,6 @@ pub fn typeOf(ir: *Ir, index: Index) Err!Index {
         .word_type, .decl, .product, .sum, .pointer_type, .type => ir.push(.type, ir.at(.range, index).*),
 
         .pointer => |ptr| ir.push(.{ .pointer_type = try typeOf(ir, try defValueCoerce(ir, ptr)) }, ir.at(.range, index).*),
-        .parentheses => |parens| typeOf(ir, parens),
 
         .def => (try typeOfDef(ir, .{ .index = index })).index,
         .container => typeOfContainer(ir, index),
@@ -310,7 +309,6 @@ pub fn eval(ir: *Ir, index: Index, comptime depth: Depth) Err!Index {
     };
 
     return switch (ir.at(.expr, index).*) {
-        .parentheses => |parens| try eval(ir, parens, depth),
         .dereference => try evalDereference(ir, .{ .index = index }, depth),
         .member_access => try evalMemberAccess(ir, .{ .index = index }, depth),
         .coerce => try evalCoerce(ir, .{ .index = index }, depth),
