@@ -226,7 +226,7 @@ pub const Error = union(enum) {
             .mixed_precedence => |mixed| {
                 try prefix(filename, mixed.expr, .err, writer);
                 try writer.print("parentheses are required to disambiguate confusing operator precedence with operator {s}\n" ++ Unbold, .{mixed.operator.substr(src)});
-                try pointTo(src, mixed.expr, writer);
+                try pointTo(src, mixed.operator, writer);
             },
             .can_only_multiply_or_add_decls => |can| {
                 try prefix(filename, can.invalid_field, .err, writer);
