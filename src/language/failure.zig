@@ -69,13 +69,13 @@ pub const Error = union(enum) {
     },
 
     /// Tried to access a member of a container that doesn't exist.
-    unknown_member: struct {
-        container: Range, // TODO: Point to the original type declaration, e.g. `product {}`.
+    unknown_member: struct { // TODO: Also point to type declaration if it exists
+        type: []const u8,
         member: Range, // TODO: Point to the entire member access, e.g. `a.b`.
     },
 
     /// Tried to access the member of a container, but it was private.
-    private_member: struct {
+    private_member: struct { // TODO: Also point to type declaration if it exists
         declaration: Range,
         member: Range, // TODO: Point to the entire member access, e.g. `a.b`.
     },
@@ -200,14 +200,8 @@ pub const Error = union(enum) {
             },
             .unknown_member => |unknown| {
                 try prefix(filename, unknown.member, .err, writer);
-                // TODO: Add name of container
-                try writer.print("container has no member named '{s}'\n" ++ Unbold, .{unknown.member.substr(src)});
+                try writer.print("no member named '{s}' on type '{s}'\n" ++ Unbold, .{ unknown.member.substr(src), unknown.type });
                 try pointTo(src, unknown.member, writer);
-
-                // TODO: Point to the actual container creation instead of the (nearly useless) left half of the expression.
-                try prefix(filename, unknown.container, .note, writer);
-                try writer.print("container declared here\n" ++ Unbold, .{});
-                try pointTo(src, unknown.container, writer);
             },
             .private_member => |private| {
                 try prefix(filename, private.member, .err, writer);

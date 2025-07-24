@@ -110,11 +110,11 @@ fn typeOfMemberAccess(ir: *Ir, index: Index) Err!Index {
                 .member = access.member,
             } });
 
-            const member = try typeOfMemberAccessRaw(ir, ptr, access.member);
+            const member = ir.atOf(.decl, try typeOfMember(ir, ptr, access.member)).type;
 
             return try ir.push(.{ .pointer_type = member }, ir.at(.range, index).*);
         },
-        .product => typeOfMemberAccessRaw(ir, left_type, access.member),
+        .product => ir.atOf(.decl, try typeOfMember(ir, left_type, access.member)).type,
         else => ir.fail(.{ .unsupported_member_access = .{
             .type = exprToString(ir, left_type),
             .member = access.member,
@@ -122,43 +122,43 @@ fn typeOfMemberAccess(ir: *Ir, index: Index) Err!Index {
     };
 }
 
-/// Returns the type of the member of a field. This assumes the index points
-/// to a product type.
-fn typeOfMemberAccessRaw(ir: *Ir, index: Index, member: Range) Err!Index {
-    const product: std.StringArrayHashMap(LazyDecl) = ir.at(.expr, index).product;
-
-    if (product.getIndex(member.substr(ir.src))) |member_index| {
-        const value = product.values()[member_index];
-        if (value == .def) {
-            const def = ir.atOf(.def, value.def);
-
-            // Make sure a private definition isn't being accessed
-            // TODO: Checking here means that only the first privacy check
-            // works, since it's erased after.
-            if (def.access == .private) return ir.fail(.{ .private_member = .{
-                .declaration = def.name,
-                .member = member,
-            } });
-        }
-
-        const decl = try typeOfMemberGivenIndex(ir, index, member_index);
-        return ir.atOf(.decl, decl).type;
-    } else return ir.fail(.{ .unknown_member = .{
-        .container = ir.at(.range, index).*,
+/// Returns the member of a compound type definition given by the provided
+/// name. Essentially, this returns a type of a field of a struct/enum given
+/// its type.
+fn typeOfMember(ir: *Ir, index: Index, member: Range) Err!IndexOf(.decl) {
+    const members: std.StringArrayHashMap(LazyDecl) = getExprMembers(ir, index) orelse return ir.fail(.{ .unsupported_member_access = .{
+        .type = exprToString(ir, index),
         .member = member,
     } });
+
+    const member_index = members.getIndex(member.substr(ir.src)) orelse return ir.fail(.{ .unknown_member = .{
+        .type = exprToString(ir, index),
+        .member = member,
+    } });
+
+    // TODO: Reimplement private definitions.
+
+    return typeOfMemberGivenIndex(ir, index, member_index);
 }
 
-fn typeOfMemberGivenIndex(ir: *Ir, index: Index, member_index: usize) Err!IndexOf(.decl) {
-    return switch (ir.at(.expr, index).product.values()[member_index]) {
+/// Unsafely gets the type of a member, given its index.
+fn typeOfMemberGivenIndex(ir: *Ir, index: Index, member: usize) Err!IndexOf(.decl) {
+    return switch (getExprMembers(ir, index).?.values()[member]) {
         .decl => |decl| decl,
-        .def => |def_index| {
-            const def_type = try typeOfDef(ir, def_index);
+        .def => |def| {
+            const def_type = try typeOfDef(ir, def);
 
-            ir.at(.expr, index).product.values()[member_index] = .{ .decl = def_type };
+            getExprMembers(ir, index).?.values()[member] = .{ .decl = def_type };
 
             return def_type;
         },
+    };
+}
+
+fn getExprMembers(ir: *Ir, index: Index) ?std.StringArrayHashMap(LazyDecl) {
+    return switch (ir.at(.expr, index).*) {
+        inline .product, .sum => |mems| mems,
+        else => null,
     };
 }
 
@@ -185,6 +185,16 @@ pub fn isType(ir: *Ir, index: Index) bool {
 /// Expects that the given index points to a type, erroring if not.
 pub fn expectType(ir: *Ir, index: Index) Err!void {
     if (!isType(ir, index)) return ir.fail(.{ .expected_type_expression = ir.at(.range, index).* });
+}
+
+/// Returns whether or not an expression needs to be evaluated during comptime.
+/// This is always true for anything for which `isType` returns true, but may
+/// also be true for any other arbitrary expressions.
+pub fn isComptime(ir: *Ir, index: Index) Err!bool {
+    // TODO: Should pointers to types also be comptime?
+    const @"type" = try typeOf(ir, index);
+
+    return ir.at(.expr, @"type").* == .type;
 }
 
 // Type coercion
@@ -379,7 +389,7 @@ fn evalMemberAccessRaw(ir: *Ir, index: Index, member: Range, comptime depth: Dep
     const key = member.substr(ir.src);
 
     const def = ir.at(.expr, index).container.defs.get(key) orelse return ir.fail(.{ .unknown_member = .{
-        .container = ir.at(.range, index).*,
+        .type = exprToString(ir, try typeOf(ir, index)),
         .member = member,
     } });
 
@@ -459,6 +469,83 @@ fn defValueCoerce(ir: *Ir, index: IndexOf(.def)) Err!Index {
             return coerce;
         },
         .Equal => def_value,
+    };
+}
+
+// at best = fully evaluates
+// at worst = type checks
+// so when we're fully evaluating it's fine, but when we're type checking we need to recurse
+
+/// Evaluates all comptime code that must be run during comptime (types) and
+/// recursively type-checks the entire expression and all of its dependencies.
+///
+/// This essentially fully evaluates all types, executes comptime code, etc.,
+/// until the code resembles some sort of C-like form, wherein the types of each
+/// expression are fully evaluated and types are no longer stored as values
+/// anywhere. If any types depend on runtime operations, this will fail.
+/// TODO: These docs are wrong. It just recursively does stuff.
+pub fn runComptimeAndFullyTypeCheck(ir: *Ir, index: Index) Err!Index {
+    const @"type" = try typeOf(ir, index); // Ensure types are evaluated
+    ir.at(.type, index).* = try eval(ir, @"type", .deep);
+
+    if (isComptime(ir, index)) return try eval(ir, index, .deep);
+
+    return switch (ir.at(.expr, index).*) {
+        .word_type, .decl, .product, .sum, .pointer_type, .type => unreachable, // Types are always comptime
+
+        // For non-comptime expressions:
+
+        // Recursively analyse base expressions
+        .pointer => |def| try runComptimeAndFullyTypeCheck(ir, def.index),
+        .def => |def| try runComptimeAndFullyTypeCheck(ir, def.value),
+        .container => |container| for (0..container.defs.count()) |i| {
+            // TODO
+            _ = i;
+            // problem: return a copy of the container that ideally has comptime code run
+            // issue: we have to create a copy of the container
+            // ok idc
+            // try runComptimeAndFullyTypeCheck(ir: *Ir, index: Index)
+            // ir.at(.expr, index).container.defs.values()[i]
+        },
+
+        // TODO: Why don't we just pass it on via runComptimeAndFullyTypeCheck? I guess because we want to eliminate all uses of these comptime variables.
+        // ok so there are kinda two things, eval comptime and eliminate dependencies on comptime variables.
+
+        .dereference => |deref| {
+            return try if (try isComptime(ir, deref))
+                eval(ir, index, .deep)
+            else
+                runComptimeAndFullyTypeCheck(ir, deref);
+        },
+
+        // if member is comptime, which is true if the whole container is comptime or even if just the field is.
+        // surely this can be accounted for in just one case right?
+        .member_access => |access| {
+            return try if (try isComptime(
+                ir,
+            ))
+                eval(ir, index, .deep)
+            else
+                runComptimeAndFullyTypeCheck(ir, access.container);
+        },
+
+        // ok the issue with member access is that if you access a member that's a type, who cares? like the type is just being passed around
+        // wait no isComptime is also propagated via typeOf. so it works until it's not a type anymore
+        // shouldnt isComptime also propagate? if x is comptime then x.y is comptime, and if x.y is comptime then @tag(x.y) is comptime?? wait where does it end then
+        // ok so binary expressions aren't propagated. and eventually unary expressions have got to end.
+        // so: how does isComptime propagate?
+        // ok i mean, there's a difference between *can* be evaluated at compile time vs HAS to be evaluated during comptime.
+        // i'm just evaluating everything that HAS to.
+
+        .coerce => |coerce| {
+            return try if (try isComptime(ir, coerce.expr))
+                eval(ir, index, .deep)
+            else
+                runComptimeAndFullyTypeCheck(ir, coerce.expr);
+        },
+
+        // Nothing to do for word
+        .word => index,
     };
 }
 

@@ -1,6 +1,13 @@
-pub const main = container {
-    pub const y: *word = other.b.*;
-}.y.*;
+pub const main999: MainType.* = main2.*;
+
+pub const MainType: type = (y: word ++ x: **word);
+
+pub const main2 = container { const y = 2; };
+
+pub const main: (y: word ++ x: **word) = main999.*;
+
+//pub const main = (y: word ++ x: *word ** z: **word);
+//other.b.*.*;
 
 pub const other = container {
     pub const aa: ***word = bb;
