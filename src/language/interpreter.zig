@@ -187,16 +187,6 @@ pub fn expectType(ir: *Ir, index: Index) Err!void {
     if (!isType(ir, index)) return ir.fail(.{ .expected_type_expression = ir.at(.range, index).* });
 }
 
-/// Returns whether or not an expression needs to be evaluated during comptime.
-/// This is always true for anything for which `isType` returns true, but may
-/// also be true for any other arbitrary expressions.
-pub fn isComptime(ir: *Ir, index: Index) Err!bool {
-    // TODO: Should pointers to types also be comptime?
-    const @"type" = try typeOf(ir, index);
-
-    return ir.at(.expr, @"type").* == .type;
-}
-
 // Type coercion
 
 pub const TypeCoercion = enum {
@@ -469,83 +459,6 @@ fn defValueCoerce(ir: *Ir, index: IndexOf(.def)) Err!Index {
             return coerce;
         },
         .Equal => def_value,
-    };
-}
-
-// at best = fully evaluates
-// at worst = type checks
-// so when we're fully evaluating it's fine, but when we're type checking we need to recurse
-
-/// Evaluates all comptime code that must be run during comptime (types) and
-/// recursively type-checks the entire expression and all of its dependencies.
-///
-/// This essentially fully evaluates all types, executes comptime code, etc.,
-/// until the code resembles some sort of C-like form, wherein the types of each
-/// expression are fully evaluated and types are no longer stored as values
-/// anywhere. If any types depend on runtime operations, this will fail.
-/// TODO: These docs are wrong. It just recursively does stuff.
-pub fn runComptimeAndFullyTypeCheck(ir: *Ir, index: Index) Err!Index {
-    const @"type" = try typeOf(ir, index); // Ensure types are evaluated
-    ir.at(.type, index).* = try eval(ir, @"type", .deep);
-
-    if (isComptime(ir, index)) return try eval(ir, index, .deep);
-
-    return switch (ir.at(.expr, index).*) {
-        .word_type, .decl, .product, .sum, .pointer_type, .type => unreachable, // Types are always comptime
-
-        // For non-comptime expressions:
-
-        // Recursively analyse base expressions
-        .pointer => |def| try runComptimeAndFullyTypeCheck(ir, def.index),
-        .def => |def| try runComptimeAndFullyTypeCheck(ir, def.value),
-        .container => |container| for (0..container.defs.count()) |i| {
-            // TODO
-            _ = i;
-            // problem: return a copy of the container that ideally has comptime code run
-            // issue: we have to create a copy of the container
-            // ok idc
-            // try runComptimeAndFullyTypeCheck(ir: *Ir, index: Index)
-            // ir.at(.expr, index).container.defs.values()[i]
-        },
-
-        // TODO: Why don't we just pass it on via runComptimeAndFullyTypeCheck? I guess because we want to eliminate all uses of these comptime variables.
-        // ok so there are kinda two things, eval comptime and eliminate dependencies on comptime variables.
-
-        .dereference => |deref| {
-            return try if (try isComptime(ir, deref))
-                eval(ir, index, .deep)
-            else
-                runComptimeAndFullyTypeCheck(ir, deref);
-        },
-
-        // if member is comptime, which is true if the whole container is comptime or even if just the field is.
-        // surely this can be accounted for in just one case right?
-        .member_access => |access| {
-            return try if (try isComptime(
-                ir,
-            ))
-                eval(ir, index, .deep)
-            else
-                runComptimeAndFullyTypeCheck(ir, access.container);
-        },
-
-        // ok the issue with member access is that if you access a member that's a type, who cares? like the type is just being passed around
-        // wait no isComptime is also propagated via typeOf. so it works until it's not a type anymore
-        // shouldnt isComptime also propagate? if x is comptime then x.y is comptime, and if x.y is comptime then @tag(x.y) is comptime?? wait where does it end then
-        // ok so binary expressions aren't propagated. and eventually unary expressions have got to end.
-        // so: how does isComptime propagate?
-        // ok i mean, there's a difference between *can* be evaluated at compile time vs HAS to be evaluated during comptime.
-        // i'm just evaluating everything that HAS to.
-
-        .coerce => |coerce| {
-            return try if (try isComptime(ir, coerce.expr))
-                eval(ir, index, .deep)
-            else
-                runComptimeAndFullyTypeCheck(ir, coerce.expr);
-        },
-
-        // Nothing to do for word
-        .word => index,
     };
 }
 
