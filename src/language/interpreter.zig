@@ -186,7 +186,10 @@ pub fn isType(ir: *Ir, index: Index) bool {
 
 /// Expects that the given index points to a type, erroring if not.
 pub fn expectType(ir: *Ir, index: Index) Err!void {
-    if (!isType(ir, index)) return ir.fail(.{ .expected_type_expression = ir.at(.range, index).* });
+    if (!isType(ir, index)) return ir.fail(.{ .expected_type_expression = .{
+        .has_wrong_type = ir.at(.range, index).*,
+        .found_type = exprToString(ir, try typeOf(ir, index)),
+    } });
 }
 
 // Type coercion

@@ -4,7 +4,7 @@ pub const MainType: type = (y: word ++ x: **word);
 
 pub const main2 = container { const y = 2; };
 
-pub const main: (y: word ++ x: **word) = main999.*;
+pub const main: MainType.* = main999.*;
 
 //pub const main = (y: word ++ x: *word ** z: **word);
 //other.b.*.*;

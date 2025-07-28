@@ -59,7 +59,10 @@ pub const Error = union(enum) {
     },
 
     /// Expected a type expression, but found something that isn't a type.
-    expected_type_expression: Range,
+    expected_type_expression: struct {
+        has_wrong_type: Range,
+        found_type: []const u8,
+    },
 
     /// Tried to access the member of an instance of a type that doesn't support
     /// member access.
@@ -189,9 +192,9 @@ pub const Error = union(enum) {
                 try pointTo(src, mis.expected_type_declared, writer);
             },
             .expected_type_expression => |exp| {
-                try prefix(filename, exp, .err, writer);
-                try writer.writeAll("expected type expression, but found a value that isn't a type\n" ++ Unbold);
-                try pointTo(src, exp, writer);
+                try prefix(filename, exp.has_wrong_type, .err, writer);
+                try writer.print("expected type expression, but found a value with type '{s}' instead\n" ++ Unbold, .{ exp.found_type });
+                try pointTo(src, exp.has_wrong_type, writer);
             },
             .unsupported_member_access => |access| {
                 try prefix(filename, access.member, .err, writer);
