@@ -83,7 +83,9 @@ fn typeOfContainer(ir: *Ir, index: Index) Err!Index {
 
 /// Returns the type of a dereference. Assumes the given index is a dereference.
 fn typeOfDereference(ir: *Ir, index: Index) Err!Index {
-    const derefed = ir.at(.expr, index).dereference;
+    // Force a copy of the dereference to manually fix Zig's pass-by-value autoref in case of aliasing, which we have.
+    const derefed_temp = ir.at(.expr, index).*;
+    const derefed = (&derefed_temp.dereference).*;
 
     const derefed_type = try typeOf(ir, derefed);
 
@@ -422,7 +424,9 @@ pub fn shallowCopy(ir: *Ir, index: Index) Err!Index {
 /// Tries to coerce a def to its type, returning an error if impossible, and the
 /// value otherwise. This will calculate its type.
 fn defValueCoerce(ir: *Ir, index: IndexOf(.def)) Err!Index {
-    var def = ir.atOf(.def, index);
+    // Force a copy of the def to manually fix Zig's pass-by-value autoref in case of aliasing, which we have.
+    const def_temp = ir.atOf(.def, index).*;
+    const def = (&def_temp).*;
 
     // If there's no explicit type, no coercion is necessary.
     if (def.type == null) return def.value;
@@ -433,7 +437,7 @@ fn defValueCoerce(ir: *Ir, index: IndexOf(.def)) Err!Index {
     // Sets it immediately, so theoretically could convince the type checker
     // that it's completed, which would have problems if expression
     // self-dependency were not already handled.
-    def.type_checked = true;
+    ir.atOf(.def, index).type_checked = true;
 
     // Otherwise, try to coerce.
     const from = try eval(ir, try typeOf(ir, def.value), .shallow);
