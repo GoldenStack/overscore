@@ -279,103 +279,60 @@ fn canCoerceDeclMaps(ir: *Ir, from: std.StringArrayHashMap(LazyDecl), to: std.St
 
 // Evaluation
 
-pub const Depth = enum { shallow, deep };
+/// Evaluates an expression until a value is returned. This value is not
+/// guaranteed to be deeply evaluated.
+pub fn eval(ir: *Ir, index: Index) Err!Index {
+    return fmapExpr(.{
+        .filter = isEvaluable,
+        .map = evalOnce,
+        .order = .bottomUp,
+    }, ir, index);
+}
 
-/// Evaluates the given expression. This must be known within the current
-/// context; if not, it will error.
-pub fn eval(ir: *Ir, index: Index, comptime depth: Depth) Err!Index {
+fn isEvaluable(ir: *Ir, index: Index) bool {
+    return switch (ir.at(.expr, index).*) {
+        .dereference, .member_access, .coerce => true,
+        .word, .word_type, .def, .decl, .product, .sum, .pointer_type, .type, .container, .pointer => false,
+    };
+}
+
+fn evalOnce(ir: *Ir, index: Index) Err!Index {
     try markEval(ir, index);
     defer ir.at(.evaluating, index).* = false;
 
-    if (depth == .deep) switch (ir.at(.expr, index).*) {
-        .product => |product| for (product.values()) |*value| {
-            value.* = .{ .decl = try ensureLazyDecl(ir, value.*) };
-        },
-
-        .sum => |sum| for (sum.values()) |*value| {
-            value.* = .{ .decl = try ensureLazyDecl(ir, value.*) };
-        },
-
-        .decl => |decl| ir.at(.expr, index).decl.type = try eval(ir, decl.type, depth),
-        .pointer_type => |ptr| ir.at(.expr, index).pointer_type = try eval(ir, ptr, depth),
-        .pointer => |ptr| _ = try evalDef(ir, ptr, depth),
-
-        .def => _ = try evalDef(ir, .{ .index = index }, depth),
-
-        .container => |container| {
-            for (container.defs.values()) |def| _ = try evalDef(ir, def, depth);
-
-            // Since deep evaluating the defs also deep evaluates their types,
-            // we can do normal shallow typeOf for this.
-            _ = try typeOf(ir, index);
-        },
-
-        else => {},
-    };
-
     return switch (ir.at(.expr, index).*) {
-        .dereference => try evalDereference(ir, .{ .index = index }, depth),
-        .member_access => try evalMemberAccess(ir, .{ .index = index }, depth),
-        .coerce => try evalCoerce(ir, .{ .index = index }, depth),
 
-        .word, .word_type, .type => index,
-        else => index, // Expressions that only get evaluated when .deep
-    };
-}
-
-/// Evaluates a definition. This does nothing if depth is shallow, since there's
-/// no other way to depend on a definition itself (instead of its value).
-fn evalDef(ir: *Ir, index: IndexOf(.def), comptime depth: Depth) Err!IndexOf(.def) {
-    if (depth == .deep) {
-        const def_value = try eval(ir, try defValueCoerce(ir, index), depth);
-
-        ir.atOf(.def, index).value = def_value;
-        ir.at(.type, index.index).* = try eval(ir, try typeOf(ir, def_value), depth);
-    }
-
-    return index;
-}
-
-/// Makes a shallow copy of the definition that is pointed to, resulting in the
-/// value of the definition.
-fn evalDereference(ir: *Ir, index: IndexOf(.dereference), comptime depth: Depth) Err!Index {
-    const deref = ir.atOf(.dereference, index).*;
-    const value = try eval(ir, deref, depth);
-
-    return switch (ir.at(.expr, value).*) {
-        .pointer => |def| try shallowCopy(ir, try eval(ir, try defValueCoerce(ir, def), depth)),
-        else => ir.fail(.{ .dereferenced_non_pointer = .{
-            .expr = ir.at(.range, index.index).*,
-            .type = exprToString(ir, try typeOf(ir, value)),
-        } }),
-    };
-}
-
-/// Definition/declaration access, product type elimination, and unsafe sum type
-/// elimination. Supports access through pointers.
-fn evalMemberAccess(ir: *Ir, index: IndexOf(.member_access), comptime depth: Depth) Err!Index {
-    const member_access = ir.atOf(.member_access, index);
-    const container = try eval(ir, member_access.container, .shallow);
-
-    return switch (ir.at(.expr, container).*) {
-        .pointer => |def| {
-            const def_value = try eval(ir, try defValueCoerce(ir, def), .shallow);
-
-            const member = try evalMemberAccessRaw(ir, def_value, member_access.member, depth);
-
-            return try ir.push(.{ .pointer = member }, ir.at(.range, index.index).*);
+        .dereference => |deref| try switch (ir.at(.expr, deref).*) {
+            .pointer => |def| shallowCopy(ir, try defValueCoerce(ir, def)),
+            else => ir.fail(.{ .dereferenced_non_pointer = .{
+                .expr = ir.at(.range, index).*,
+                .type = exprToString(ir, try typeOf(ir, deref)),
+            } }),
         },
-        else => {
-            const member = try evalMemberAccessRaw(ir, container, member_access.member, depth);
 
-            return ir.atOf(.def, member).value;
+        .member_access => |access| try switch (ir.at(.expr, access.container).*) {
+            .pointer => |def| {
+                const def_value = try defValueCoerce(ir, def);
+
+                const member = try evalMemberAccessRaw(ir, def_value, access.member);
+
+                return try ir.push(.{ .pointer = member }, ir.at(.range, index).*);
+            },
+            else => {
+                const member = try evalMemberAccessRaw(ir, access.container, access.member);
+
+                return ir.atOf(.def, member).value;
+            },
         },
+
+        .coerce => try evalCoerce(ir, .{ .index = index }),
+
+        else => unreachable, // Cannot evaluate non-basic expressions!
     };
 }
 
-/// Finds a member on a container (will be expanded in the future). This assumes
-/// the index points to an evaluated expression.
-fn evalMemberAccessRaw(ir: *Ir, index: Index, member: Range, comptime depth: Depth) Err!IndexOf(.def) {
+/// Finds a member on a container.
+fn evalMemberAccessRaw(ir: *Ir, index: Index, member: Range) Err!IndexOf(.def) {
     if (ir.at(.expr, index).* != .container) return ir.fail(.{ .unsupported_member_access = .{
         .type = exprToString(ir, try typeOf(ir, index)),
         .member = member,
@@ -393,28 +350,20 @@ fn evalMemberAccessRaw(ir: *Ir, index: Index, member: Range, comptime depth: Dep
         .member = member,
     } });
 
-    return if (depth == .deep) try evalDef(ir, def, depth) else def;
+    return def;
 }
 
 /// Coerces a value to another type.
-fn evalCoerce(ir: *Ir, index: IndexOf(.coerce), comptime depth: Depth) Err!Index {
+fn evalCoerce(ir: *Ir, index: IndexOf(.coerce)) Err!Index {
     const coerce = ir.atOf(.coerce, index);
 
     // Make a shallow copy before coercion
-    const expr = try shallowCopy(ir, try eval(ir, coerce.expr, depth));
+    const expr = try shallowCopy(ir, coerce.expr);
 
     // Since coercion currently doesn't change the value itself, we just change the type (for now)
     ir.at(.type, expr).* = ir.atOf(.coerce, index).type;
 
     return expr;
-}
-
-/// Returns whether or not the given value is fully evaluated.
-pub fn isEvaluated(ir: *Ir, index: Index) bool {
-    return switch (ir.at(.expr, index).*) {
-        .word, .word_type, .def, .decl, .product, .sum, .pointer_type, .type, .container, .pointer => true,
-        else => false,
-    };
 }
 
 /// Makes a shallow copy of the given expression.
@@ -443,8 +392,8 @@ fn defValueCoerce(ir: *Ir, index: IndexOf(.def)) Err!Index {
     ir.atOf(.def, index).type_checked = true;
 
     // Otherwise, try to coerce.
-    const from = try eval(ir, try typeOf(ir, def.value), .shallow);
-    const to = try eval(ir, ir.atOf(.def, index).type.?, .shallow);
+    const from = try eval(ir, try typeOf(ir, def.value));
+    const to = try eval(ir, ir.atOf(.def, index).type.?);
 
     const can_coerce = try canCoerce(ir, from, to);
 
@@ -467,6 +416,74 @@ fn defValueCoerce(ir: *Ir, index: IndexOf(.def)) Err!Index {
         },
         .Equal => def_value,
     };
+}
+
+pub const FmapContext = struct {
+    filter: fn(*Ir, Index) bool,
+    map: fn(*Ir, Index) Err!Index,
+    order: enum { topDown, bottomUp },
+};
+
+/// Copy-on-write recursive application of mapping operations to an expression.
+pub fn fmapExpr(comptime context: FmapContext, ir: *Ir, index: Index) Err!Index {
+    if (!context.filter(ir, index)) return index;
+
+    const maybe_bottom_up = if (context.order == .bottomUp) try unopinionatedFmapExpr(context, ir, index) else index;
+
+    const mapped = try context.map(ir, try context.map(ir, maybe_bottom_up));
+
+    const maybe_top_down = if (context.order == .topDown) try unopinionatedFmapExpr(context, ir, mapped) else mapped;
+
+    return maybe_top_down;
+}
+
+inline fn unopinionatedFmapExpr(comptime context: FmapContext, ir: *Ir, index: Index) Err!Index {
+    // Make a copy of the initial value
+    var value = ir.at(.expr, index).*;
+
+    // Make any changes we need to
+    switch (value) {
+        .word, .word_type, .type => {},
+
+        .pointer_type => |*ptr| ptr.* = try fmapExpr(context, ir, ptr.*),
+        .dereference => |*deref| deref.* = try fmapExpr(context, ir, deref.*),
+
+        .def => |*def| def.value = try fmapExpr(context, ir, def.value), // TODO: Should the type also be mapped?
+        .decl => |*decl| decl.type = try fmapExpr(context, ir, decl.type),
+        .member_access => |*access| access.container = try fmapExpr(context, ir, access.container),
+        .pointer => |*ptr| ptr.index = try fmapExpr(context, ir, ptr.index),
+
+        .coerce => |*coerce| {
+            coerce.expr = try fmapExpr(context, ir, coerce.expr);
+            coerce.type = try fmapExpr(context, ir, coerce.type);
+        },
+
+        // TODO: It's an issue that we copy product/sum/container but not the
+        // underlying allocation, meaning that modifications to it do end up
+        // modifying global state. This will be fixed once ** and ++ become
+        // binary operations instead of pseudo-operations.
+
+        .container => |*container| {
+            for (container.defs.values()) |*def| {
+                def.index = try fmapExpr(context, ir, def.index);
+            }
+        },
+
+        .product, .sum => |decls| {
+            for (decls.values()) |*lazy| {
+                switch (lazy.*) {
+                    .def => |def| lazy.def.index = try fmapExpr(context, ir, def.index),
+                    .decl => |decl| lazy.decl.index = try fmapExpr(context, ir, decl.index),
+                }
+            }
+        },
+    }
+
+    // Push a new copy of the expression if a change was made.
+    return if (std.meta.eql(value, ir.at(.expr, index).*))
+        index
+    else
+        ir.push(value, ir.at(.range, index).*);
 }
 
 pub fn markEval(ir: *Ir, index: Index) Err!void {

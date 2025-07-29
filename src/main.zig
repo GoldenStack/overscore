@@ -35,12 +35,16 @@ pub fn main() !void {
 
     // Evaluate the 'main' variable in the IR
     const main_index = ir.at(.expr, container_index).container.defs.get("main") orelse @panic("No main expression found!");
-    const main_type = interpreter.typeOf(&ir, main_index.index) catch |err| return handle_error(err, ir);
-    const main_value = interpreter.eval(&ir, main_index.index, .deep) catch |err| return handle_error(err, ir);
 
-    // Print the output IR
+    // Type check main and print
+    const main_type = interpreter.typeOf(&ir, main_index.index) catch |err| return handle_error(err, ir);
     try ir.printExpr(main_type, stdout);
     std.debug.print("\n", .{});
+
+    // Evaluate main. Note that this should not be done if compiling; this is the intrepretation process.
+    const main_value = interpreter.eval(&ir, ir.atOf(.def, main_index).value) catch |err| return handle_error(err, &ir);
+
+    // Print the output IR
     try ir.printExpr(main_value, stdout);
     std.debug.print("\n", .{});
 
