@@ -282,7 +282,7 @@ fn canCoerceDeclMaps(ir: *Ir, from: std.StringArrayHashMap(LazyDecl), to: std.St
 /// Evaluates an expression until a value is returned. This value is not
 /// guaranteed to be deeply evaluated.
 pub fn eval(ir: *Ir, index: Index) Err!Index {
-    return fmapExpr(.{
+    return filterMapExpr(.{
         .filter = isEvaluable,
         .map = evalOnce,
         .order = .bottomUp,
@@ -418,26 +418,26 @@ fn defValueCoerce(ir: *Ir, index: IndexOf(.def)) Err!Index {
     };
 }
 
-pub const FmapContext = struct {
+pub const FilterMapContext = struct {
     filter: fn(*Ir, Index) bool,
     map: fn(*Ir, Index) Err!Index,
     order: enum { topDown, bottomUp },
 };
 
 /// Copy-on-write recursive application of mapping operations to an expression.
-pub fn fmapExpr(comptime context: FmapContext, ir: *Ir, index: Index) Err!Index {
+pub fn filterMapExpr(comptime context: FilterMapContext, ir: *Ir, index: Index) Err!Index {
     if (!context.filter(ir, index)) return index;
 
-    const maybe_bottom_up = if (context.order == .bottomUp) try unopinionatedFmapExpr(context, ir, index) else index;
+    const maybe_bottom_up = if (context.order == .bottomUp) try filterMapExprChildren(context, ir, index) else index;
 
     const mapped = try context.map(ir, try context.map(ir, maybe_bottom_up));
 
-    const maybe_top_down = if (context.order == .topDown) try unopinionatedFmapExpr(context, ir, mapped) else mapped;
+    const maybe_top_down = if (context.order == .topDown) try filterMapExprChildren(context, ir, mapped) else mapped;
 
     return maybe_top_down;
 }
 
-inline fn unopinionatedFmapExpr(comptime context: FmapContext, ir: *Ir, index: Index) Err!Index {
+inline fn filterMapExprChildren(comptime context: FilterMapContext, ir: *Ir, index: Index) Err!Index {
     // Make a copy of the initial value
     var value = ir.at(.expr, index).*;
 
@@ -445,17 +445,17 @@ inline fn unopinionatedFmapExpr(comptime context: FmapContext, ir: *Ir, index: I
     switch (value) {
         .word, .word_type, .type => {},
 
-        .pointer_type => |*ptr| ptr.* = try fmapExpr(context, ir, ptr.*),
-        .dereference => |*deref| deref.* = try fmapExpr(context, ir, deref.*),
+        .pointer_type => |*ptr| ptr.* = try filterMapExpr(context, ir, ptr.*),
+        .dereference => |*deref| deref.* = try filterMapExpr(context, ir, deref.*),
 
-        .def => |*def| def.value = try fmapExpr(context, ir, def.value), // TODO: Should the type also be mapped?
-        .decl => |*decl| decl.type = try fmapExpr(context, ir, decl.type),
-        .member_access => |*access| access.container = try fmapExpr(context, ir, access.container),
-        .pointer => |*ptr| ptr.index = try fmapExpr(context, ir, ptr.index),
+        .def => |*def| def.value = try filterMapExpr(context, ir, def.value), // TODO: Should the type also be mapped?
+        .decl => |*decl| decl.type = try filterMapExpr(context, ir, decl.type),
+        .member_access => |*access| access.container = try filterMapExpr(context, ir, access.container),
+        .pointer => |*ptr| ptr.index = try filterMapExpr(context, ir, ptr.index),
 
         .coerce => |*coerce| {
-            coerce.expr = try fmapExpr(context, ir, coerce.expr);
-            coerce.type = try fmapExpr(context, ir, coerce.type);
+            coerce.expr = try filterMapExpr(context, ir, coerce.expr);
+            coerce.type = try filterMapExpr(context, ir, coerce.type);
         },
 
         // TODO: It's an issue that we copy product/sum/container but not the
@@ -465,15 +465,15 @@ inline fn unopinionatedFmapExpr(comptime context: FmapContext, ir: *Ir, index: I
 
         .container => |*container| {
             for (container.defs.values()) |*def| {
-                def.index = try fmapExpr(context, ir, def.index);
+                def.index = try filterMapExpr(context, ir, def.index);
             }
         },
 
         .product, .sum => |decls| {
             for (decls.values()) |*lazy| {
                 switch (lazy.*) {
-                    .def => |def| lazy.def.index = try fmapExpr(context, ir, def.index),
-                    .decl => |decl| lazy.decl.index = try fmapExpr(context, ir, decl.index),
+                    .def => |def| lazy.def.index = try filterMapExpr(context, ir, def.index),
+                    .decl => |decl| lazy.decl.index = try filterMapExpr(context, ir, decl.index),
                 }
             }
         },
