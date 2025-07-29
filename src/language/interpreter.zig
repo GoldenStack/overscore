@@ -14,7 +14,7 @@ const LazyDecl = Ir.ir.LazyDecl;
 // Type inference
 
 /// Determines the type of the given value, caching it in the value and
-/// returning the index of the type.
+/// returning the index of the type. This also functions as a type check.
 pub fn typeOf(ir: *Ir, index: Index) Err!Index {
     // Check if the index already has a type
     if (ir.at(.type, index).*) |@"type"| return @"type";
