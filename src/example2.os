@@ -1,10 +1,10 @@
-pub const main999: MainType.* = main2.*;
+pub const main = main1->y.*;
 
-pub const MainType: type = (y: word ++ x: **word);
+pub const main1 = main2.*;
 
-pub const main2 = container { const y = 2; };
+pub const main2 = main3.*;
 
-pub const main: MainType.* = main999.*;
+pub const main3 = container { pub const y = 2; };
 
 //pub const main = (y: word ++ x: *word ** z: **word);
 //other.b.*.*;

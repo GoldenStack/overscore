@@ -42,6 +42,12 @@ pub const ast = struct {
         variable,
     };
 
+    /// The level of indirection of some data.
+    pub const Indirection = enum {
+        direct,
+        indirect,
+    };
+
     pub const Expr = union(enum) {
         /// The primitive value that the CPU can handle, an unsigned 32-bit integer.
         word: u32,
@@ -84,6 +90,7 @@ pub const ast = struct {
         member_access: struct {
             container: Ranged(*Expr),
             member: Ranged(Token),
+            indirection: Indirection,
         },
     };
 
@@ -165,7 +172,10 @@ pub const ast = struct {
             },
             .member_access => |member| {
                 try printExpr(src, member.container.value.*, writer);
-                try writer.writeByte('.');
+                try writer.writeAll(switch (member.indirection) {
+                    .direct => ".",
+                    .indirect => "->",
+                });
                 try printToken(src, member.member, writer);
             },
         }
@@ -324,7 +334,7 @@ fn composeExpr2(self: *@This()) Err!Ranged(ast.Expr) {
 
     while (true) {
         expr = sw: switch (self.peek().value) {
-            .period => try expr.mapExtend(self, readMemberAccess),
+            .period, .arrow => try expr.mapExtend(self, readMemberAccess),
             .period_asterisk => try expr.mapExtend(self, readDereference),
             .colon => {
                 if (expr.value != .ident) break :sw expr;
@@ -397,7 +407,7 @@ pub fn readExpr(self: *@This()) Err!Ranged(ast.Expr) {
 }
 
 fn readMemberAccess(self: *@This(), base: Ranged(ast.Expr)) Err!ast.Expr {
-    _ = try self.expect(.period);
+    const token = try self.expectMany(&.{ .period, .arrow });
 
     const member = try self.expect(.ident);
 
@@ -407,6 +417,11 @@ fn readMemberAccess(self: *@This(), base: Ranged(ast.Expr)) Err!ast.Expr {
     return .{ .member_access = .{
         .container = base.swap(ptr),
         .member = member,
+        .indirection = switch (token.value) {
+            .period => .direct,
+            .arrow => .indirect,
+            else => unreachable,
+        },
     } };
 }
 

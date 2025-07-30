@@ -33,7 +33,8 @@ pub fn typeOf(ir: *Ir, index: Index) Err!Index {
         .def => (try typeOfDef(ir, .{ .index = index })).index,
         .container => typeOfContainer(ir, index),
         .dereference => typeOfDereference(ir, index),
-        .member_access => typeOfMemberAccess(ir, index),
+        .member_access => |access| typeOfMemberAccess(ir, access),
+        .indirect_member_access => |access| typeOfIndirectMemberAccess(ir, access, index),
 
         .coerce => |coerce| coerce.type,
     };
@@ -98,30 +99,39 @@ fn typeOfDereference(ir: *Ir, index: Index) Err!Index {
     };
 }
 
-/// Returns the type of member access. Assumes the given index is member access.
-/// This supports access via pointers.
-fn typeOfMemberAccess(ir: *Ir, index: Index) Err!Index {
-    const access = ir.at(.expr, index).member_access;
+/// Returns the type of member access.
+fn typeOfMemberAccess(ir: *Ir, access: Ir.ir.MemberAccess) Err!Index {
+    const container_type = try typeOf(ir, access.container);
 
-    const left_type = try typeOf(ir, access.container);
-
-    return switch (ir.at(.expr, left_type).*) {
-        .pointer_type => |ptr| {
-            if (ir.at(.expr, ptr).* != .product) return ir.fail(.{ .unsupported_member_access = .{
-                .type = exprToString(ir, left_type),
-                .member = access.member,
-            } });
-
-            const member = ir.atOf(.decl, try typeOfMember(ir, ptr, access.member)).type;
-
-            return try ir.push(.{ .pointer_type = member }, ir.at(.range, index).*);
-        },
-        .product => ir.atOf(.decl, try typeOfMember(ir, left_type, access.member)).type,
+    return switch (ir.at(.expr, container_type).*) {
+        .product, .sum, .def => ir.atOf(.decl, try typeOfMember(ir, container_type, access.member)).type,
         else => ir.fail(.{ .unsupported_member_access = .{
-            .type = exprToString(ir, left_type),
+            .type = exprToString(ir, container_type),
             .member = access.member,
         } }),
     };
+}
+
+fn typeOfIndirectMemberAccess(ir: *Ir, access: Ir.ir.MemberAccess, parent: Index) Err!Index {
+    const container_type = try typeOf(ir, access.container);
+
+    const backing_type = switch (ir.at(.expr, container_type).*) {
+        .pointer_type => |ptr| ptr,
+        else => return ir.fail(.{ .unsupported_indirect_member_access = .{
+            .type = exprToString(ir, container_type),
+            .member = access.member,
+        } }),
+    };
+
+    const member_type = switch (ir.at(.expr, backing_type).*) {
+        .product, .sum, .def => ir.atOf(.decl, try typeOfMember(ir, backing_type, access.member)).type,
+        else => return ir.fail(.{ .unsupported_indirect_member_access = .{
+            .type = exprToString(ir, backing_type),
+            .member = access.member,
+        } }),
+    };
+
+    return try ir.push(.{ .pointer_type = member_type }, ir.at(.range, parent).*);
 }
 
 /// Returns the member of a compound type definition given by the provided
@@ -282,66 +292,77 @@ fn canCoerceDeclMaps(ir: *Ir, from: std.StringArrayHashMap(LazyDecl), to: std.St
 /// Evaluates an expression until a value is returned. This value is not
 /// guaranteed to be deeply evaluated.
 pub fn eval(ir: *Ir, index: Index) Err!Index {
-    return filterMapExpr(.{
-        .filter = isEvaluable,
-        .map = evalOnce,
-        .order = .bottomUp,
-    }, ir, index);
-}
-
-fn isEvaluable(ir: *Ir, index: Index) bool {
-    return switch (ir.at(.expr, index).*) {
-        .dereference, .member_access, .coerce => true,
-        .word, .word_type, .def, .decl, .product, .sum, .pointer_type, .type, .container, .pointer => false,
-    };
-}
-
-fn evalOnce(ir: *Ir, index: Index) Err!Index {
     try markEval(ir, index);
     defer ir.at(.evaluating, index).* = false;
 
-    return switch (ir.at(.expr, index).*) {
+    var new_index = index;
+    // Keep trying to evaluate while possible
+    while (isEvaluable(ir, new_index)) {
+        new_index = switch (ir.at(.expr, new_index).*) {
+            .dereference => try evalDereference(ir, .{ .index = new_index }),
 
-        .dereference => |deref| try switch (ir.at(.expr, deref).*) {
-            .pointer => |def| shallowCopy(ir, try defValueCoerce(ir, def)),
-            else => ir.fail(.{ .dereferenced_non_pointer = .{
-                .expr = ir.at(.range, index).*,
-                .type = exprToString(ir, try typeOf(ir, deref)),
-            } }),
-        },
+            .member_access => |access| try defValueCoerce(ir, try evalMemberAccess(ir, access, new_index)),
 
-        .member_access => |access| try switch (ir.at(.expr, access.container).*) {
-            .pointer => |def| {
-                const def_value = try defValueCoerce(ir, def);
+            .coerce => try evalCoerce(ir, .{ .index = new_index }),
 
-                const member = try evalMemberAccessRaw(ir, def_value, access.member);
+            else => new_index, // Nothing to evaluate
+        };
+    }
 
-                return try ir.push(.{ .pointer = member }, ir.at(.range, index).*);
-            },
-            else => {
-                const member = try evalMemberAccessRaw(ir, access.container, access.member);
+    return new_index;
+}
 
-                return ir.atOf(.def, member).value;
-            },
-        },
+fn evalDereference(ir: *Ir, deref: IndexOf(.dereference)) Err!Index {
+    const derefed = ir.atOf(.dereference, deref).*;
+    const derefed_eval = try eval(ir, derefed);
 
-        .coerce => try evalCoerce(ir, .{ .index = index }),
+    const def = switch (ir.at(.expr, derefed_eval).*) {
+        .pointer => |ptr| ptr,
+        .indirect_member_access => |access| try evalIndirectMemberAccess(ir, access, derefed_eval),
+        else => return ir.fail(.{ .dereferenced_non_pointer = .{
+            .expr = ir.at(.range, deref.index).*,
+            .type = exprToString(ir, try typeOf(ir, derefed_eval)),
+        } }),
+    };
 
-        else => unreachable, // Cannot evaluate non-basic expressions!
+    return try shallowCopy(ir, try defValueCoerce(ir, def));
+}
+
+/// Finds a member on a container that exists behind a level of indirection.
+/// This does not wrap it with a pointer.
+fn evalIndirectMemberAccess(ir: *Ir, member_access: Ir.ir.MemberAccess, parent: Index) Err!IndexOf(.def) {
+    const container = try eval(ir, member_access.container);
+
+    return switch (ir.at(.expr, container).*) {
+        .pointer => |ptr| try evalMemberAccess(ir, .{
+            .container = try defValueCoerce(ir, ptr),
+            .member = member_access.member,
+        }, parent),
+        else => ir.fail(.{ .unsupported_indirect_member_access = .{
+            .type = exprToString(ir, try typeOf(ir, container)),
+            .member = member_access.member,
+        } }),
     };
 }
 
 /// Finds a member on a container.
-fn evalMemberAccessRaw(ir: *Ir, index: Index, member: Range) Err!IndexOf(.def) {
-    if (ir.at(.expr, index).* != .container) return ir.fail(.{ .unsupported_member_access = .{
-        .type = exprToString(ir, try typeOf(ir, index)),
-        .member = member,
-    } });
+fn evalMemberAccess(ir: *Ir, member_access: Ir.ir.MemberAccess, parent: Index) Err!IndexOf(.def) {
+    const container = try eval(ir, member_access.container);
+    const member = member_access.member;
 
     const key = member.substr(ir.src);
 
-    const def = ir.at(.expr, index).container.defs.get(key) orelse return ir.fail(.{ .unknown_member = .{
-        .type = exprToString(ir, try typeOf(ir, index)),
+    const maybe_def: ?IndexOf(.def) = switch (ir.at(.expr, container).*) {
+        .container => |cont| cont.defs.get(key),
+        .def => |def| if (std.mem.eql(u8, key, def.name.substr(ir.src))) .{ .index = container } else null,
+        else => return ir.fail(.{ .unsupported_member_access = .{
+            .type = exprToString(ir, try typeOf(ir, container)),
+            .member = member,
+        } }),
+    };
+
+    const def = maybe_def orelse return ir.fail(.{ .unknown_member = .{
+        .type = exprToString(ir, try typeOf(ir, parent)),
         .member = member,
     } });
 
@@ -351,6 +372,13 @@ fn evalMemberAccessRaw(ir: *Ir, index: Index, member: Range) Err!IndexOf(.def) {
     } });
 
     return def;
+}
+
+fn isEvaluable(ir: *Ir, index: Index) bool {
+    return switch (ir.at(.expr, index).*) {
+        .dereference, .member_access, .coerce => true,
+        .word, .word_type, .def, .decl, .product, .sum, .pointer_type, .type, .container, .pointer, .indirect_member_access => false,
+    };
 }
 
 /// Coerces a value to another type.

@@ -113,6 +113,7 @@ pub const Token = enum {
     period_asterisk,
     // TODO: asterisk_asterisk?
     plus_plus,
+    arrow,
 
     // Kewords
     @"pub",
@@ -204,6 +205,12 @@ pub const Tokenizer = struct {
                 if (self.peekChar() == '+') {
                     _ = self.nextChar();
                     return .plus_plus;
+                } else return .ident;
+            },
+            '-' => {
+                if (self.peekChar() == '>') {
+                    _ = self.nextChar();
+                    return .arrow;
                 } else return .ident;
             },
 

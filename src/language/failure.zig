@@ -71,6 +71,13 @@ pub const Error = union(enum) {
         member: Range, // TODO: Point to the entire member access, e.g. `a.b`.
     },
 
+    /// Tried to access a pointer to the member of an instance of a type that
+    /// isn't a pointer to something that supports member access.
+    unsupported_indirect_member_access: struct {
+        type: []const u8,
+        member: Range, // TODO: Point to the entire member access, e.g. `a.b`.
+    },
+
     /// Tried to access a member of a container that doesn't exist.
     unknown_member: struct { // TODO: Also point to type declaration if it exists
         type: []const u8,
@@ -193,12 +200,17 @@ pub const Error = union(enum) {
             },
             .expected_type_expression => |exp| {
                 try prefix(filename, exp.has_wrong_type, .err, writer);
-                try writer.print("expected type expression, but found a value with type '{s}' instead\n" ++ Unbold, .{ exp.found_type });
+                try writer.print("expected type expression, but found a value with type '{s}' instead\n" ++ Unbold, .{exp.found_type});
                 try pointTo(src, exp.has_wrong_type, writer);
             },
             .unsupported_member_access => |access| {
                 try prefix(filename, access.member, .err, writer);
                 try writer.print("expression of type '{s}' does not support member access \n" ++ Unbold, .{access.type});
+                try pointTo(src, access.member, writer);
+            },
+            .unsupported_indirect_member_access => |access| {
+                try prefix(filename, access.member, .err, writer);
+                try writer.print("expected a pointer to a type that supports member access, but found expression of type '{s}'\n" ++ Unbold, .{access.type});
                 try pointTo(src, access.member, writer);
             },
             .unknown_member => |unknown| {

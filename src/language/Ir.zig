@@ -62,8 +62,13 @@ pub const ir = struct {
         def: IndexOf(.def),
     };
 
+    pub const MemberAccess = struct {
+        container: Index,
+        member: Range,
+    };
+
     pub const Expr = union(Tag) {
-        pub const Tag = enum { word, word_type, def, decl, product, sum, pointer_type, type, container, pointer, dereference, member_access, coerce };
+        pub const Tag = enum { word, word_type, def, decl, product, sum, pointer_type, type, container, pointer, dereference, member_access, indirect_member_access, coerce };
         word: u32,
         word_type,
         def: Def,
@@ -75,10 +80,8 @@ pub const ir = struct {
         container: Container,
         pointer: IndexOf(.def),
         dereference: Index,
-        member_access: struct {
-            container: Index,
-            member: Range,
-        },
+        member_access: MemberAccess,
+        indirect_member_access: MemberAccess,
         coerce: struct {
             expr: Index,
             type: Index,
@@ -158,10 +161,16 @@ pub fn convertExpr(self: *@This(), expr: Ranged(ast.Expr)) Err!Index {
         .dereference => |deref| .{ .dereference = try self.convertExprPtr(deref) },
         .parentheses => |parens| continue :value parens.value.*,
 
-        .member_access => |access| .{ .member_access = .{
-            .container = try self.convertExprPtr(access.container),
-            .member = access.member.range,
-        } },
+        .member_access => |access| switch (access.indirection) {
+            .direct => .{ .member_access = .{
+                .container = try self.convertExprPtr(access.container),
+                .member = access.member.range,
+            } },
+            .indirect => .{ .indirect_member_access = .{
+                .container = try self.convertExprPtr(access.container),
+                .member = access.member.range,
+            } },
+        },
 
         .container => |container| {
             try self.convertContainer(container, index);
@@ -401,6 +410,11 @@ pub fn printExpr(self: *@This(), index: Index, writer: anytype) anyerror!void {
         .member_access => |member| {
             try self.printExpr(member.container, writer);
             try writer.writeByte('.');
+            try self.printRange(member.member, writer);
+        },
+        .indirect_member_access => |member| {
+            try self.printExpr(member.container, writer);
+            try writer.writeAll("->");
             try self.printRange(member.member, writer);
         },
         .coerce => |coerce| {
