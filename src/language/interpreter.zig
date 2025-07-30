@@ -447,8 +447,8 @@ fn defValueCoerce(ir: *Ir, index: IndexOf(.def)) Err!Index {
 }
 
 pub const FilterMapContext = struct {
-    filter: fn(*Ir, Index) bool,
-    map: fn(*Ir, Index) Err!Index,
+    filter: fn (*Ir, Index) bool,
+    map: fn (*Ir, Index) Err!Index,
     order: enum { topDown, bottomUp },
 };
 
@@ -465,7 +465,7 @@ pub fn filterMapExpr(comptime context: FilterMapContext, ir: *Ir, index: Index) 
     return maybe_top_down;
 }
 
-inline fn filterMapExprChildren(comptime context: FilterMapContext, ir: *Ir, index: Index) Err!Index {
+fn filterMapExprChildren(comptime context: FilterMapContext, ir: *Ir, index: Index) Err!Index {
     // Make a copy of the initial value
     var value = ir.at(.expr, index).*;
 
