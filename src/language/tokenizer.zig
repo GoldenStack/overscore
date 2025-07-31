@@ -119,9 +119,6 @@ pub const Token = enum {
     @"pub",
     @"const",
     @"var",
-    container,
-    product,
-    sum,
     word,
     type,
 
@@ -267,11 +264,8 @@ pub const Tokenizer = struct {
             .{ "pub", .@"pub" },
             .{ "const", .@"const" },
             .{ "var", .@"var" },
-            .{ "container", .container },
             .{ "word", .word },
             .{ "type", .type },
-            .{ "product", .product },
-            .{ "sum", .sum },
         });
 
         if (token.value == .ident) if (tags.get(token.range.substr(self.src))) |new_token| {

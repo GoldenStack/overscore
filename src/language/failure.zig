@@ -109,6 +109,12 @@ pub const Error = union(enum) {
         typedef: Range,
     },
 
+    /// You can only cons definitions.
+    can_only_cons_definitions: struct {
+        invalid_field: Range,
+        typedef: Range,
+    },
+
     /// Cannot coerce one type to another type.
     cannot_coerce: struct {
         from: []const u8,
@@ -224,6 +230,15 @@ pub const Error = union(enum) {
             .can_only_multiply_or_add_decls => |can| {
                 try prefix(filename, can.invalid_field, .err, writer);
                 try writer.writeAll("can only multiply or add declarations\n" ++ Unbold);
+                try pointTo(src, can.invalid_field, writer);
+
+                try prefix(filename, can.typedef, .note, writer);
+                try writer.writeAll("type declared here\n" ++ Unbold);
+                try pointTo(src, can.typedef, writer);
+            },
+            .can_only_cons_definitions => |can| {
+                try prefix(filename, can.invalid_field, .err, writer);
+                try writer.writeAll("can only cons definitions\n" ++ Unbold);
                 try pointTo(src, can.invalid_field, writer);
 
                 try prefix(filename, can.typedef, .note, writer);

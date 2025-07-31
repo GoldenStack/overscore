@@ -152,6 +152,7 @@ pub fn convertExpr(self: *@This(), expr: Ranged(ast.Expr)) Err!Index {
 
         .word => |word| .{ .word = word },
 
+        .def => |def| .{ .def = try self.convertDef(def) },
         .decl => |decl| .{ .decl = try self.convertDecl(decl) },
         .product => |product| .{ .product = try self.convertDefList(product, expr.range) },
         .sum => |sum| .{ .sum = try self.convertDefList(sum, expr.range) },
@@ -173,7 +174,7 @@ pub fn convertExpr(self: *@This(), expr: Ranged(ast.Expr)) Err!Index {
         },
 
         .container => |container| {
-            try self.convertContainer(container, index);
+            try self.convertContainer(container, expr.range, index);
             return index; // Prevents duplicate writes
         },
     };
@@ -219,12 +220,19 @@ fn convertExprPtr(self: *@This(), expr: Ranged(*ast.Expr)) Err!Index {
     return self.convertExpr(expr.swap(expr.value.*));
 }
 
-pub fn convertContainer(self: *@This(), container: ast.Container, index: Index) Err!void {
+pub fn convertContainer(self: *@This(), container: std.ArrayList(Ranged(ast.Expr)), range: Range, index: Index) Err!void {
     var defs = std.StringArrayHashMap(IndexOf(.def)).init(self.allocator);
 
     // Add references with no values
-    for (container.defs.items) |def_range| {
-        const def = def_range.value;
+    for (container.items) |def_range| {
+        const def = switch (def_range.value) {
+            .def => |def| def,
+            else => return self.fail(.{ .can_only_cons_definitions = .{
+                .invalid_field = def_range.range,
+                .typedef = range,
+            } }),
+        };
+
         const name = def.name;
         const key = name.range.substr(self.src);
 
@@ -250,11 +258,13 @@ pub fn convertContainer(self: *@This(), container: ast.Container, index: Index) 
     self.current = .{ .index = index };
 
     // Add the values of the references
-    for (container.defs.items) |def| {
-        const key = def.value.name.range.substr(self.src);
+    for (container.items) |maybe_def| {
+        const def = maybe_def.value.def; // We already guaranteed it's a definition
+
+        const key = def.name.range.substr(self.src);
         const stored_def = self.atOf(.container, self.current.?).defs.get(key) orelse unreachable; // We just added it, so it must exist
 
-        const converted = try self.convertDef(def.value);
+        const converted = try self.convertDef(def);
         self.atOf(.def, stored_def).* = converted;
     }
 
@@ -267,8 +277,8 @@ pub fn convertDef(self: *@This(), def: ast.Def) Err!ir.Def {
         .access = def.access,
         .mutability = def.mutability,
         .name = def.name.range,
-        .type = if (def.type) |@"type"| try self.convertExpr(@"type") else null,
-        .value = try self.convertExpr(def.value),
+        .type = if (def.type) |@"type"| try self.convertExprPtr(@"type") else null,
+        .value = try self.convertExprPtr(def.value),
     };
 }
 

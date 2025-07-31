@@ -1,18 +1,25 @@
 pub const main: MainType.* = main1->y.*;
 
+//pub const main = container2->x.*;
+
+pub const container2 = (
+    pub const x = container2->y.*;
+    pub const y = 2;
+);
+
 pub const main1: RGType.* = main2.*;
 
 pub const main2: RGType.* = main3.*;
 
-pub const main3: RGType.* = container { pub const y = other->b.*.*; };
+pub const main3: RGType.* = pub const y = other->b.*.*;
 
 pub const MainType = word;
 pub const RGType = (y: word ++ x: **word);
 
-pub const other = container {
+pub const other = (
     pub const aa: ***word = bb;
     pub const b: *word = value;
-};
+);
 
 pub const bb = other.b;
 

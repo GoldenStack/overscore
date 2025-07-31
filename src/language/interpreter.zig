@@ -243,20 +243,14 @@ pub fn canCoerce(ir: *Ir, from: Index, to: Index) Err!TypeCoercion {
             // TODO: A sum type inside a sum type won't get coerced correctly, since it'll think it's trying to coerce all values instead of coerce into a single value.
             if (from_value == .sum) return canCoerceDeclMaps(ir, from_value.sum, to_sum);
 
-            // TODO: When product type construction becomes an operator, this
-            //       will need to check for decls.
-            if (from_value != .product) return .NonCoercible;
-            const product: std.StringArrayHashMap(LazyDecl) = from_value.product;
-
-            if (product.keys().len != 1) return .NonCoercible;
-            const decl_from_name = product.keys()[0];
+            if (from_value != .decl) return .NonCoercible;
+            const decl: Ir.ir.Decl = from_value.decl;
 
             // Check that the single value is contained in this sum type.
-            if (to_sum.getIndex(decl_from_name)) |decl_to_index| {
-                const decl_from_type = try typeOfMemberGivenIndex(ir, from, 0);
+            if (to_sum.getIndex(decl.name.substr(ir.src))) |decl_to_index| {
                 const decl_to_type = try typeOfMemberGivenIndex(ir, to, decl_to_index);
 
-                const can_coerce = try canCoerce(ir, decl_from_type.index, decl_to_type.index);
+                const can_coerce = try canCoerce(ir, from, decl_to_type.index);
 
                 return if (can_coerce != .NonCoercible) .Coercible else .NonCoercible;
             } else return .NonCoercible;
