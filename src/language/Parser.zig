@@ -223,12 +223,12 @@ pub fn readDef(self: *@This()) Err!ast.Def {
     const @"type" = if (self.peek().value == .colon) type_specifier: {
         _ = try self.expect(.colon);
 
-        break :type_specifier try self.box(ast.Expr, try self.composeExpr2());
+        break :type_specifier try self.box(ast.Expr, try self.composeLowPriorityInfixExpressions());
     } else null;
 
     _ = try self.expect(.equals);
 
-    const value = try self.box(ast.Expr, try self.composeExpr2());
+    const value = try self.box(ast.Expr, try self.composeLowPriorityInfixExpressions());
 
     return .{
         .access = access,
@@ -245,86 +245,75 @@ fn box(self: *@This(), T: type, ranged: Ranged(T)) Err!Ranged(*T) {
     return ranged.swap(ptr);
 }
 
-fn composeExpr1(self: *@This()) Err!Ranged(ast.Expr) {
-    var expr = try self.composeExpr2();
+fn composeMediumPriorityInfixExpressions(self: *@This()) Err!Ranged(ast.Expr) {
+    var expr = try self.composeLowPriorityInfixExpressions();
 
-    while (true) {
-        expr = sw: switch (self.peek().value) {
-            .asterisk => {
+    // Must have the same names as the Expr tags.
+    const Infix = enum { sum, product, container };
+
+    loop: while (true) {
+        // Figure out which operation we are, or exit.
+        const op: Infix = switch (self.peek().value) {
+            .plus_plus => .sum,
+            .asterisk => .product,
+            .semicolon => .container,
+            else => break,
+        };
+
+        // Parse the operation and find its range.
+        const op_range: tokenizer.Range = switch (op) {
+            .sum => (try self.expect(.plus_plus)).range,
+            .product => weird_product: {
                 const first = try self.expect(.asterisk);
                 const second = try self.expect(.asterisk);
 
-                switch (expr.value) {
-                    .product => {
-                        try expr.value.product.append(try self.composeExpr2());
-                        break :sw expr;
-                    },
-                    .sum, .container => return self.fail(.{ .mixed_precedence = .{
-                        .expr = expr.range,
-                        .operator = .{ .start = first.range.start, .end = second.range.end },
-                    } }),
-                    else => {
-                        var product = std.ArrayList(Ranged(ast.Expr)).init(self.allocator);
-                        try product.append(expr);
-                        try product.append(try self.composeExpr2());
-                        break :sw expr.swap(ast.Expr{ .product = product });
-                    },
-                }
+                break :weird_product .{ .start = first.range.start, .end = second.range.end };
             },
-            .plus_plus => { // TODO: Deduplicate code
-                const operator = try self.expect(.plus_plus);
-
-                switch (expr.value) {
-                    .sum => {
-                        try expr.value.sum.append(try self.composeExpr2());
-                        break :sw expr;
-                    },
-                    .product, .container => return self.fail(.{ .mixed_precedence = .{
-                        .expr = expr.range,
-                        .operator = operator.range,
-                    } }),
-                    else => {
-                        var sum = std.ArrayList(Ranged(ast.Expr)).init(self.allocator);
-                        try sum.append(expr);
-                        try sum.append(try self.composeExpr2());
-                        break :sw expr.swap(ast.Expr{ .sum = sum });
-                    },
-                }
-            },
-            .semicolon => {
-                const operator = try self.expect(.semicolon);
-
-                // Allow trailing semicolons
-                switch (self.peek().value) {
-                    .eof, .closing_parentheses, .closing_curly_bracket => break :sw expr,
-                    else => {},
-                }
-
-                switch (expr.value) {
-                    .container => {
-                        try expr.value.container.append(try self.composeExpr2());
-                        break :sw expr;
-                    },
-                    .product, .sum => return self.fail(.{ .mixed_precedence = .{
-                        .expr = expr.range,
-                        .operator = operator.range,
-                    } }),
-                    else => {
-                        var container = std.ArrayList(Ranged(ast.Expr)).init(self.allocator);
-                        try container.append(expr);
-                        try container.append(try self.composeExpr2());
-                        break :sw expr.swap(ast.Expr{ .container = container });
-                    },
-                }
-            },
-            else => break,
+            .container => (try self.expect(.semicolon)).range,
         };
+
+        // Iterate through fields so we can find the right name.
+        inline for (std.meta.fields(Infix)) |field| @"continue": {
+            // Make sure we've found the right operator type of the existing expression.
+            if (@field(ast.Expr, field.name) != expr.value) break :@"continue";
+
+            // Allow trailing operators as syntax sugar, but make sure not to allow
+            // single-element lists on accident.
+            if (@field(expr.value, field.name).items.len > 1) switch (self.peek().value) {
+                .eof, .closing_parentheses, .closing_curly_bracket => break,
+                else => {},
+            };
+
+            // If the previous operation has the same type as the new one, add it
+            if (std.mem.eql(u8, field.name, @tagName(expr.value))) {
+                try @field(expr.value, field.name).append(try self.composeLowPriorityInfixExpressions());
+                continue :loop;
+            } else return self.fail(.{
+                .mixed_precedence = .{ // If not, mixed precendece error!
+                    .expr = expr.range,
+                    .operator = op_range,
+                },
+            });
+        } else {
+            // If there are no infix expressions on the existing expression,
+            // create a new list.
+            var exprs = std.ArrayList(Ranged(ast.Expr)).init(self.allocator);
+            try exprs.append(expr);
+            try exprs.append(try self.composeLowPriorityInfixExpressions());
+
+            const newExpr = switch (op) {
+                inline else => |tag| @unionInit(ast.Expr, @tagName(tag), exprs),
+            };
+
+            // TODO: Incorrect range
+            expr = expr.swap(newExpr);
+        }
     }
 
     return expr;
 }
 
-fn composeExpr2(self: *@This()) Err!Ranged(ast.Expr) {
+fn composeLowPriorityInfixExpressions(self: *@This()) Err!Ranged(ast.Expr) {
     var expr = try Ranged(ast.Expr).wrap(self, readExprRaw);
 
     while (true) {
@@ -397,7 +386,7 @@ fn readExprRaw(self: *@This()) Err!ast.Expr {
 
 /// Parses an expression from this parser.
 pub fn readExpr(self: *@This()) Err!Ranged(ast.Expr) {
-    return try self.composeExpr1();
+    return try self.composeMediumPriorityInfixExpressions();
 }
 
 fn readMemberAccess(self: *@This(), base: Ranged(ast.Expr)) Err!ast.Expr {
