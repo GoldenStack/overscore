@@ -117,8 +117,6 @@ pub const Token = enum {
     period,
     asterisk,
     period_asterisk,
-    // TODO: asterisk_asterisk?
-    plus_plus,
     arrow,
 
     // Kewords
@@ -127,6 +125,8 @@ pub const Token = enum {
     @"var",
     word,
     type,
+    @"and",
+    @"or",
 
     // General language constructs
     ident,
@@ -204,12 +204,6 @@ pub const Tokenizer = struct {
                 } else return .period;
             },
             '*' => .asterisk,
-            '+' => {
-                if (self.peekChar() == '+') {
-                    _ = self.nextChar();
-                    return .plus_plus;
-                } else return .ident;
-            },
             '-' => {
                 if (self.peekChar() == '>') {
                     _ = self.nextChar();
@@ -272,6 +266,8 @@ pub const Tokenizer = struct {
             .{ "var", .@"var" },
             .{ "word", .word },
             .{ "type", .type },
+            .{ "and", .@"and" },
+            .{ "or", .@"or" },
         });
 
         if (token.value == .ident) if (tags.get(token.range.substr(self.src))) |new_token| {

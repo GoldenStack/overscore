@@ -128,7 +128,7 @@ pub const ast = struct {
             .product => |decls| {
                 try writer.writeAll("(");
                 for (0.., decls.items) |index, decl| {
-                    if (index != 0) try writer.writeAll(" ** ");
+                    if (index != 0) try writer.writeAll(" and ");
                     try printExpr(src, decl.value, writer);
                 }
                 try writer.writeAll(")");
@@ -136,7 +136,7 @@ pub const ast = struct {
             .sum => |decls| {
                 try writer.writeAll("(");
                 for (0.., decls.items) |index, decl| {
-                    if (index != 0) try writer.writeAll(" ++ ");
+                    if (index != 0) try writer.writeAll(" or ");
                     try printExpr(src, decl.value, writer);
                 }
                 try writer.writeAll(")");
@@ -250,8 +250,8 @@ fn readHighPriorityExpression(self: *@This()) Err!Ranged(ast.Expr) {
 
     while (true) {
         left = switch (self.peek().value) {
-            .plus_plus => try left.andThen(self, readSingleHighPriorityInfix(.sum)),
-            .asterisk => try left.andThen(self, readSingleHighPriorityInfix(.product)),
+            .@"or" => try left.andThen(self, readSingleHighPriorityInfix(.sum)),
+            .@"and" => try left.andThen(self, readSingleHighPriorityInfix(.product)),
             .semicolon => try left.andThen(self, readSingleHighPriorityInfix(.container)),
             else => return left,
         };
@@ -264,17 +264,12 @@ fn readSingleHighPriorityInfix(comptime op: enum { sum, product, container }) fn
     return struct {
         fn read(self: *Parser, left: Ranged(ast.Expr)) Err!ast.Expr {
 
-            // Parse the operation and find its range.
-            const op_range: tokenizer.Range = switch (op) {
-                .sum => (try self.expect(.plus_plus)).range,
-                .product => weird_product: {
-                    const first = try self.expect(.asterisk);
-                    const second = try self.expect(.asterisk);
-
-                    break :weird_product .{ .start = first.range.start, .end = second.range.end };
-                },
-                .container => (try self.expect(.semicolon)).range,
-            };
+            // Parse the operator
+            const op_token = try self.expect(switch (op) {
+                .sum => .@"or",
+                .product => .@"and",
+                .container => .semicolon,
+            });
 
             // Iterate through fields so we can find the right name.
             var exprs: std.ArrayList(Ranged(ast.Expr)) = items: inline for (std.meta.fields(@TypeOf(op))) |field| @"continue": {
@@ -295,7 +290,7 @@ fn readSingleHighPriorityInfix(comptime op: enum { sum, product, container }) fn
                 } else return self.fail(.{
                     .mixed_precedence = .{ // If not, mixed precendece error!
                         .expr = left.range,
-                        .operator = op_range,
+                        .operator = op_token.range,
                     },
                 });
             } else {

@@ -14,7 +14,7 @@ pub const main2: RGType.* = main3.*;
 pub const main3: RGType.* = pub const y = other->b.*.*;
 
 pub const MainType = word;
-pub const RGType = (y: word ++ x: **word);
+pub const RGType = (y: word or x: **word);
 
 pub const other = (
     pub const aa: ***word = bb;
@@ -25,9 +25,9 @@ pub const bb = other.b;
 
 pub const value = ((((2))));
 
-//.main: ( .x: word ++ .y: (.aa: ***word ** .b: *word)) = .y: other.*;
+//.main: ( .x: word or .y: (.aa: ***word and .b: *word)) = .y: other.*;
 
-//.other: (.aa: ***word ** .b: *word) = (
+//.other: (.aa: ***word and .b: *word) = (
 //    .aa: ***word = bb,
 //    .b: *word = value
 //)

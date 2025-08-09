@@ -389,7 +389,7 @@ pub fn printExpr(self: *@This(), index: Index, writer: anytype) anyerror!void {
         .product => |decls| {
             try writer.writeAll("(");
             for (0.., decls.values()) |i, lazy| {
-                if (i != 0) try writer.writeAll(" ** ");
+                if (i != 0) try writer.writeAll(" and ");
                 try self.printLazyDecl(lazy, writer);
             }
             try writer.writeAll(")");
@@ -397,7 +397,7 @@ pub fn printExpr(self: *@This(), index: Index, writer: anytype) anyerror!void {
         .sum => |decls| {
             try writer.writeAll("(");
             for (0.., decls.values()) |i, lazy| {
-                if (i != 0) try writer.writeAll(" ++ ");
+                if (i != 0) try writer.writeAll(" or ");
                 try self.printLazyDecl(lazy, writer);
             }
             try writer.writeAll(")");

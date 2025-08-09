@@ -482,8 +482,8 @@ fn filterMapExprChildren(comptime context: FilterMapContext, ir: *Ir, index: Ind
 
         // TODO: It's an issue that we copy product/sum/container but not the
         // underlying allocation, meaning that modifications to it do end up
-        // modifying global state. This will be fixed once ** and ++ become
-        // binary operations instead of pseudo-operations.
+        // modifying global state. This will be fixed once `and` and `or`
+        // become binary operations instead of pseudo-operations.
 
         .container => |*container| {
             for (container.defs.values()) |*def| {
