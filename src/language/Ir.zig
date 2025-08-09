@@ -217,7 +217,7 @@ fn lazyDeclName(self: *@This(), lazy: ir.LazyDecl) Range {
 }
 
 fn convertExprPtr(self: *@This(), expr: Ranged(*ast.Expr)) Err!Index {
-    return self.convertExpr(expr.swap(expr.value.*));
+    return self.convertExpr(expr.replace(expr.value.*));
 }
 
 pub fn convertContainer(self: *@This(), container: std.ArrayList(Ranged(ast.Expr)), range: Range, index: Index) Err!void {

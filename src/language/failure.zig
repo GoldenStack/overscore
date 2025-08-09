@@ -122,6 +122,11 @@ pub const Error = union(enum) {
         context: Range,
     },
 
+    /// The left side to declarations and definitions must be a raw identifier.
+    identifier_is_required_for_definitions_and_declarations: struct {
+        not_identifier: Range,
+    },
+
     pub fn display(self: @This(), filename: []const u8, src: []const u8, writer: anytype) !void {
         switch (self) {
             .expected_tag => |exp| {
@@ -247,8 +252,13 @@ pub const Error = union(enum) {
             },
             .cannot_coerce => |coerce| {
                 try prefix(filename, coerce.context, .err, writer);
-                try writer.print("cannot coerce from type '{s}' to '{s}' \n" ++ Unbold, .{ coerce.from, coerce.to });
+                try writer.print("cannot coerce from type '{s}' to '{s}'\n" ++ Unbold, .{ coerce.from, coerce.to });
                 try pointTo(src, coerce.context, writer);
+            },
+            .identifier_is_required_for_definitions_and_declarations => |required| {
+                try prefix(filename, required.not_identifier, .err, writer);
+                try writer.writeAll("the expression before the colon in definitions and declarations must be a standalone identifier\n" ++ Unbold);
+                try pointTo(src, required.not_identifier, writer);
             },
         }
     }

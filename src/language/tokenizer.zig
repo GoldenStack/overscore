@@ -54,13 +54,17 @@ pub fn Ranged(T: type) type {
             };
         }
 
-        pub fn swap(self: @This(), new_value: anytype) Ranged(@TypeOf(new_value)) {
+        /// Replace the value of this range with another one.
+        /// See `(<$) :: a -> f b -> f a`.
+        pub fn replace(self: @This(), new_value: anytype) Ranged(@TypeOf(new_value)) {
             return .{
                 .range = self.range,
                 .value = new_value,
             };
         }
 
+        /// Lift a function `a -> b` under this range.
+        /// See `fmap :: (a -> b) -> f a -> f b`.
         pub fn map(self: @This(), context: anytype, map_fn: anytype) MapErrorPayload(@TypeOf(map_fn), Ranged) {
             return .{
                 .range = self.range,
@@ -68,7 +72,9 @@ pub fn Ranged(T: type) type {
             };
         }
 
-        pub fn mapExtend(self: @This(), context: anytype, read_fn: anytype) MapErrorPayload(@TypeOf(read_fn), Ranged) {
+        /// Sequentially compose the given action onto this current range.
+        /// See `(>>=) :: m a -> (a -> m b) -> m b`.
+        pub fn andThen(self: @This(), context: anytype, read_fn: anytype) MapErrorPayload(@TypeOf(read_fn), Ranged) {
             const value = try read_fn(context, self);
 
             return .{

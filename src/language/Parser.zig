@@ -223,12 +223,12 @@ pub fn readDef(self: *@This()) Err!ast.Def {
     const @"type" = if (self.peek().value == .colon) type_specifier: {
         _ = try self.expect(.colon);
 
-        break :type_specifier try self.box(ast.Expr, try self.composeLowPriorityInfixExpressions());
+        break :type_specifier try self.box(ast.Expr, try self.readLowPriorityExpression());
     } else null;
 
     _ = try self.expect(.equals);
 
-    const value = try self.box(ast.Expr, try self.composeLowPriorityInfixExpressions());
+    const value = try self.box(ast.Expr, try self.readLowPriorityExpression());
 
     return .{
         .access = access,
@@ -242,103 +242,107 @@ pub fn readDef(self: *@This()) Err!ast.Def {
 fn box(self: *@This(), T: type, ranged: Ranged(T)) Err!Ranged(*T) {
     const ptr = try self.allocator.create(T);
     ptr.* = ranged.value;
-    return ranged.swap(ptr);
+    return ranged.replace(ptr);
 }
 
-fn composeMediumPriorityInfixExpressions(self: *@This()) Err!Ranged(ast.Expr) {
-    var expr = try self.composeLowPriorityInfixExpressions();
-
-    // Must have the same names as the Expr tags.
-    const Infix = enum { sum, product, container };
-
-    loop: while (true) {
-        // Figure out which operation we are, or exit.
-        const op: Infix = switch (self.peek().value) {
-            .plus_plus => .sum,
-            .asterisk => .product,
-            .semicolon => .container,
-            else => break,
-        };
-
-        // Parse the operation and find its range.
-        const op_range: tokenizer.Range = switch (op) {
-            .sum => (try self.expect(.plus_plus)).range,
-            .product => weird_product: {
-                const first = try self.expect(.asterisk);
-                const second = try self.expect(.asterisk);
-
-                break :weird_product .{ .start = first.range.start, .end = second.range.end };
-            },
-            .container => (try self.expect(.semicolon)).range,
-        };
-
-        // Iterate through fields so we can find the right name.
-        inline for (std.meta.fields(Infix)) |field| @"continue": {
-            // Make sure we've found the right operator type of the existing expression.
-            if (@field(ast.Expr, field.name) != expr.value) break :@"continue";
-
-            // Allow trailing operators as syntax sugar, but make sure not to allow
-            // single-element lists on accident.
-            if (@field(expr.value, field.name).items.len > 1) switch (self.peek().value) {
-                .eof, .closing_parentheses, .closing_curly_bracket => break,
-                else => {},
-            };
-
-            // If the previous operation has the same type as the new one, add it
-            if (std.mem.eql(u8, field.name, @tagName(expr.value))) {
-                try @field(expr.value, field.name).append(try self.composeLowPriorityInfixExpressions());
-                continue :loop;
-            } else return self.fail(.{
-                .mixed_precedence = .{ // If not, mixed precendece error!
-                    .expr = expr.range,
-                    .operator = op_range,
-                },
-            });
-        } else {
-            // If there are no infix expressions on the existing expression,
-            // create a new list.
-            var exprs = std.ArrayList(Ranged(ast.Expr)).init(self.allocator);
-            try exprs.append(expr);
-            try exprs.append(try self.composeLowPriorityInfixExpressions());
-
-            const newExpr = switch (op) {
-                inline else => |tag| @unionInit(ast.Expr, @tagName(tag), exprs),
-            };
-
-            // TODO: Incorrect range
-            expr = expr.swap(newExpr);
-        }
-    }
-
-    return expr;
-}
-
-fn composeLowPriorityInfixExpressions(self: *@This()) Err!Ranged(ast.Expr) {
-    var expr = try Ranged(ast.Expr).wrap(self, readExprRaw);
+fn readHighPriorityExpression(self: *@This()) Err!Ranged(ast.Expr) {
+    var left = try self.readLowPriorityExpression();
 
     while (true) {
-        expr = sw: switch (self.peek().value) {
-            .period, .arrow => try expr.mapExtend(self, readMemberAccess),
-            .period_asterisk => try expr.mapExtend(self, readDereference),
-            .colon => {
-                if (expr.value != .ident) break :sw expr;
-
-                break :sw try expr.mapExtend(self, readDecl);
-            },
-            else => break,
+        left = switch (self.peek().value) {
+            .plus_plus => try left.andThen(self, readSingleHighPriorityInfix(.sum)),
+            .asterisk => try left.andThen(self, readSingleHighPriorityInfix(.product)),
+            .semicolon => try left.andThen(self, readSingleHighPriorityInfix(.container)),
+            else => return left,
         };
     }
-
-    return expr;
 }
 
-/// Assumes `ident.value == .ident`.
-fn readDecl(self: *@This(), ident: Ranged(ast.Expr)) Err!ast.Expr {
-    const name = ident.value.ident;
+fn readSingleHighPriorityInfix(comptime op: enum { sum, product, container }) fn (*@This(), Ranged(ast.Expr)) Err!ast.Expr {
+    const Parser = @This();
+
+    return struct {
+        fn read(self: *Parser, left: Ranged(ast.Expr)) Err!ast.Expr {
+
+            // Parse the operation and find its range.
+            const op_range: tokenizer.Range = switch (op) {
+                .sum => (try self.expect(.plus_plus)).range,
+                .product => weird_product: {
+                    const first = try self.expect(.asterisk);
+                    const second = try self.expect(.asterisk);
+
+                    break :weird_product .{ .start = first.range.start, .end = second.range.end };
+                },
+                .container => (try self.expect(.semicolon)).range,
+            };
+
+            // Iterate through fields so we can find the right name.
+            var exprs: std.ArrayList(Ranged(ast.Expr)) = items: inline for (std.meta.fields(@TypeOf(op))) |field| @"continue": {
+                // Make sure we've found the right operator type of the existing expression.
+                if (@field(ast.Expr, field.name) != left.value) break :@"continue";
+
+                // Allow trailing operators as syntax sugar, but make sure not to allow
+                // single-element lists on accident.
+                if (@field(left.value, field.name).items.len > 1) switch (self.peek().value) {
+                    // This implicitly signals to be done as the next iteration of readHighPriorityExpression will see this and cancel.
+                    .eof, .closing_parentheses, .closing_curly_bracket => return left.value,
+                    else => {},
+                };
+
+                // If the previous operation has the same type as the new one, copy the list
+                if (std.mem.eql(u8, field.name, @tagName(left.value))) {
+                    break :items try @field(left.value, field.name).clone();
+                } else return self.fail(.{
+                    .mixed_precedence = .{ // If not, mixed precendece error!
+                        .expr = left.range,
+                        .operator = op_range,
+                    },
+                });
+            } else {
+                // If there are no infix expressions on the existing expression,
+                // create a new list.
+                var exprs = std.ArrayList(Ranged(ast.Expr)).init(self.allocator);
+                try exprs.append(left);
+                break :items exprs;
+            };
+
+            try exprs.append(try self.readLowPriorityExpression());
+            return @unionInit(ast.Expr, @tagName(op), exprs);
+        }
+    }.read;
+}
+
+fn readMediumPriorityExpression(self: *@This()) Err!Ranged(ast.Expr) {
+    // TODO: Implement math operators.
+    return self.readLowPriorityExpression();
+}
+
+fn readLowPriorityExpression(self: *@This()) Err!Ranged(ast.Expr) {
+    var left = try Ranged(ast.Expr).wrap(self, readBaseExpression);
+
+    // Parse with loops instead of recursion for left associativity.
+    while (true) {
+        left = switch (self.peek().value) {
+            .period, .arrow => try left.andThen(self, readMemberAccess),
+            .period_asterisk => try left.andThen(self, readDereference),
+            .colon => try left.andThen(self, readDecl),
+            else => return left,
+        };
+    }
+}
+
+/// Reads a declaration, given the left side.
+fn readDecl(self: *@This(), left: Ranged(ast.Expr)) Err!ast.Expr {
+    const name = switch (left.value) {
+        .ident => |name| name,
+        else => return self.fail(.{ .identifier_is_required_for_definitions_and_declarations = .{
+            .not_identifier = left.range,
+        } }),
+    };
 
     _ = try self.expect(.colon);
 
-    const @"type" = try Ranged(ast.Expr).wrap(self, readExprRaw);
+    const @"type" = try Ranged(ast.Expr).wrap(self, readBaseExpression);
 
     return .{ .decl = .{
         .name = name,
@@ -346,7 +350,35 @@ fn readDecl(self: *@This(), ident: Ranged(ast.Expr)) Err!ast.Expr {
     } };
 }
 
-fn readExprRaw(self: *@This()) Err!ast.Expr {
+fn readMemberAccess(self: *@This(), base: Ranged(ast.Expr)) Err!ast.Expr {
+    const token = try self.expectMany(&.{ .period, .arrow });
+
+    const member = try self.expect(.ident);
+
+    const ptr = try self.allocator.create(ast.Expr);
+    ptr.* = base.value;
+
+    return .{ .member_access = .{
+        .container = base.replace(ptr),
+        .member = member,
+        .indirection = switch (token.value) {
+            .period => .direct,
+            .arrow => .indirect,
+            else => unreachable,
+        },
+    } };
+}
+
+fn readDereference(self: *@This(), base: Ranged(ast.Expr)) Err!ast.Expr {
+    _ = try self.expect(.period_asterisk);
+
+    const ptr = try self.allocator.create(ast.Expr);
+    ptr.* = base.value;
+
+    return .{ .dereference = base.replace(ptr) };
+}
+
+fn readBaseExpression(self: *@This()) Err!ast.Expr {
     return switch (self.peek().value) {
         // Read the word type
         .word => {
@@ -364,7 +396,7 @@ fn readExprRaw(self: *@This()) Err!ast.Expr {
         .asterisk => {
             _ = try self.expect(.asterisk);
 
-            const child = try Ranged(ast.Expr).wrap(self, readExprRaw);
+            const child = try Ranged(ast.Expr).wrap(self, readBaseExpression);
 
             return .{ .pointer_type = try self.box(ast.Expr, child) };
         },
@@ -386,35 +418,7 @@ fn readExprRaw(self: *@This()) Err!ast.Expr {
 
 /// Parses an expression from this parser.
 pub fn readExpr(self: *@This()) Err!Ranged(ast.Expr) {
-    return try self.composeMediumPriorityInfixExpressions();
-}
-
-fn readMemberAccess(self: *@This(), base: Ranged(ast.Expr)) Err!ast.Expr {
-    const token = try self.expectMany(&.{ .period, .arrow });
-
-    const member = try self.expect(.ident);
-
-    const ptr = try self.allocator.create(ast.Expr);
-    ptr.* = base.value;
-
-    return .{ .member_access = .{
-        .container = base.swap(ptr),
-        .member = member,
-        .indirection = switch (token.value) {
-            .period => .direct,
-            .arrow => .indirect,
-            else => unreachable,
-        },
-    } };
-}
-
-fn readDereference(self: *@This(), base: Ranged(ast.Expr)) Err!ast.Expr {
-    _ = try self.expect(.period_asterisk);
-
-    const ptr = try self.allocator.create(ast.Expr);
-    ptr.* = base.value;
-
-    return .{ .dereference = base.swap(ptr) };
+    return try self.readHighPriorityExpression();
 }
 
 /// Reads an expression surrounded in parentheses from this parser.
