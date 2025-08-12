@@ -122,9 +122,9 @@ pub const Error = union(enum) {
         context: Range,
     },
 
-    /// The left side to declarations and definitions must be a raw identifier.
-    identifier_is_required_for_definitions_and_declarations: struct {
-        not_identifier: Range,
+    /// The left side to declarations and definitions must be a raw literal.
+    literal_is_required_for_definitions_and_declarations: struct {
+        not_literal: Range,
     },
 
     pub fn display(self: @This(), filename: []const u8, src: []const u8, writer: anytype) !void {
@@ -255,10 +255,10 @@ pub const Error = union(enum) {
                 try writer.print("cannot coerce from type '{s}' to '{s}'\n" ++ Unbold, .{ coerce.from, coerce.to });
                 try pointTo(src, coerce.context, writer);
             },
-            .identifier_is_required_for_definitions_and_declarations => |required| {
-                try prefix(filename, required.not_identifier, .err, writer);
-                try writer.writeAll("the expression before the colon in definitions and declarations must be a standalone identifier\n" ++ Unbold);
-                try pointTo(src, required.not_identifier, writer);
+            .literal_is_required_for_definitions_and_declarations => |required| {
+                try prefix(filename, required.not_literal, .err, writer);
+                try writer.writeAll("the expression before the colon in definitions and declarations must be a standalone literal (e.g. '.foo')\n" ++ Unbold);
+                try pointTo(src, required.not_literal, writer);
             },
         }
     }

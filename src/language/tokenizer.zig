@@ -121,7 +121,6 @@ pub const Token = enum {
 
     // Kewords
     @"pub",
-    @"const",
     @"var",
     word,
     type,
@@ -130,11 +129,22 @@ pub const Token = enum {
 
     // General language constructs
     ident,
+    symbol,
     number,
     comment,
 
     // Meta-tokens
     eof,
+
+    /// Multi-character alphabetic tokens.
+    pub const keywords: std.StaticStringMap(Token) = std.StaticStringMap(Token).initComptime(.{
+        .{ "pub", .@"pub" },
+        .{ "var", .@"var" },
+        .{ "word", .word },
+        .{ "type", .type },
+        .{ "and", .@"and" },
+        .{ "or", .@"or" },
+    });
 
     pub fn format(
         self: @This(),
@@ -208,12 +218,12 @@ pub const Tokenizer = struct {
                 if (self.peekChar() == '>') {
                     _ = self.nextChar();
                     return .arrow;
-                } else return .ident;
+                } else return .symbol;
             },
 
             // Less fast paths for multi-character non-alphabetic tokens
             '/' => {
-                if (self.peekChar() != '/') return .ident;
+                if (self.peekChar() != '/') return .symbol;
 
                 // Skip until newline or EOF
                 while (true) {
@@ -235,7 +245,7 @@ pub const Tokenizer = struct {
                 return .number;
             },
 
-            else => .ident,
+            else => .symbol,
         };
     }
 
@@ -259,18 +269,7 @@ pub const Tokenizer = struct {
             },
         };
 
-        // Multi-character alphabetic tokens.
-        const tags = std.StaticStringMap(Token).initComptime(.{
-            .{ "pub", .@"pub" },
-            .{ "const", .@"const" },
-            .{ "var", .@"var" },
-            .{ "word", .word },
-            .{ "type", .type },
-            .{ "and", .@"and" },
-            .{ "or", .@"or" },
-        });
-
-        if (token.value == .ident) if (tags.get(token.range.substr(self.src))) |new_token| {
+        if (token.value == .ident) if (Token.keywords.get(token.range.substr(self.src))) |new_token| {
             token.value = new_token;
         };
 

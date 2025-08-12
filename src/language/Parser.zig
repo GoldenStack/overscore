@@ -7,12 +7,17 @@ const Err = failure.ErrorSet;
 
 /// The abstract syntax tree.
 pub const ast = struct {
+    /// A literal value, preceded by a `.`.
+    pub const Literal = struct {
+        name: Ranged(Token),
+    };
+
     /// A definition of a name, consisting of an access modifier, a mutability
     /// modifier, a name, an optional type, and value.
     pub const Def = struct {
         access: Access,
         mutability: Mutability,
-        name: Ranged(Token),
+        name: Ranged(Literal),
 
         type: ?Ranged(*Expr),
         value: Ranged(*Expr),
@@ -20,7 +25,7 @@ pub const ast = struct {
 
     /// A declaration of a name, consisting of a name and a type, but no value.
     pub const Decl = struct {
-        name: Ranged(Token),
+        name: Ranged(Literal),
 
         type: Ranged(*Expr),
     };
@@ -51,6 +56,9 @@ pub const ast = struct {
         /// 32-bit integers, so they are referred to as words to reflect the
         /// intention of this to be changed.
         word_type,
+
+        /// A member literal. Referred to as an "enum literal" in Zig.
+        literal: Literal,
 
         decl: Decl,
 
@@ -90,16 +98,17 @@ pub const ast = struct {
         },
     };
 
+    pub fn printLiteral(src: []const u8, literal: Literal, writer: anytype) anyerror!void {
+        try writer.writeByte('.');
+        try printToken(src, literal.name, writer);
+    }
+
     pub fn printDef(src: []const u8, def: Def, writer: anytype) anyerror!void {
         if (def.access == .public) try writer.writeAll("pub ");
 
-        try writer.writeAll(switch (def.mutability) {
-            .constant => "const",
-            .variable => "var",
-        });
-        try writer.writeByte(' ');
+        if (def.mutability == .variable) try writer.writeAll("var ");
 
-        try printToken(src, def.name, writer);
+        try printLiteral(src, def.name.value, writer);
 
         if (def.type) |@"type"| {
             try writer.writeAll(": ");
@@ -108,11 +117,10 @@ pub const ast = struct {
 
         try writer.writeAll(" = ");
         try printExpr(src, def.value.value.*, writer);
-        try writer.writeAll(";");
     }
 
     pub fn printDecl(src: []const u8, decl: Decl, writer: anytype) anyerror!void {
-        try printToken(src, decl.name, writer);
+        try printLiteral(src, decl.name.value, writer);
 
         try writer.writeAll(": ");
         try printExpr(src, decl.type.value.*, writer);
@@ -123,6 +131,7 @@ pub const ast = struct {
             .word => |word| try writer.print("{}", .{word}),
             .word_type => try writer.writeAll("word"),
             .type => try writer.writeAll("type"),
+            .literal => |lit| try printLiteral(src, lit, writer),
             .def => |def| try printDef(src, def, writer),
             .decl => |decl| try printDecl(src, decl, writer),
             .product => |decls| {
@@ -150,7 +159,7 @@ pub const ast = struct {
 
                 for (defs.items) |def| {
                     try printExpr(src, def.value, writer);
-                    try writer.writeByte(' ');
+                    try writer.writeAll("; ");
                 }
 
                 try writer.writeByte('}');
@@ -205,38 +214,6 @@ pub fn readRoot(self: *@This()) Err!Ranged(ast.Expr) {
     _ = try self.expect(.eof);
 
     return expr;
-}
-
-/// Parses a name definition from this parser.
-pub fn readDef(self: *@This()) Err!ast.Def {
-    const access: ast.Access = if (self.consume(.@"pub")) |_| .public else .private;
-
-    const mutability: ast.Mutability = switch ((try self.expectMany(&.{ .@"const", .@"var" })).value) {
-        .@"const" => .constant,
-        .@"var" => .variable,
-        else => unreachable,
-    };
-
-    const name = try self.expect(.ident);
-
-    // Type specifier is mandatory for now.
-    const @"type" = if (self.peek().value == .colon) type_specifier: {
-        _ = try self.expect(.colon);
-
-        break :type_specifier try self.box(ast.Expr, try self.readLowPriorityExpression());
-    } else null;
-
-    _ = try self.expect(.equals);
-
-    const value = try self.box(ast.Expr, try self.readLowPriorityExpression());
-
-    return .{
-        .access = access,
-        .mutability = mutability,
-        .name = name,
-        .type = @"type",
-        .value = value,
-    };
 }
 
 fn box(self: *@This(), T: type, ranged: Ranged(T)) Err!Ranged(*T) {
@@ -320,29 +297,57 @@ fn readLowPriorityExpression(self: *@This()) Err!Ranged(ast.Expr) {
         left = switch (self.peek().value) {
             .period, .arrow => try left.andThen(self, readMemberAccess),
             .period_asterisk => try left.andThen(self, readDereference),
-            .colon => try left.andThen(self, readDecl),
             else => return left,
         };
     }
 }
 
-/// Reads a declaration, given the left side.
-fn readDecl(self: *@This(), left: Ranged(ast.Expr)) Err!ast.Expr {
-    const name = switch (left.value) {
-        .ident => |name| name,
-        else => return self.fail(.{ .identifier_is_required_for_definitions_and_declarations = .{
-            .not_identifier = left.range,
-        } }),
-    };
+/// Parses literals, declarations, and definitions from this parser.
+/// Assumes the parser starts with `pub`, `var`, or `.` (period).
+fn readBaseNamedExpression(self: *@This()) Err!ast.Expr {
+    // If either of these have values then we must be parsing a definition.
+    const maybe_public = self.consume(.@"pub");
+    const maybe_variable = self.consume(.@"var");
+    // const access: ast.Access = if (self.consume(.@"pub")) |_| .public else .private;
+    // const mutability: ast.Mutability = if (self.consume(.@"var")) |_| .variable else .constant;
 
-    _ = try self.expect(.colon);
+    // TODO: Bring back "literal is required for definitions and declarations" error
+    const name = try Ranged(ast.Literal).wrap(self, readLiteral);
 
-    const @"type" = try Ranged(ast.Expr).wrap(self, readBaseExpression);
+    // Read an optional type specifier
+    const maybe_type = if (self.consume(.colon)) |_|
+        try self.box(ast.Expr, try self.readLowPriorityExpression())
+    else
+        null;
 
-    return .{ .decl = .{
+    // Read an optional value
+    const maybe_value = if (self.consume(.equals)) |_|
+        try self.box(ast.Expr, try self.readLowPriorityExpression())
+    else
+        null;
+
+    // If there's a value, it's a definition.
+    if (maybe_value) |value| return .{ .def = .{
+        .access = if (maybe_public) |_| .public else .private,
+        .mutability = if (maybe_variable) |_| .variable else .constant,
         .name = name,
-        .type = try self.box(ast.Expr, @"type"),
+        .type = maybe_type,
+        .value = value,
     } };
+
+    // Make sure publicity and mutability aren't specified.
+    // TODO: This error doesn't have to fail the parser.
+    if (maybe_public) |public| std.debug.panic("{}\n", .{public}); // TODO return error
+    if (maybe_variable) |variable| std.debug.panic("{}\n", .{variable}); // TODO return error
+
+    // If there's a type, it's a declaration.
+    if (maybe_type) |@"type"| return .{ .decl = .{
+        .name = name,
+        .type = @"type",
+    } };
+
+    // Otherwise, it's just a literal.
+    return .{ .literal = name.value };
 }
 
 fn readMemberAccess(self: *@This(), base: Ranged(ast.Expr)) Err!ast.Expr {
@@ -396,7 +401,8 @@ fn readBaseExpression(self: *@This()) Err!ast.Expr {
             return .{ .pointer_type = try self.box(ast.Expr, child) };
         },
 
-        .@"pub", .@"const", .@"var" => .{ .def = try self.readDef() },
+        // Read a literal, declaration, or definition.
+        .period, .@"pub", .@"var" => try self.readBaseNamedExpression(),
 
         // Read a word
         .number => .{ .word = try self.readWord() },
@@ -407,7 +413,7 @@ fn readBaseExpression(self: *@This()) Err!ast.Expr {
         // Read an expression surrounded with parentheses
         .opening_parentheses => try self.readParentheses(),
 
-        else => self.failExpected(&.{ .word, .type, .asterisk, .@"pub", .@"const", .@"var", .number, .ident, .opening_parentheses }),
+        else => self.failExpected(&.{ .word, .type, .asterisk, .period, .@"pub", .@"var", .number, .ident, .opening_parentheses }),
     };
 }
 
@@ -432,6 +438,18 @@ pub fn readWord(self: *@This()) Err!u32 {
     const token = try self.expect(.number);
 
     return std.fmt.parseUnsigned(u32, token.range.substr(self.src), 10) catch self.fail(.{ .number_too_large = token.range });
+}
+
+/// Parses a literal from this parser.
+pub fn readLiteral(self: *@This()) Err!ast.Literal {
+    _ = try self.expect(.period);
+
+    // Expect an identifier or a keyword that can be treated as one.
+    const expected: []const Token = comptime (Token.keywords.values() ++ .{.ident});
+
+    const ident = try self.expectMany(expected);
+
+    return .{ .name = ident };
 }
 
 /// Consumes the next token from this parser if it's the provided tag. Returns

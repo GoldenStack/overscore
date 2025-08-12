@@ -35,10 +35,15 @@ pub const ir = struct {
         defs: std.StringArrayHashMap(IndexOf(.def)),
     };
 
+    pub const Literal = struct {
+        total_range: Range,
+        range: Range,
+    };
+
     pub const Def = struct {
         access: ast.Access,
         mutability: ast.Mutability,
-        name: Range,
+        name: Literal,
         type: ?Index,
         value: Index,
 
@@ -50,7 +55,7 @@ pub const ir = struct {
     };
 
     pub const Decl = struct {
-        name: Range,
+        name: Literal,
         type: Index,
     };
 
@@ -68,9 +73,10 @@ pub const ir = struct {
     };
 
     pub const Expr = union(Tag) {
-        pub const Tag = enum { word, word_type, def, decl, product, sum, pointer_type, type, container, pointer, dereference, member_access, indirect_member_access, coerce };
+        pub const Tag = enum { word, word_type, literal, def, decl, product, sum, pointer_type, type, container, pointer, dereference, member_access, indirect_member_access, coerce };
         word: u32,
         word_type,
+        literal: Literal,
         def: Def,
         decl: Decl,
         product: std.StringArrayHashMap(LazyDecl),
@@ -152,13 +158,14 @@ pub fn convertExpr(self: *@This(), expr: Ranged(ast.Expr)) Err!Index {
 
         .word => |word| .{ .word = word },
 
+        .literal => |literal| .{ .literal = try self.convertLiteral(expr.replace(literal)) },
         .def => |def| .{ .def = try self.convertDef(def) },
         .decl => |decl| .{ .decl = try self.convertDecl(decl) },
         .product => |product| .{ .product = try self.convertDefList(product, expr.range) },
         .sum => |sum| .{ .sum = try self.convertDefList(sum, expr.range) },
 
         .pointer_type => |ptr| .{ .pointer_type = try self.convertExprPtr(ptr) },
-        .ident => |ident| .{ .pointer = try self.lookupNameExpected(ident) },
+        .ident => |ident| .{ .pointer = try self.lookupNameExpected(ident.range) },
         .dereference => |deref| .{ .dereference = try self.convertExprPtr(deref) },
         .parentheses => |parens| continue :value parens.value.*,
 
@@ -196,11 +203,13 @@ fn convertDefList(self: *@This(), exprs: std.ArrayList(Ranged(ast.Expr)), range:
 
         const decl_expr: IndexOf(.decl) = .{ .index = expr };
 
-        const name = self.atOf(.decl, decl_expr).name.substr(self.src);
+        const literal = self.atOf(.decl, decl_expr).name;
+
+        const name = literal.range.substr(self.src);
 
         if (out_exprs.get(name)) |existing_expr| return self.fail(.{ .duplicate_member = .{
             .declared = self.lazyDeclName(existing_expr),
-            .redeclared = self.atOf(.decl, decl_expr).name,
+            .redeclared = literal.range,
         } });
 
         try out_exprs.put(name, .{ .decl = decl_expr });
@@ -213,7 +222,7 @@ fn lazyDeclName(self: *@This(), lazy: ir.LazyDecl) Range {
     return switch (lazy) {
         .decl => |decl| self.atOf(.decl, decl).name,
         .def => |def| self.atOf(.def, def).name,
-    };
+    }.range;
 }
 
 fn convertExprPtr(self: *@This(), expr: Ranged(*ast.Expr)) Err!Index {
@@ -233,20 +242,20 @@ pub fn convertContainer(self: *@This(), container: std.ArrayList(Ranged(ast.Expr
             } }),
         };
 
-        const name = def.name;
+        const name = try self.convertLiteral(def.name);
         const key = name.range.substr(self.src);
 
         const raw_index = try self.push(.{ .def = .{
             .access = def.access,
             .mutability = def.mutability,
-            .name = def.name.range,
+            .name = name,
             .type = if (def.type == null) null else undefined,
             .value = undefined,
         } }, def_range.range);
 
         const def_index: IndexOf(.def) = .{ .index = raw_index };
 
-        try self.lookupNameCurrentContainerForDefine(name, &defs);
+        try self.lookupNameCurrentContainerForDefine(name.range, &defs);
         try defs.putNoClobber(key, def_index);
     }
 
@@ -261,7 +270,7 @@ pub fn convertContainer(self: *@This(), container: std.ArrayList(Ranged(ast.Expr
     for (container.items) |maybe_def| {
         const def = maybe_def.value.def; // We already guaranteed it's a definition
 
-        const key = def.name.range.substr(self.src);
+        const key = def.name.value.name.range.substr(self.src);
         const stored_def = self.atOf(.container, self.current.?).defs.get(key) orelse unreachable; // We just added it, so it must exist
 
         const converted = try self.convertDef(def);
@@ -272,11 +281,19 @@ pub fn convertContainer(self: *@This(), container: std.ArrayList(Ranged(ast.Expr
     self.current = self.atOf(.container, self.current.?).parent;
 }
 
+pub fn convertLiteral(self: *@This(), literal: Ranged(ast.Literal)) Err!ir.Literal {
+    _ = self;
+    return .{
+        .total_range = literal.range,
+        .range = literal.value.name.range,
+    };
+}
+
 pub fn convertDef(self: *@This(), def: ast.Def) Err!ir.Def {
     return .{
         .access = def.access,
         .mutability = def.mutability,
-        .name = def.name.range,
+        .name = try self.convertLiteral(def.name),
         .type = if (def.type) |@"type"| try self.convertExprPtr(@"type") else null,
         .value = try self.convertExprPtr(def.value),
     };
@@ -284,18 +301,18 @@ pub fn convertDef(self: *@This(), def: ast.Def) Err!ir.Def {
 
 pub fn convertDecl(self: *@This(), decl: ast.Decl) Err!ir.Decl {
     return .{
-        .name = decl.name.range,
+        .name = try self.convertLiteral(decl.name),
         .type = try self.convertExprPtr(decl.type),
     };
 }
 
-pub fn lookupName(self: *@This(), name: Ranged(Token)) ?IndexOf(.def) {
+pub fn lookupName(self: *@This(), name: Range) ?IndexOf(.def) {
     var current = self.current;
 
     while (current) |scope| {
         const container = self.atOf(.container, scope);
 
-        if (container.defs.get(name.range.substr(self.src))) |def| {
+        if (container.defs.get(name.substr(self.src))) |def| {
             return def;
         }
 
@@ -303,33 +320,33 @@ pub fn lookupName(self: *@This(), name: Ranged(Token)) ?IndexOf(.def) {
     } else return null;
 }
 
-pub fn lookupNameExpected(self: *@This(), name: Ranged(Token)) Err!IndexOf(.def) {
+pub fn lookupNameExpected(self: *@This(), name: Range) Err!IndexOf(.def) {
     const index = self.lookupName(name);
 
-    return index orelse self.fail(.{ .unknown_identifier = name.range });
+    return index orelse self.fail(.{ .unknown_identifier = name });
 }
 
-pub fn lookupNameForDefine(self: *@This(), name: Ranged(Token)) Err!void {
+pub fn lookupNameForDefine(self: *@This(), name: Range) Err!void {
     const maybe_index = self.lookupName(name);
 
     if (maybe_index) |index| {
         return self.fail(.{ .redeclared_identifier = .{
-            .declared = self.atOf(.def, index).name,
-            .redeclared = name.range,
+            .declared = self.atOf(.def, index).name.range,
+            .redeclared = name,
         } });
     }
 }
 
-pub fn lookupNameCurrentContainerForDefine(self: *@This(), name: Ranged(Token), defs: *std.StringArrayHashMap(IndexOf(.def))) Err!void {
-    const value = name.range.substr(self.src);
+pub fn lookupNameCurrentContainerForDefine(self: *@This(), name: Range, defs: *std.StringArrayHashMap(IndexOf(.def))) Err!void {
+    const value = name.substr(self.src);
 
     // This used to be merged into one with a `defs.getOrPut`, which has better
     // performance, but unfortunately has different semantics (would require
     // removing on fail, etc.).
     if (defs.get(value)) |def| {
         return self.fail(.{ .duplicate_member = .{
-            .declared = self.atOf(.def, def).name,
-            .redeclared = name.range,
+            .declared = self.atOf(.def, def).name.range,
+            .redeclared = name,
         } });
     }
 
@@ -354,6 +371,11 @@ pub fn printContainer(self: *@This(), container: ir.Container, writer: anytype) 
     try writer.writeByte('}');
 }
 
+pub fn printLiteral(self: *@This(), literal: ir.Literal, writer: anytype) anyerror!void {
+    try writer.writeByte('.');
+    try self.printRange(literal.range, writer);
+}
+
 pub fn printDef(self: *@This(), def: ir.Def, writer: anytype) anyerror!void {
     if (def.access == .public) try writer.writeAll("pub ");
 
@@ -363,7 +385,7 @@ pub fn printDef(self: *@This(), def: ir.Def, writer: anytype) anyerror!void {
     });
     try writer.writeByte(' ');
 
-    try self.printRange(def.name, writer);
+    try self.printLiteral(def.name, writer);
 
     if (def.type) |type_specifier| {
         try writer.writeAll(": ");
@@ -376,7 +398,7 @@ pub fn printDef(self: *@This(), def: ir.Def, writer: anytype) anyerror!void {
 }
 
 pub fn printDecl(self: *@This(), decl: ir.Decl, writer: anytype) anyerror!void {
-    try self.printRange(decl.name, writer);
+    try self.printLiteral(decl.name, writer);
     try writer.writeAll(": ");
     try self.printExpr(decl.type, writer);
 }
@@ -402,6 +424,7 @@ pub fn printExpr(self: *@This(), index: Index, writer: anytype) anyerror!void {
             }
             try writer.writeAll(")");
         },
+        .literal => |literal| try self.printLiteral(literal, writer),
         .def => |def| try self.printDef(def, writer),
         .decl => |decl| try self.printDecl(decl, writer),
         .pointer_type => |ptr| {

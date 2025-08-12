@@ -1,31 +1,31 @@
-pub const main: MainType.* = main1->y.*;
+pub .main: MainType.* = main1->y.*;
 
-//pub const main = container2->x.*;
+//pub .main = container2->x.*;
 
-pub const container2 = (
-    pub const x = container2->y.*;
-    pub const y = 2;
+pub .container2 = (
+    pub .x = container2->y.*;
+    pub .y = 2;
 );
 
-pub const main1: RGType.* = main2.*;
+.main1: RGType.* = main2.*;
 
-pub const main2: RGType.* = main3.*;
+.main2: RGType.* = main3.*;
 
-pub const main3: RGType.* = pub const y = other->b.*.*;
+.main3: RGType.* = pub .y = other->b.*.*;
 
-pub const MainType = word;
-pub const RGType = (y: word or x: **word);
+pub .MainType = word;
+pub .RGType = (.y: word or .x: **word);
 
-pub const other = (
-    pub const aa: ***word = bb;
-    pub const b: *word = value;
+pub .other = (
+    pub .aa: ***word = bb;
+    pub .b: *word = value;
 );
 
-pub const bb = other.b;
+pub .bb = other.b;
 
-pub const value = ((((2))));
+pub .value = ((((2))));
 
-//.main: ( .x: word or .y: (.aa: ***word and .b: *word)) = .y: other.*;
+//.main: (.x: word or .y: (.aa: ***word and .b: *word)) = .y: other.*;
 
 //.other: (.aa: ***word and .b: *word) = (
 //    .aa: ***word = bb,

@@ -30,6 +30,7 @@ pub fn typeOf(ir: *Ir, index: Index) Err!Index {
 
         .pointer => |ptr| ir.push(.{ .pointer_type = try typeOf(ir, try defValueCoerce(ir, ptr)) }, ir.at(.range, index).*),
 
+        .literal => index, // TODO: Is this correct behaviour?
         .def => (try typeOfDef(ir, .{ .index = index })).index,
         .container => typeOfContainer(ir, index),
         .dereference => typeOfDereference(ir, index),
@@ -247,7 +248,7 @@ pub fn canCoerce(ir: *Ir, from: Index, to: Index) Err!TypeCoercion {
             const decl: Ir.ir.Decl = from_value.decl;
 
             // Check that the single value is contained in this sum type.
-            if (to_sum.getIndex(decl.name.substr(ir.src))) |decl_to_index| {
+            if (to_sum.getIndex(decl.name.range.substr(ir.src))) |decl_to_index| {
                 const decl_to_type = try typeOfMemberGivenIndex(ir, to, decl_to_index);
 
                 const can_coerce = try canCoerce(ir, from, decl_to_type.index);
@@ -348,7 +349,7 @@ fn evalMemberAccess(ir: *Ir, member_access: Ir.ir.MemberAccess, parent: Index) E
 
     const maybe_def: ?IndexOf(.def) = switch (ir.at(.expr, container).*) {
         .container => |cont| cont.defs.get(key),
-        .def => |def| if (std.mem.eql(u8, key, def.name.substr(ir.src))) .{ .index = container } else null,
+        .def => |def| if (std.mem.eql(u8, key, def.name.range.substr(ir.src))) .{ .index = container } else null,
         else => return ir.fail(.{ .unsupported_member_access = .{
             .type = exprToString(ir, try typeOf(ir, container)),
             .member = member,
@@ -371,7 +372,7 @@ fn evalMemberAccess(ir: *Ir, member_access: Ir.ir.MemberAccess, parent: Index) E
 fn isEvaluable(ir: *Ir, index: Index) bool {
     return switch (ir.at(.expr, index).*) {
         .dereference, .member_access, .coerce => true,
-        .word, .word_type, .def, .decl, .product, .sum, .pointer_type, .type, .container, .pointer, .indirect_member_access => false,
+        .word, .word_type, .literal, .def, .decl, .product, .sum, .pointer_type, .type, .container, .pointer, .indirect_member_access => false,
     };
 }
 
