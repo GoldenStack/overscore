@@ -49,7 +49,9 @@ label Main
 
 # Language
 
-The language is a work in progress. Documentation will be added soon.
+The language is a work in progress. Documentation will be added soon, but for
+now you can take a look at the [rationale](https://gist.github.com/GoldenStack/09cb66ec29ff80e0aebda528d2cdb2e4)
+which exposes several features of the language.
 
 # Roadmap
 
