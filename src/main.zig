@@ -14,6 +14,13 @@ pub fn main() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
+
+    try testCompile(allocator);
+
+    try testAssembly(allocator);
+}
+
+fn testCompile(allocator: std.mem.Allocator) !void {
     const stdout = std.io.getStdOut().writer();
 
     // Parse the tokens into an AST
@@ -47,40 +54,48 @@ pub fn main() !void {
     // Print the output IR
     try ir.printExpr(main_value, stdout);
     std.debug.print("\n", .{});
-
-    // // Load the assembly and convert it to a slice
-    // const assembly = @embedFile("fibonacci.asm");
-    // const asm_slice: []const u8 = assembly[0..assembly.len];
-
-    // // Assemble the assembly into binary
-    // var binary = std.ArrayList(Cpu.Unit).init(allocator);
-    // try Assembler.assemble(asm_slice, allocator, binary.writer());
-    // defer binary.deinit();
-
-    // // Display the assembled binary
-    // // std.debug.print("Assembled binary: {any}\n", .{binary.items});
-
-    // // Create a CPU and load the binary into memory
-    // var cpu = Cpu.init(sys);
-    // @memcpy(cpu.memory[0..binary.items.len], binary.items);
-
-    // var counter: usize = 0;
-
-    // // Keep running instructions while they can be read
-    // while (try cpu.prepareInstruction()) |instr| {
-    //     // std.debug.print("{any}\n", .{instr});
-    //     counter += 1;
-    //     try cpu.follow(instr);
-    // }
-
-    // std.debug.print("instruction count: {}\n", .{counter});
 }
 
-fn handle_error(err: error{CodeError, OutOfMemory}, ctx: anytype) !void {
+fn testAssembly(allocator: std.mem.Allocator) !void {
+    const stdout = std.io.getStdOut().writer();
+
+    // Load the assembly and convert it to a slice
+    const assembly = @embedFile("fibonacci.asm");
+    const asm_slice: []const u8 = assembly[0..assembly.len];
+    var iter = Assembler.AssemblyIterator.init(asm_slice);
+
+    // Assemble the assembly into binary
+    var binary = std.ArrayList(Cpu.Unit).init(allocator);
+    Assembler.assemble(&iter, allocator, binary.writer()) catch |err| {
+        try stdout.print("Error {} on following line:\n{s}\n", .{ err, iter.maybe_error.? });
+        return err;
+    };
+    defer binary.deinit();
+
+    // Display the assembled binary
+    // std.debug.print("Assembled binary: {any}\n", .{binary.items});
+
+    // Create a CPU and load the binary into memory
+    var cpu = Cpu.init(sys);
+    @memcpy(cpu.memory[0..binary.items.len], binary.items);
+
+    var counter: usize = 0;
+
+    // Keep running instructions while they can be read
+    while (try cpu.prepareInstruction()) |instr| {
+        // std.debug.print("{any}\n", .{instr});
+        counter += 1;
+        try cpu.follow(instr);
+    }
+
+    try stdout.print("instruction count: {}\n", .{counter});
+}
+
+fn handle_error(err: error{ CodeError, OutOfMemory }, ctx: anytype) !void {
     if (err == error.CodeError) {
         const stdout = std.io.getStdOut().writer();
         try ctx.error_context.?.display(file, src, stdout);
-        return;
+        return err;
     } else return err;
 }
 
