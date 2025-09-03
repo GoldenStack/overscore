@@ -41,16 +41,17 @@ pub fn Ranged(T: type) type {
         value: T,
 
         pub fn wrap(context: anytype, read_fn: anytype) MapErrorPayload(@TypeOf(read_fn), Ranged) {
-            const start: Ranged(Token) = context.peek();
+            const start: Location = context.location();
 
-            const value = try read_fn(context);
+            const value = read_fn(context);
+            const sequence = if (@typeInfo(@TypeOf(value)) == .error_union) try value else value;
 
             return .{
                 .range = .{
-                    .start = start.range.start,
+                    .start = start,
                     .end = context.location(),
                 },
-                .value = value,
+                .value = sequence,
             };
         }
 
@@ -175,6 +176,10 @@ pub const Tokenizer = struct {
         };
     }
 
+    fn location(self: *@This()) Location {
+        return self.loc;
+    }
+
     fn peekChar(self: *const @This()) u8 {
         return self.src[self.loc.pos];
     }
@@ -257,17 +262,7 @@ pub const Tokenizer = struct {
     pub fn next(self: *@This()) Ranged(Token) {
         self.skipWhile(std.ascii.isWhitespace);
 
-        const start = self.loc;
-        const tag = self.nextTag();
-        const end = self.loc;
-
-        var token = Ranged(Token){
-            .value = tag,
-            .range = .{
-                .start = start,
-                .end = end,
-            },
-        };
+        var token = Ranged(Token).wrap(self, nextTag);
 
         if (token.value == .ident) if (Token.keywords.get(token.range.substr(self.src))) |new_token| {
             token.value = new_token;
