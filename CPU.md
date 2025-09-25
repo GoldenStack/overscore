@@ -23,7 +23,8 @@ is heavily inspired by [x86](https://www.felixcloutier.com/x86/),
 [ForwardCom](https://www.forwardcom.info/).
 
 For binary instructions, the operand that can be thought of as the "output" or
-"write" operand is always the left operand.
+"write" operand is always the left operand. For unary instructions, the only
+operand is always the write operand, since there are no no-op instructions.
 
 Eight (8) variants (`mov10`, `mov11`, `mov12`, `mov21`, `not1`, `and11`,
 `add11`, and `sys1`) are denoted denoted as "core" variants, with every other
