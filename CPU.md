@@ -325,7 +325,7 @@ The strategy for "normalizing" a number is simply to mask off an individual
 byte, multiply that number by `9` by adding it to itself several times, and then
 add that number to the instruction pointer. An example:
 
-```asm
+```C
 // This function uses static addresses in memory as stack space, which is
 // possible as this function is not technically a "real" function and can never
 // be called twice at the same time.
