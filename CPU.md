@@ -178,4 +178,199 @@ than zero. Supports one level of indirection on the left operand, and zero or
 one levels of indirection on the right operand.
 
 ## "Micro-instructions"
-TODO: Define each instruction in terms of the core instructions.
+
+If the 8 core instructions (`mov10`, `mov11`, `mov12`, `mov21`, `not1`, `and11`,
+`add11`, and `sys1`) are considered the "micro-instructions" of this CPU,
+usage of the term being heavily debatable as the whole instruction set is not
+actually interpreted as these micro-instructions, then all the other variants
+must be able to be defined in terms of these.
+
+Many of these instructions simply require a temporary variable in able to be
+emulated with existing instructions.
+
+### `mov20`
+
+```asm
+// emulate `mov [[a]] b` with:
+mov [Tmp1] b
+mov [[a]] [Tmp1]
+```
+
+### `mov22`
+
+```asm
+// emulate `mov [[a]] [[b]]` with:
+mov [Tmp1] [[b]]
+mov [[a]] [Tmp1]
+```
+
+### `and10`
+
+```asm
+// emulate `and [a] b` with:
+mov [Tmp1] b
+and [a] [Tmp1]
+```
+
+### `or10`
+
+```asm
+// emulate `or [a] b` with:
+mov [Tmp1] b
+or [a] [Tmp1]
+```
+
+### `or11`
+
+```asm
+// emulate `or [a] [b]` with:
+not [a]
+not [b]
+and [a] [b]
+```
+Note: this definition mutates `b`, which is not done in the non-emulated version
+of this instruction. This is fine as it simply serves as a proof of concept.
+
+### `add10`
+
+```asm
+// emulate `add [a] b` with:
+mov [Tmp1] b
+add [a] [Tmp1]
+```
+### `sub10`
+
+```asm
+// emulate `sub [a] b` with:
+mov [Tmp1] b
+sub [a] [Tmp1]
+```
+
+### `sub11`
+
+```asm
+// emulate `sub [a] [b]` with:
+add [a] 1
+not [b]
+add [a] [b]
+```
+Note: this definition mutates `b`, which is not done in the non-emulated version
+of this instruction. This is fine as it simply serves as a proof of concept.
+
+### `mul10`
+
+```asm
+// emulate `mul [a] b` with:
+mov [Tmp1] b
+mul [a] [b]
+```
+
+### `mul11`
+
+TODO
+```asm
+// emulate `mul [a] [b]` with:
+```
+
+### `jz10`
+
+```asm
+// emulate `jz [a] b` with:
+mov [Tmp1] b
+jz [a] [b]
+```
+
+### `jz11`
+
+TODO
+```asm
+// emulate `jz [a] [b]` with:
+not [a]
+jnz [a] [b]
+```
+Note: this definition mutates `b`, which is not done in the non-emulated version
+of this instruction. This is fine as it simply serves as a proof of concept.
+
+### `jnz10`
+
+```asm
+// emulate `jnz [a] b` with:
+mov [Tmp1] b
+jnz [a] [b]
+```
+
+### `jnz11`
+
+This is an incredibly hard expression to emulate, given no conditional branching
+exists at all. Several hours were spent working this out, and it turns out that
+the solution is having a jump table with the length of the minimum addressable
+size.
+
+You see, the core issue with branching is not "how to tell if something is
+zero", it is "what does it mean to tell if something is zero"--this is because
+in order to conditionally jump to A or B, you need a number that is one of two
+known values, ideally 0 or 1, which can be manipulated into the number of
+bytes you want to jump by, so that it can be added to the instruction pointer.
+
+Thus, what is required for a "conditional jump" is simply a way to "normalize" a
+number into one of two outcomes, again, ideally 0 or 1, so that math can be
+performed on the result to determine how much to jump by. This is unfortunately
+only possible with a (in this case) 256^n element long jump table, where if
+`n=1` this table will need to be used 4 times, if `n=2` then it will need to be
+used twice, and if `n=4` it will only need to be used once. Clearly, the only
+reasonable case is `n=1`.
+
+The strategy for "normalizing" a number is simply to mask off an individual
+byte, multiply that number by `9` by adding it to itself several times, and then
+add that number to the instruction pointer. An example:
+
+```asm
+// This function uses static addresses in memory as stack space, which is
+// possible as this function is not technically a "real" function and can never
+// be called twice at the same time.
+
+// Returns 0 if the input is 0, and returns 1 if the input is any number other
+// than zero. Only works on a byte; providing larger numbers is UB.
+label Normalize-Byte:
+    mov [Tmp1] [Check.Value] // Copy the value once (1x)
+    add [Tmp1] [Tmp1]        // Double it (2x)
+    add [Tmp1] [Tmp1]        // Double it (4x)
+    add [Tmp1] [Tmp1]        // Double it (8x)
+    add [Tmp1] [Check.Value] // Add x     (9x)
+
+    add [#0] [Tmp1] // Skip ahead!
+
+    mov [#0] [Check.Zero]
+    mov [#0] [Check.NonZero]
+    // ... 253 copies of `mov [0] [Check.NonZero]`
+    mov [#0] [Check.NonZero]
+
+label Normalize-Byte.Zero:
+    // Return 0
+    mov [Normalize-Byte.Return] #0
+    mov [#0] Normalize-Byte.ReturnAddr
+
+label Normalize-Byte.NonZero:
+    // Return 1
+    mov [Normalize-Byte.Return] #1
+    mov [#0] Normalize-Byte.ReturnAddr
+
+// "Stack" space
+label Normalize-Byte.Value:
+    word #0 // The parameter
+
+label Normalize-Byte.Return
+    raw #0 // The return value
+
+label Normalize-Byte.ReturnAddr
+    raw #0 // The return address
+```
+
+This example provides a way to normalize bytes. As explained, it can be easily
+extended to work for entire words, by masking out each byte in the word. I
+promise I have not been able to find a better way to work this out; everything
+else has a circular dependency on something that implicitly branches (e.g.
+multiplication) or just otherwise does not work.
+
+
+
