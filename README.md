@@ -37,13 +37,13 @@ higher level features.
 Here's an example program. Documentation for the assembly can be found in
 [ASSEMBLY.md](ASSEMBLY.md).
 ```
-raw Main
+word Main
 
-label Main
-    mov10 100 AA
-    mov11 104 100
-    not1  104
-    and11 100 104
+label Main:
+    mov [#100x] #AAx
+    mov [#104x] [#100x]
+    not [#104x]
+    and [#100x] [#104]
     end
 ```
 
