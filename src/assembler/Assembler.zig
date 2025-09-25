@@ -10,21 +10,7 @@ const Err = err.Err;
 
 pub const WordValue = union(enum) {
     literal: Cpu.Word,
-    label: []const u8,
-
-    pub fn write(self: @This(), labels: *const std.StringHashMap(Cpu.Addr), writer: anytype) !void {
-        try writer.writeInt(Cpu.Word, switch (self) {
-            .literal => |lit| lit,
-            .label => |label| labels.get(label) orelse std.debug.panic("Invalid label: {s}\n", .{label}), // TODO: Error
-        }, .little);
-    }
-
-    pub fn format(self: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-        switch (self) {
-            .literal => |literal| try writer.print("#{x}x", .{literal}),
-            .label => |label| try writer.print("{s}", .{label}),
-        }
-    }
+    label: lex.Range,
 };
 
 /// An address that can have any number of indirection values. Takes an enum.
@@ -34,12 +20,6 @@ pub fn Addr(Indir: type) type {
 
         indirection: Indir,
         value: WordValue,
-
-        pub fn format(self: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-            try writer.writeByteNTimes('[', @intFromEnum(self.indirection));
-            try writer.print("{}", .{self.value});
-            try writer.writeByteNTimes(']', @intFromEnum(self.indirection));
-        }
     };
 }
 
@@ -103,22 +83,6 @@ const Instruction = union(enum) {
             },
         };
     }
-
-    pub fn write(self: @This(), labels: *const std.StringHashMap(Cpu.Addr), writer: anytype) !void {
-        try writer.writeInt(std.meta.Tag(Cpu.Opcode), @intFromEnum(self.opcode()), .little);
-
-        switch (self) {
-            inline else => |op| inline for (std.meta.fields(@TypeOf(op))) |field| {
-                try @field(op, field.name).value.value.write(labels, writer);
-            },
-        }
-    }
-
-    pub fn format(self: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-        switch (self) {
-            inline else => |value, tag| try writer.print("{s} {}", .{ @tagName(tag), value }),
-        }
-    }
 };
 
 /// A line in assembly. This can be an instruction or one of many Assembler
@@ -140,26 +104,6 @@ pub const Line = union(enum) {
             .bytes => |line| @truncate(line.len),
             .end => 1,
         };
-    }
-
-    pub fn write(self: *const @This(), labels: *const std.StringHashMap(Cpu.Addr), writer: anytype) !void {
-        try switch (self.*) {
-            .instruction => |instruction| instruction.write(labels, writer),
-            .word => |word| word.write(labels, writer),
-            .label => {},
-            .bytes => |line| writer.writeAll(line),
-            .end => writer.writeByte(0xff),
-        };
-    }
-
-    pub fn format(self: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-        switch (self) {
-            .instruction => |instruction| try writer.print("{}", .{instruction}),
-            .word => |word| try writer.print("word {}", .{word}),
-            .bytes => |bytes| try writer.print("{any}", .{bytes}),
-            .label => |label| try writer.print("label {s}:", .{label.value}),
-            .end => try writer.writeAll("end"),
-        }
     }
 };
 
@@ -190,7 +134,34 @@ pub fn assemble(self: *@This(), writer: anytype) Err!void {
     try self.readLines(&lines, &labels);
 
     // Now, write them
-    for (lines.items) |line| try line.write(&labels, writer);
+    for (lines.items) |line| try self.writeLine(line, &labels, writer);
+}
+
+fn writeLine(self: *@This(), line: Line, labels: *const std.StringHashMap(Cpu.Addr), writer: anytype) !void {
+    try switch (line) {
+        .instruction => |instruction| self.writeInstruction(instruction, labels, writer),
+        .word => |word| try self.writeValue(word, labels, writer),
+        .label => {},
+        .bytes => |bytes| writer.writeAll(bytes),
+        .end => writer.writeByte(0xff),
+    };
+}
+
+fn writeInstruction(self: *@This(), instruction: Instruction, labels: *const std.StringHashMap(Cpu.Addr), writer: anytype) !void {
+    try writer.writeInt(std.meta.Tag(Cpu.Opcode), @intFromEnum(instruction.opcode()), .little);
+
+    switch (instruction) {
+        inline else => |op| inline for (std.meta.fields(@TypeOf(op))) |field| {
+            try self.writeValue(@field(op, field.name).value.value, labels, writer);
+        },
+    }
+}
+
+fn writeValue(self: *@This(), value: WordValue, labels: *const std.StringHashMap(Cpu.Addr), writer: anytype) !void {
+    try writer.writeInt(Cpu.Word, switch (value) {
+        .literal => |lit| lit,
+        .label => |label| labels.get(label.substr(self.src)) orelse return self.fail(.{ .unknown_label = label }),
+    }, .little);
 }
 
 // Parses lines from the given reader, writing the lines to the lines parameter
@@ -326,7 +297,7 @@ fn readRawAddr(self: *@This()) Err!struct { usize, WordValue } {
 pub fn readValue(self: *@This()) Err!WordValue {
     return switch (self.tokens.peek().value) {
         .number => .{ .literal = try self.readNumber(Cpu.Word) },
-        .ident => .{ .label = (try self.expect(.ident)).range.substr(self.src) },
+        .ident => .{ .label = (try self.expect(.ident)).range },
         else => self.failExpected(&.{ .number, .ident }),
     };
 }

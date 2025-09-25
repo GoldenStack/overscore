@@ -28,6 +28,9 @@ pub const Error = union(enum) {
         found: usize,
     },
 
+    /// Unknown label
+    unknown_label: Range,
+
     pub fn display(self: @This(), filename: []const u8, src: []const u8, writer: anytype) !void {
         switch (self) {
             .expected_tag => |exp| {
@@ -81,6 +84,11 @@ pub const Error = union(enum) {
                 }
                 try writer.print(" levels of indirection, but found {}\n" ++ err.Unbold, .{invalid.found});
                 try err.pointTo(src, invalid.argument, writer);
+            },
+            .unknown_label => |unknown| {
+                try err.prefix(filename, unknown, .err, writer);
+                try writer.print("unknown label '{s}'\n" ++ err.Unbold, .{unknown.substr(src)});
+                try err.pointTo(src, unknown, writer);
             },
         }
     }
