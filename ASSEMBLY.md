@@ -4,9 +4,10 @@ The assembler provides a simple text-based way to write machine code, with a few
 higher level features.
 
 Lines of assembly correspond directly to bytes in the output binary, so lines
-are processed in order, serialized, and written to the output binary. This makes
-understanding the effects of your assembly easier, given the direct
-correspondence.
+are processed in order, serialized, and written to the output binary. This
+ensures the correspondence in the output binary is obvious. This usage of
+"lines" is not without reason--the assembler enforces at most one line of
+assembly per line in the text file.
 
 Comments are written with `//`. Semicolons are not supported as comments and
 will cause an assembler error.
@@ -14,114 +15,128 @@ will cause an assembler error.
 Here's an example program. The next few sections will help with understanding
 it.
 ```
-raw Main
+word Main
 
-label Main
-    mov10 100 AA
-    mov11 104 100
-    not1  104
-    and11 100 104
+label Main:
+    mov [#100x] #AAx
+    mov [#104x] [#100x]
+    not [#104x]
+    and [#100x] [#104]
     end
 ```
 
 ## Line Syntax
 
-### Statements
+A line (that's not blank or a comment) consists of a single statement, which is
+either an instruction or another control statement that emits specific bytes.
 
-| Name             | Syntax          | Output size |
-|------------------|-----------------|-------------|
-| [Raw](#raw)      | `raw <WORD>`    | 4 bytes     |
-| [Label](#labels) | `label <NAME>`  | 0 bytes     |
-| [Bytes](#bytes)  | `bytes <BYTES>` | variable    |
-| [End](#end)      | `end`           | 1 byte      |
+| Name                         | Syntax          | Output size  |
+|------------------------------|-----------------|--------------|
+| [Word](#word)                | `word <WORD>`   | 4 bytes      |
+| [Label](#label)              | `label <NAME>`  | 0 bytes      |
+| [Bytes](#bytes)              | `bytes <BYTES>` | variable     |
+| [End](#end)                  | `end`           | 1 byte       |
+| [Instruction](#instructions) | variable        | 4 or 9 bytes |
+
+### Word
+
+A word consists of a number literal or the name of a label. Number literals
+always start with `#` to indicate that the token is a number, and if a number
+literal is longer than a character, you need to specify its base at the end.
+
+Bases are either `b` for binay, `d` for decimal, or `x` for hexidecimal. For
+example, `#A6x`, `#166d`, and `#10100110b` all represent the same number (166).
+You can specify a base for number literals with one digit, but this isn't
+necessary.
+
+You can also place the name of a label instead of a number! This will be
+replaced with the address of the label when the program is compiled. Forward
+references are allowed, meaning you can refer to a label that is defined later
+in the file.
+
+It's customary to place a word literal as the first line in the file, because
+the first four bytes correspond to setting the starting position of the
+instruction pointer. This explains the `word Main` and `label Main:` pattern.
+
+A word always has the size of a CPU word, which is 4 bytes here.
+
+### Label
+
+Labels are zero-size lines that allow giving a name to a specific address in the
+file. They don't correspond to any output binary directly, as labels are an
+assembler construct. You can use them in the place of any number literal, and
+when the file is assembled they will be replaced with the address of the first
+line after the label.
+
+This can be used for labelling code blocks and jumping to them, or for giving
+names to static memory so that it can be used, like for the stack pointer.
+
+For example, the label of the stack pointer looks like this:
+
+```c
+// Add a label for the stack and initialize the pointer
+label Stack:
+    word StackStart
+
+// MORE CODE...
+
+// Start the stack right after the code ends
+label StackStart:
+```
+
+This declares the stack start to be after all of the code in the file, and the
+stack pointer begins as a pointer to this location. Note that this
+implementation means that the stack actually grows upwards instead of downwards,
+the opposite of how the stack is normally structured.
+
+### Bytes
+
+The `bytes` statement simply embeds some bytes directly in the binary. You
+specify a whitespace-separated list of numbers that fit into an unsigned byte,
+and they are placed directly in the output binary. For example, this is how you
+embed `"Hello!"` into the binary:
+
+```c
+bytes #48x #65x #6Cx #6Cx #6Fx #21x
+```
+
+This has a size of however many bytes you provide, as one would expect.
+
+### End
+
+The `end` statement includes a single `#FFx` byte in the binary, which is
+understood by the CPU as a direction to immediately stop executing. It's
+basically a shorthand for `bytes #FFx`.
 
 ### Instructions
 
-Instructions are written with the instruction name (e.g. `mov11`), and then the
-argument(s). The numbers at the end refer to the levels of indirection for the
-instruction; check [CPU.md](CPU.md) for details. The sizes of each instruction
-are also described there.
+Instructions are the core construct for communicating to the CPU. They consist
+of unary instructions and binary instructions, which take up 5 bytes and 9
+bytes, respectively. They're written with their name, followed by the arguments.
 
-## Instructions
+Arguments can be surrounded in "levels of indirection", which refers to the
+amount of indirection that a value takes. For example, `8` refers to the number
+8, but `[8]` refers to the *value* of the address with number 8. The output
+always requires at least one level of indirection, since it wouldn't make sense
+to reassign a number - only modifying the value of an address makes sense.
 
-Instructions are referred to using their shortened name. The destination address
-is typically the left argument. For example:
-```
-    mov10 100 AA  // Set address 100 (in hexadecimal) to AA
-    mov11 104 100 // Copy address 100 to address 104
-    not1  104     // Flip all the bits of address 104
-    and11 100 104 // Binary AND on 100 and 104, writing to 100
-```
+Most instructions support one level of indirection for output arguments, and
+zero or one levels of indirection for the other input argument. The exception to
+this is `mov`, which supports up to two levels of indirection for its arguments.
 
-This works the same for every instruction, so it should make sense from here.
+You can see [CPU.md](CPU.md) for more details on the inner workings of each
+instruction, but generally they are referred to with their shortened name,
+followed by the arguments.
 
-## Literals
-
-Number literals can be formatted in hexadecimal, binary, or decimal. By default,
-they're parsed as hexadecimal.
-
-When the documentations refers to an address or a word, it's referring to a
-literal.
-
-```
-    mov10 0 AA        // Set address 0 to AA (hexadecimal)
-    mov10 0 d170      // Set address 0 to 170 (decimal)
-    mov10 0 b10101010 // Set address 0 to 10101010 (binary)
-    mov10 0 xAA       // Set address 0 to AA (hexadecimal)
+Some examples:
+```c
+    mov [#100x] #AAx    // Set address 100 (in hexadecimal) to AA
+    mov [#104x] #100x   // Copy address 100 to address 104
+    not [#104x]         // Flip all the bits of address 104
+    and [#100x] [#104x] // Binary AND on 100 and 104, writing to 100
 ```
 
-## Labels
+This works the same for every instruction, so this should make sense from here
+if you've read CPU.md.
 
-The line `label Main` (putting the name of the label where `Main` is) allows
-referring to the address of the next instruction after the label by the name of
-the label. This is useful for jumping to or reading from certain areas, because
-there's no way to guarantee where in memory the code is.
 
-Writing a label (e.g. `Main`) instead of an address will have the label replaced
-with the address when assembling.
-
-Labels always have a size of zero, because they're an assembler construct.
-
-## Raw
-
-You can embed 4 bytes (the size of a CPU word) directly in the binary with the
-`raw` line.
-
-This is useful for embedding data that doesn't fit nicely into ASCII, or for
-setting the instruction pointer. Since binaries always start at address `0`,
-embedding the address of a block (e.g. `raw Main`) will end up setting the
-instruction pointer to the given address when the binary is assembled.
-
-This doesn't allow writing smaller amounts of data directly in the binary (e.g.
-1 byte), at least for now.
-
-`raw` always has a size of 4 bytes (the word size).
-
-## Bytes
-
-Write `bytes <BYTES>` to insert the bytes provided directly in the binary. This
-is typically useful for embedding strings into the binary, because including
-non-ACSII characters directly
-
-Printing strings can be implemented this way by writing, for example:
-```
-label Message
-    bytes Hello, world!
-    end
-```
-
-The `label` is included to make it possible to refer to where the string is
-placed.
-
-Since there's no way to get the length of the embedded bytes, `end` was added to
-make the string null-terminated.
-
-`bytes` has a size of however many bytes you provide to it.
-
-## End
-
-You can place a null byte in the binary with the `end` line.
-
-This is typically useful for ending the program or for padding.
-
-`end` has a size of one byte.
