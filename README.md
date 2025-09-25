@@ -6,7 +6,7 @@ starting from the ground up.
 
 A little more detail for the CPU, emulator, assembler, and language:
 - The CPU is a simple 32-bit CPU with 8 bit minimum addressable size and a small instruction set designed from scratch, but with several variants per instruction.
-- The emulator emulates the behaviour of instructions from the instruction set. It handles 390 million instructions per second on my machine.
+- The emulator emulates the behaviour of instructions from the instruction set. It handles 400 million instructions per second on my machine.
 - The assembler converts readable assembly directly into bytes and machine code, with a few higher level constructs.
 - The language is a tokenizer, parser, interpreter, and compiler, all in one. It's the most complex part of this project by far.
 
