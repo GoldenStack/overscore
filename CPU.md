@@ -359,10 +359,10 @@ label Normalize-Byte.NonZero:
 label Normalize-Byte.Value:
     word #0 // The parameter
 
-label Normalize-Byte.Return
+label Normalize-Byte.Return:
     raw #0 // The return value
 
-label Normalize-Byte.ReturnAddr
+label Normalize-Byte.ReturnAddr:
     raw #0 // The return address
 ```
 
