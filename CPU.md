@@ -343,7 +343,7 @@ label Normalize-Byte:
 
     mov [#0] [Check.Zero]
     mov [#0] [Check.NonZero]
-    // ... 253 copies of `mov [0] [Check.NonZero]`
+    // ... 253 copies of `mov [#0] [Check.NonZero]`
     mov [#0] [Check.NonZero]
 
 label Normalize-Byte.Zero:
