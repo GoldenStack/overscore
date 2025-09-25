@@ -1,7 +1,8 @@
 const std = @import("std");
 const Cpu = @import("Cpu.zig");
-const Assembler = @import("Assembler.zig");
-const tokenizer = @import("language/tokenizer.zig");
+const Assembler = @import("assembler/Assembler.zig");
+const LanguageTokenizer = @import("language/tokenizer.zig").Tokenizer;
+const AssemblyTokenizer = @import("assembler/tokenizer.zig").Tokenizer;
 const Parser = @import("language/Parser.zig");
 const Ir = @import("language/Ir.zig");
 const interpreter = @import("language/interpreter.zig");
@@ -15,7 +16,7 @@ pub fn main() !void {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    try testCompile(allocator);
+    // try testCompile(allocator);
 
     try testAssembly(allocator);
 }
@@ -24,7 +25,7 @@ fn testCompile(allocator: std.mem.Allocator) !void {
     const stdout = std.io.getStdOut().writer();
 
     // Parse the tokens into an AST
-    const tokens = tokenizer.Tokenizer.init(src);
+    const tokens = LanguageTokenizer.init(src);
     var parser = Parser.init(allocator, tokens);
     const container = parser.readRoot() catch |err| return handle_error(err, parser);
 
@@ -61,19 +62,17 @@ fn testAssembly(allocator: std.mem.Allocator) !void {
 
     // Load the assembly and convert it to a slice
     const assembly = @embedFile("fibonacci.asm");
-    const asm_slice: []const u8 = assembly[0..assembly.len];
-    var iter = Assembler.AssemblyIterator.init(asm_slice);
+    const asm_slice: [:0]const u8 = assembly[0..assembly.len];
+    const tokens = AssemblyTokenizer.init(asm_slice);
+    var assembler = Assembler.init(allocator, tokens);
 
     // Assemble the assembly into binary
     var binary = std.ArrayList(Cpu.Unit).init(allocator);
-    Assembler.assemble(&iter, allocator, binary.writer()) catch |err| {
-        try stdout.print("Error {} on following line:\n{s}\n", .{ err, iter.maybe_error.? });
-        return err;
-    };
+    assembler.assemble(binary.writer()) catch |err| return handle_error(err, &assembler);
     defer binary.deinit();
 
     // Display the assembled binary
-    // std.debug.print("Assembled binary: {any}\n", .{binary.items});
+    // try stdout.print("Assembled binary: {any}\n", .{binary.items});
 
     // Create a CPU and load the binary into memory
     var cpu = Cpu.init(sys);
@@ -94,7 +93,7 @@ fn testAssembly(allocator: std.mem.Allocator) !void {
 fn handle_error(err: error{ CodeError, OutOfMemory }, ctx: anytype) !void {
     if (err == error.CodeError) {
         const stdout = std.io.getStdOut().writer();
-        try ctx.error_context.?.display(file, src, stdout);
+        try ctx.error_context.?.display(file, ctx.src, stdout);
         return err;
     } else return err;
 }

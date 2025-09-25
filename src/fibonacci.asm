@@ -1,186 +1,187 @@
-raw Main // Set the instruction pointer to the Main block
+word Main // Set the instruction pointer to the Main block
 
 // Function calling convention:
 // [4 units] Return address
 // [? units] Parameters
 // [4 units] Return value
 
-label Tmp1 // Utility location for loading words into an address
-    raw 0
-label Tmp2
-    raw 0
-label Tmp3
-    raw 0
+label Tmp1: // Utility location for loading words into an address
+    word #0
+label Tmp2:
+    word #0
+label Tmp3:
+    word #0
 
 // Add a label for the stack and initialize the pointer
-label Stack
-    raw StackStart
+label Stack:
+    word StackStart
 
-label Main
+label Main:
     // Allocate 12 bytes on the stack
 
     // [0..4] Return address
-    mov20 Stack Main.AfterCall
-    add10 Stack 4
+    mov [[Stack]] Main.AfterCall
+    add [Stack] #4
 
     // [4..8] Param 1 (number)
-    mov20 Stack d35 // The number to calculate fibonacci of
-    add10 Stack 8 // Add 4, and 4 extra as the return value is undefined
+    mov [[Stack]] #30d // The number to calculate fibonacci of
+    add [Stack] #8     // Add 4, and 4 extra as the return value is undefined
 
     // Jump to the call
-    mov10 0 Fib
-    
+    mov [#0] Fib
+
     // After the call...
-label Main.AfterCall
+label Main.AfterCall:
 
     // Reset the stack pointer
-    sub10 Stack d12
+    sub [Stack] #C
 
     // Set Tmp2 to the return value
-    mov11 Tmp1 Stack
-    add10 Tmp1 8
-    mov12 Tmp2 Tmp1
+    mov [Tmp1] [Stack]
+    add [Tmp1] #8
+    mov [Tmp2] [[Tmp1]]
 
     // Output the number directly, since I can't be bothered to print it
-    sys Tmp2
+    sys [Tmp2]
 
     end
 
-label Fib
+// fib = fn(word) -> word
+label Fib:
     // [Tmp2] = [[Stack]-8]
-    mov11 Tmp1 Stack
-    sub10 Tmp1 8
-    mov12 Tmp2 Tmp1
+    mov [Tmp1] [Stack]
+    sub [Tmp1] #8
+    mov [Tmp2] [[Tmp1]]
 
     // if ([Tmp2] != 0) goto Fib.Branch1
-    jnz Tmp2 Fib.Branch1
+    jnz [Tmp2] Fib.Branch1
 
     // If not...
     // mem[stack-4] = 0
-    mov11 Tmp1 Stack
-    sub10 Tmp1 4
-    mov20 Tmp1 0
-    
-    // Jump to mem[stack-12]
-    mov11 Tmp1 Stack
-    sub10 Tmp1 d12
-    mov12 0 Tmp1
+    mov [Tmp1] [Stack]
+    sub [Tmp1] #4
+    mov [[Tmp1]] #0
 
-label Fib.Branch1
+    // Jump to mem[stack-12]
+    mov [Tmp1] [Stack]
+    sub [Tmp1] #C
+    mov [#0] [[Tmp1]]
+
+label Fib.Branch1:
     // [Tmp2] = [[Stack]-8] (the parameter)
-    mov11 Tmp1 Stack
-    sub10 Tmp1 8
-    mov12 Tmp2 Tmp1
+    mov [Tmp1] [Stack]
+    sub [Tmp1] #8
+    mov [Tmp2] [[Tmp1]]
 
     // if ([Tmp2]-1 != 0) goto Fib.Branch2
-    sub10 Tmp2 1
-    jnz Tmp2 Fib.Branch2
+    sub [Tmp2] #1
+    jnz [Tmp2] Fib.Branch2
 
     // [Stack-4] = 1
-    mov11 Tmp1 Stack
-    sub10 Tmp1 4
-    mov20 Tmp1 1
-    
+    mov [Tmp1] [Stack]
+    sub [Tmp1] #4
+    mov [[Tmp1]] #1
+
     // goto [[Stack]-12]
-    mov11 Tmp1 Stack
-    sub10 Tmp1 d12
-    mov12 0 Tmp1
+    mov [Tmp1] [Stack]
+    sub [Tmp1] #C
+    mov [#0] [[Tmp1]]
 
-label Fib.Branch2
+label Fib.Branch2:
 
-    // Allocate and zero 4 bytes on the stack
-    mov20 Stack 0
-    add10 Stack 4
+    // Allocate and zero 4 bytes on the stack for the return value
+    mov [[Stack]] #0
+    add [Stack] #4
 
     // Return Fib(n-1) + Fib(n-2)
 
     // [0..4] Return address
-    mov20 Stack Fib.AfterCall1
-    add10 Stack 4
+    mov [[Stack]] Fib.AfterCall1
+    add [Stack] #4
 
     // [4..8] Param 1 (number)
     // Retrieve the parameter from the stack and put it in Tmp2
-    mov11 Tmp1 Stack
-    sub10 Tmp1 d16
-    mov12 Tmp2 Tmp1
+    mov [Tmp1] [Stack]
+    sub [Tmp1] #10x
+    mov [Tmp2] [[Tmp1]]
 
-    sub10 Tmp2 1
+    sub [Tmp2] #1
 
-    mov21 Stack Tmp2
-    add10 Stack 8 // Add 4, and 4 extra as the return value is undefined
+    mov [[Stack]] [Tmp2]
+    add [Stack] #8 // Add 4, and 4 extra as the return value is undefined
 
     // Jump to the call
-    mov10 0 Fib
-    
+    mov [#0] Fib
+
     // After the call...
-label Fib.AfterCall1
+label Fib.AfterCall1:
 
     // Reset the stack pointer
-    sub10 Stack d12
+    sub [Stack] #C
 
     // Get the return value
-    mov10 Tmp1 8
-    add11 Tmp1 Stack
+    mov [Tmp1] #8
+    add [Tmp1] [Stack]
 
     // Extract the number into Tmp2
-    mov12 Tmp2 Tmp1
+    mov [Tmp2] [[Tmp1]]
 
     // mem[stack-4] = Tmp2
-    mov11 Tmp1 Stack
-    sub10 Tmp1 4
-    mov21 Tmp1 Tmp2
+    mov [Tmp1] [Stack]
+    sub [Tmp1] #4
+    mov [[Tmp1]] [Tmp2]
 
     // [0..4] Return address
-    mov10 Tmp2  Fib.AfterCall2
-    mov21 Stack Tmp2
-    add10 Stack 4
+    mov [Tmp2] Fib.AfterCall2
+    mov [[Stack]] [Tmp2]
+    add [Stack] #4
 
     // [4..8] Param 1 (number)
     // Retrieve the parameter from the stack and put it in Tmp2
-    mov11 Tmp1 Stack
-    sub10 Tmp1 d16
-    mov12 Tmp2 Tmp1
+    mov [Tmp1] [Stack]
+    sub [Tmp1] #10x
+    mov [Tmp2] [[Tmp1]]
 
-    sub10 Tmp2 2
+    sub [Tmp2] #2
 
-    mov21 Stack Tmp2
-    add10 Stack 8 // Add 4, and 4 extra as the return value is undefined
+    mov [[Stack]] [Tmp2]
+    add [Stack] #8 // Add 4, and 4 extra as the return value is undefined
 
     // Jump to the call
-    mov10 0 Fib
-    
+    mov [#0] Fib
+
     // After the call...
-label Fib.AfterCall2
+label Fib.AfterCall2:
 
     // Reset the stack pointer
-    sub10 Stack d12
+    sub [Stack] #C
 
     // [Tmp2] = [[Stack]-8]
-    mov11 Tmp1 Stack
-    add10 Tmp1 8
-    mov12 Tmp2 Tmp1
+    mov [Tmp1] [Stack]
+    add [Tmp1] #8
+    mov [Tmp2] [[Tmp1]]
 
     // [[Stack]-4] += [Tmp2]
-    mov11 Tmp1 Stack
-    sub10 Tmp1 4
-    mov12 Tmp3 Tmp1
+    mov [Tmp1] [Stack]
+    sub [Tmp1] #4
+    mov [Tmp3] [[Tmp1]]
 
-    add11 Tmp2 Tmp3
-    mov21 Tmp1 Tmp2
+    add [Tmp2] [Tmp3]
+    mov [[Tmp1]] [Tmp2]
 
     // Reset the stack pointer
-    sub10 Stack 4
+    sub [Stack] #4
 
     // [[Stack]-4] = [Tmp2]
-    mov11 Tmp1 Stack
-    sub10 Tmp1 4
-    mov21 Tmp1 Tmp2
+    mov [Tmp1] [Stack]
+    sub [Tmp1] #4
+    mov [[Tmp1]] [Tmp2]
 
     // goto [[Stack]-12]
-    mov11 Tmp1 Stack
-    sub10 Tmp1 d12
+    mov [Tmp1] [Stack]
+    sub [Tmp1] #C
 
-    mov12 0 Tmp1
+    mov [#0] [[Tmp1]]
 
     end
 
@@ -195,4 +196,4 @@ label Fib.AfterCall2
 // replace the return instructions with the definite return address.
 
 // Start the stack right after the code ends
-label StackStart
+label StackStart:

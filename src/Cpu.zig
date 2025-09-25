@@ -50,40 +50,41 @@ pub const Instruction = union(enum) {
     binary: BinaryInstruction,
 };
 
-pub const UnaryInstruction = struct {
-    pub const Opcode = enum(u8) {
-        not,
-        sys,
-    };
+/// Raw opcode bytes.
+pub const Opcode = enum(Unit) {
+    not1 = 0,
+    sys1,
 
+    mov10 = 128,
+    mov11,
+    mov12,
+    mov20,
+    mov21,
+    mov22,
+
+    and10,
+    and11,
+    or10,
+    or11,
+    add10,
+    add11,
+    sub10,
+    sub11,
+    mul10,
+    mul11,
+
+    jz10,
+    jz11,
+    jnz10,
+    jnz11,
+};
+
+pub const UnaryInstruction = struct {
     opcode: Opcode,
     op1: Addr,
 };
 
 pub const BinaryInstruction = struct {
-    pub const Opcode = enum(u8) {
-        mov10,
-        mov11,
-        mov12,
-        mov20,
-        mov21,
-        mov22,
-
-        and10,
-        and11,
-        or10,
-        or11,
-        add10,
-        add11,
-        sub10,
-        sub11,
-        mul10,
-        mul11,
-
-        jz,
-        jnz,
-    };
-
     opcode: Opcode,
     op1: Addr,
     op2: Addr,
@@ -116,9 +117,9 @@ inline fn setWordAt(self: *@This(), addr: Addr, word: Word) Error!void {
 }
 
 fn readUnaryInstruction(self: *@This(), index: *usize) Error!UnaryInstruction {
-    const opcode = self.memory[index.*] & 0b01111111;
+    const opcode = self.memory[index.*];
 
-    if (opcode > @intFromEnum(UnaryInstruction.Opcode.sys)) return error.UnknownOpcode;
+    if (opcode > @intFromEnum(Opcode.sys1)) return error.UnknownOpcode;
 
     const op1 = try self.getWordAt(@truncate(index.* + 1));
 
@@ -131,9 +132,9 @@ fn readUnaryInstruction(self: *@This(), index: *usize) Error!UnaryInstruction {
 }
 
 fn readBinaryInstruction(self: *@This(), index: *usize) Error!BinaryInstruction {
-    const opcode = self.memory[index.*] & 0b01111111;
+    const opcode = self.memory[index.*];
 
-    if (opcode > @intFromEnum(BinaryInstruction.Opcode.jnz)) return error.UnknownOpcode;
+    if (opcode > @intFromEnum(Opcode.jnz11)) return error.UnknownOpcode;
 
     const op1 = try self.getWordAt(@truncate(index.* + 1));
     const op2 = try self.getWordAt(@truncate(index.* + 5));
@@ -160,6 +161,8 @@ fn readInstruction(self: *@This(), index: *usize) Error!Instruction {
 pub fn prepareInstruction(self: *@This()) Error!?Instruction {
     const addr = try self.getWordAt(0);
 
+    // std.debug.print("addr: {}\n", .{addr});
+
     // Cannot read instructions outside of memory
     if (addr >= Memory) return error.AddressOutOfBounds;
 
@@ -170,6 +173,8 @@ pub fn prepareInstruction(self: *@This()) Error!?Instruction {
     const instruction = try self.readInstruction(&index);
     try self.setWordAt(0, @truncate(index));
 
+    // std.debug.print("{}\n", .{instruction});
+
     return instruction;
 }
 
@@ -179,8 +184,9 @@ fn followUnaryInstruction(self: *@This(), unary: UnaryInstruction) Error!void {
     const slice = try self.wordSliceAt(op1);
 
     switch (unary.opcode) {
-        .not => slice.* = @bitCast(~@as(Word, @bitCast(slice.*))), // Endianness is irrelevant
-        .sys => std.mem.writeInt(Word, slice, self.sys(std.mem.readInt(Word, slice, .little)), .little),
+        .not1 => slice.* = @bitCast(~@as(Word, @bitCast(slice.*))), // Endianness is irrelevant
+        .sys1 => std.mem.writeInt(Word, slice, self.sys(std.mem.readInt(Word, slice, .little)), .little),
+        else => unreachable,
     }
 }
 
@@ -207,8 +213,12 @@ fn followBinaryInstruction(self: *@This(), binary: BinaryInstruction) Error!void
         .mul10 => try self.setWordAt(op1, try self.getWordAt(op1) *% op2),
         .mul11 => try self.setWordAt(op1, try self.getWordAt(op1) *% try self.getWordAt(op2)),
 
-        .jz => if (try self.getWordAt(op1) == 0) try self.setWordAt(0, op2),
-        .jnz => if (try self.getWordAt(op1) != 0) try self.setWordAt(0, op2),
+        .jz10 => if (try self.getWordAt(op1) == 0) try self.setWordAt(0, op2),
+        .jz11 => if (try self.getWordAt(op1) == 0) try self.setWordAt(0, try self.getWordAt(op2)),
+        .jnz10 => if (try self.getWordAt(op1) != 0) try self.setWordAt(0, op2),
+        .jnz11 => if (try self.getWordAt(op1) != 0) try self.setWordAt(0, try self.getWordAt(op2)),
+
+        else => unreachable,
     }
 }
 

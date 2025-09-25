@@ -1,9 +1,8 @@
 const std = @import("std");
-
-const tokenizer = @import("tokenizer.zig");
-const Token = tokenizer.Token;
-const Ranged = tokenizer.Ranged;
-const Range = tokenizer.Range;
+const lex = @import("../lex.zig");
+const Token = @import("tokenizer.zig").Token;
+const Ranged = lex.Ranged;
+const Range = lex.Range;
 
 const ast = @import("Parser.zig").ast;
 const failure = @import("failure.zig");
@@ -468,6 +467,6 @@ fn printLazyDecl(self: *@This(), lazy: ir.LazyDecl, writer: anytype) anyerror!vo
     };
 }
 
-fn printRange(self: *@This(), range: tokenizer.Range, writer: anytype) anyerror!void {
+fn printRange(self: *@This(), range: lex.Range, writer: anytype) anyerror!void {
     try writer.writeAll(range.substr(self.src));
 }

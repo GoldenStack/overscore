@@ -1,6 +1,7 @@
 const std = @import("std");
+const lex = @import("../lex.zig");
+const Ranged = lex.Ranged;
 const tokenizer = @import("tokenizer.zig");
-const Ranged = tokenizer.Ranged;
 const Token = tokenizer.Token;
 const failure = @import("failure.zig");
 const Err = failure.ErrorSet;
@@ -196,7 +197,6 @@ allocator: std.mem.Allocator,
 error_context: ?failure.Error = null,
 
 tokens: tokenizer.Tokenizer,
-next_token: ?Ranged(Token) = null,
 
 pub fn init(allocator: std.mem.Allocator, tokens: tokenizer.Tokenizer) @This() {
     return .{
@@ -226,7 +226,7 @@ fn readHighPriorityExpression(self: *@This()) Err!Ranged(ast.Expr) {
     var left = try self.readLowPriorityExpression();
 
     while (true) {
-        left = switch (self.peek().value) {
+        left = switch (self.tokens.peek().value) {
             .@"or" => try left.andThen(self, readSingleHighPriorityInfix(.sum)),
             .@"and" => try left.andThen(self, readSingleHighPriorityInfix(.product)),
             .semicolon => try left.andThen(self, readSingleHighPriorityInfix(.container)),
@@ -255,7 +255,7 @@ fn readSingleHighPriorityInfix(comptime op: enum { sum, product, container }) fn
 
                 // Allow trailing operators as syntax sugar, but make sure not to allow
                 // single-element lists on accident.
-                if (@field(left.value, field.name).items.len > 1) switch (self.peek().value) {
+                if (@field(left.value, field.name).items.len > 1) switch (self.tokens.peek().value) {
                     // This implicitly signals to be done as the next iteration of readHighPriorityExpression will see this and cancel.
                     .eof, .closing_parentheses, .closing_curly_bracket => return left.value,
                     else => {},
@@ -290,11 +290,11 @@ fn readMediumPriorityExpression(self: *@This()) Err!Ranged(ast.Expr) {
 }
 
 fn readLowPriorityExpression(self: *@This()) Err!Ranged(ast.Expr) {
-    var left = try Ranged(ast.Expr).wrap(self, readBaseExpression);
+    var left = try lex.ranged(self, readBaseExpression);
 
     // Parse with loops instead of recursion for left associativity.
     while (true) {
-        left = switch (self.peek().value) {
+        left = switch (self.tokens.peek().value) {
             .period, .arrow => try left.andThen(self, readMemberAccess),
             .period_asterisk => try left.andThen(self, readDereference),
             else => return left,
@@ -312,7 +312,7 @@ fn readBaseNamedExpression(self: *@This()) Err!ast.Expr {
     // const mutability: ast.Mutability = if (self.consume(.@"var")) |_| .variable else .constant;
 
     // TODO: Bring back "literal is required for definitions and declarations" error
-    const name = try Ranged(ast.Literal).wrap(self, readLiteral);
+    const name = try lex.ranged(self, readLiteral);
 
     // Read an optional type specifier
     const maybe_type = if (self.consume(.colon)) |_|
@@ -379,7 +379,7 @@ fn readDereference(self: *@This(), base: Ranged(ast.Expr)) Err!ast.Expr {
 }
 
 fn readBaseExpression(self: *@This()) Err!ast.Expr {
-    return switch (self.peek().value) {
+    return switch (self.tokens.peek().value) {
         // Read the word type
         .word => {
             _ = try self.expect(.word);
@@ -396,7 +396,7 @@ fn readBaseExpression(self: *@This()) Err!ast.Expr {
         .asterisk => {
             _ = try self.expect(.asterisk);
 
-            const child = try Ranged(ast.Expr).wrap(self, readBaseExpression);
+            const child = try lex.ranged(self, readBaseExpression);
 
             return .{ .pointer_type = try self.box(ast.Expr, child) };
         },
@@ -455,10 +455,17 @@ pub fn readLiteral(self: *@This()) Err!ast.Literal {
 /// Consumes the next token from this parser if it's the provided tag. Returns
 /// `null` otherwise.
 pub fn consume(self: *@This(), comptime token: Token) ?Ranged(Token) {
-    return if (self.peek().value == token)
-        self.next()
-    else
-        null;
+    return self.consumeMany(&.{token});
+}
+
+/// Consumes the next token from this parser if it's any of the provided tags.
+/// Returns `null` otherwise.
+pub fn consumeMany(self: *@This(), comptime tokens: []const Token) ?Ranged(Token) {
+    const next_tag = self.tokens.peek().value;
+
+    inline for (tokens) |tag| {
+        if (tag == next_tag) return self.tokens.next();
+    } else return null;
 }
 
 /// Reads a token, returning an error if it's not equal to the given tag.
@@ -468,18 +475,14 @@ pub fn expect(self: *@This(), comptime token: Token) !Ranged(Token) {
 
 /// Reads a token, returning an error if it's not one of the given tags.
 pub fn expectMany(self: *@This(), comptime tags: []const Token) !Ranged(Token) {
-    const next_tag = self.peek().value;
-
-    inline for (tags) |tag| {
-        if (tag == next_tag) return self.next();
-    } else return self.failExpected(tags);
+    return self.consumeMany(tags) orelse self.failExpected(tags);
 }
 
 /// Fails with an error message saying that the given tags were expected.
 pub fn failExpected(self: *@This(), comptime tags: []const Token) error{CodeError} {
     return self.fail(.{ .expected_tag = .{
         .expected = tags,
-        .found = self.peek(),
+        .found = self.tokens.peek(),
     } });
 }
 
@@ -489,44 +492,7 @@ pub fn fail(self: *@This(), @"error": failure.Error) error{CodeError} {
     return error.CodeError;
 }
 
-/// Returns the next token from the backing token iterator without advancing the
-/// iterator itself. This value is cached, so peeking does not require
-/// re-reading.
-pub fn peek(self: *@This()) Ranged(Token) {
-    // Return the cached token if possible
-    if (self.next_token) |token| return token;
-
-    // Load the next token and backtrack.
-    // This could be structured so that next() depends on peek(), but this would
-    // mean that there's always hidden and unnecessary backtracking, which is
-    // not ideal.
-    const start = self.location();
-    const token = self.next();
-
-    self.next_token = token;
-    self.tokens.loc = start;
-
-    return token;
-}
-
-/// Reads the next token from the backing token iterator.
-pub fn next(self: *@This()) Ranged(Token) {
-    // Return the cached token if possible
-    if (self.next_token) |token| {
-        self.tokens.loc = token.range.end;
-        self.next_token = null;
-        return token;
-    }
-
-    // Skip tokens until there's a non-comment
-    while (true) {
-        const token = self.tokens.next();
-        // Comments mean nothing for now
-        if (token.value != .comment) return token;
-    }
-}
-
 /// Returns the location of the tokenizer.
-pub fn location(self: *@This()) tokenizer.Location {
+pub fn location(self: *@This()) lex.Location {
     return self.tokens.loc;
 }

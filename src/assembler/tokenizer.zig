@@ -2,45 +2,53 @@ const std = @import("std");
 const lex = @import("../lex.zig");
 
 pub const Token = enum {
-    // Special characters
-    opening_curly_bracket,
-    closing_curly_bracket,
-    opening_parentheses,
-    closing_parentheses,
-    equals,
-    semicolon,
-    colon,
-    comma,
-    period,
-    asterisk,
-    period_asterisk,
-    arrow,
-
-    // Kewords
-    @"pub",
-    @"var",
-    word,
-    type,
+    // Instructions
+    not,
+    sys,
+    mov,
     @"and",
     @"or",
+    add,
+    sub,
+    mul,
+    jz,
+    jnz,
 
-    // General language constructs
+    word,
+    bytes,
+    label,
+    end,
+
+    number,
     ident,
     symbol,
-    number,
+
+    colon,
+
+    opening_square_bracket,
+    closing_square_bracket,
+
     comment,
 
-    // Meta-tokens
+    newline,
     eof,
 
     /// Multi-character alphabetic tokens.
     pub const keywords = std.StaticStringMap(Token).initComptime(.{
-        .{ "pub", .@"pub" },
-        .{ "var", .@"var" },
-        .{ "word", .word },
-        .{ "type", .type },
+        .{ "not", .not },
+        .{ "sys", .sys },
+        .{ "mov", .mov },
         .{ "and", .@"and" },
         .{ "or", .@"or" },
+        .{ "add", .add },
+        .{ "sub", .sub },
+        .{ "mul", .mul },
+        .{ "jz", .jz },
+        .{ "jnz", .jnz },
+        .{ "word", .word },
+        .{ "bytes", .bytes },
+        .{ "label", .label },
+        .{ "end", .end },
     });
 
     pub fn format(
@@ -102,49 +110,47 @@ pub const Tokenizer = struct {
         return switch (self.nextChar()) {
             // Fast paths for singular character tokens
             0 => .eof,
-            '{' => .opening_curly_bracket,
-            '}' => .closing_curly_bracket,
-            '(' => .opening_parentheses,
-            ')' => .closing_parentheses,
-            '=' => .equals,
-            ';' => .semicolon,
+            '\n' => .newline,
+            '[' => .opening_square_bracket,
+            ']' => .closing_square_bracket,
             ':' => .colon,
-            ',' => .comma,
-            '.' => {
-                if (self.peekChar() == '*') {
-                    _ = self.nextChar();
-                    return .period_asterisk;
-                } else return .period;
-            },
-            '*' => .asterisk,
-            '-' => {
-                if (self.peekChar() == '>') {
-                    _ = self.nextChar();
-                    return .arrow;
-                } else return .symbol;
-            },
+            'a'...'z', 'A'...'Z', '-', '.' => {
+                self.skipWhile(struct {
+                    fn ident(char: u8) bool {
+                        return switch (char) {
 
-            // Less fast paths for multi-character non-alphabetic tokens
-            '/' => {
-                if (self.peekChar() != '/') return .symbol;
-
-                // Skip until newline or EOF
-                while (true) {
-                    const token = self.nextChar();
-                    if (token == '\n' or token == 0) return .comment;
-                }
-            },
-
-            'a'...'z', 'A'...'Z' => {
-                self.skipWhile(std.ascii.isAlphanumeric);
+                            // Also allow numbers in identifiers
+                            'a'...'z', 'A'...'Z', '0'...'9', '-', '.' => true,
+                            else => false,
+                        };
+                    }
+                }.ident);
 
                 return .ident;
             },
 
-            '0'...'9' => {
+            '#' => {
+                _ = self.next();
                 self.skipWhile(std.ascii.isDigit);
 
+                switch (self.peekChar()) {
+                    'd', 'b', 'x' => _ = self.nextChar(),
+                    else => {},
+                }
+
                 return .number;
+            },
+
+            '/' => {
+                if (self.peekChar() != '/') return .symbol;
+                _ = self.nextChar();
+
+                // Skip until newline or EOF
+                while (true) {
+                    const token = self.peekChar();
+                    if (token == '\n' or token == 0) return .comment;
+                    _ = self.nextChar(); // Consume character after so the comment doesn't consume the newline
+                }
             },
 
             else => .symbol,
@@ -185,7 +191,11 @@ pub const Tokenizer = struct {
 
         // Otherwise, read through tokens until there's a non-comment.
         var token = while (true) {
-            self.skipWhile(std.ascii.isWhitespace);
+            self.skipWhile(struct {
+                fn skip(char: u8) bool {
+                    return std.ascii.isWhitespace(char) and char != '\n';
+                }
+            }.skip);
             const token = lex.ranged(self, nextTag);
 
             if (token.value != .comment) break token;
