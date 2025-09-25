@@ -22,6 +22,9 @@ is heavily inspired by [x86](https://www.felixcloutier.com/x86/),
 [RISCV](https://github.com/riscv/riscv-isa-manual/), and most importantly
 [ForwardCom](https://www.forwardcom.info/).
 
+For binary instructions, the operand that can be thought of as the "output" or
+"write" operand is always the left operand.
+
 Eight (8) variants (`mov10`, `mov11`, `mov12`, `mov21`, `not1`, `and11`,
 `add11`, and `sys1`) are denoted denoted as "core" variants, with every other
 instruction and instruction variant defined in terms of them. This dichotomy
@@ -71,10 +74,10 @@ two-operand (or binary) instructions.
 
 ```
 
-| Name              | Description | Variant | Opcode | C-like equivalent |
-|-------------------|-------------|---------|--------|-------------------|
-| [`not`](#not)     | Not         | not1    | 0      | `*a = ~*a`        |
-| [`sys`](#syscall) | Syscall     | sys1    | 1      | `*a = sys(*a)`*   |
+| Name          | Description | Variant | Opcode | C-like equivalent |
+|---------------|-------------|---------|--------|-------------------|
+| [`not`](#not) | Not         | not1    | 0      | `*a = ~*a`        |
+| [`sys`](#sys) | Syscall     | sys1    | 1      | `*a = sys(*a)`*   |
 > _*where sys is a standard IO function_
 
 ## Two-operand (binary) instructions
@@ -88,29 +91,91 @@ two-operand (or binary) instructions.
 
 ```
 
-| Name               | Description     | Variant | Opcode | C-like equivalent      |
-|--------------------|-----------------|---------|--------|------------------------|
-| [`mov`](#move)     | Move            | mov10   | 0      | `*a = b`               |
-|                    |                 | mov11   | 1      | `*a = *b`              |
-|                    |                 | mov12   | 2      | `*a = **b`             |
-|                    |                 | mov20   | 3      | `**a = b`              |
-|                    |                 | mov21   | 4      | `**a = *b`             |
-|                    |                 | mov22   | 5      | `**a = **b`            |
-| [`and`](#and)      | And             | and10   | 6      | `*a &= b`              |
-|                    |                 | and11   | 7      | `*a &= *b`             |
-| [`or`](#or)        | Or              | or10    | 8      | `*a \|= b`             |
-|                    |                 | or11    | 9      | `*a \|= *b`            |
-| [`add`](#add)      | Add             | add10   | 10     | `*a += b`              |
-|                    |                 | add11   | 11     | `*a += *b`             |
-| [`sub`](#subtract) | Sub             | sub10   | 12     | `*a -= b`              |
-|                    |                 | sub11   | 13     | `*a -= *b`             |
-| [`mul`](#multiply) | Multiply        | mul10   | 14     | `*a *= b`              |
-|                    |                 | mul11   | 15     | `*a *= *b`             |
-| [`jz`](#jz)        | Jump if zero    | jz10    | 16     | `if (*a == 0) *0 = b`  |
-|                    |                 | jz11    | 17     | `if (*a == 0) *0 = *b` |
-| [`jnz`](#jnz)      | Jump if nonzero | jnz10   | 18     | `if (*a != 0) *0 = b`  |
-|                    |                 | jnz11   | 19     | `if (*a != 0) *0 = *b` |
+| Name          | Description     | Variant | Opcode | C-like equivalent      |
+|---------------|-----------------|---------|--------|------------------------|
+| [`mov`](#mov) | Move            | mov10   | 0      | `*a = b`               |
+|               |                 | mov11   | 1      | `*a = *b`              |
+|               |                 | mov12   | 2      | `*a = **b`             |
+|               |                 | mov20   | 3      | `**a = b`              |
+|               |                 | mov21   | 4      | `**a = *b`             |
+|               |                 | mov22   | 5      | `**a = **b`            |
+| [`and`](#and) | And             | and10   | 6      | `*a &= b`              |
+|               |                 | and11   | 7      | `*a &= *b`             |
+| [`or`](#or)   | Or              | or10    | 8      | `*a \|= b`             |
+|               |                 | or11    | 9      | `*a \|= *b`            |
+| [`add`](#add) | Add             | add10   | 10     | `*a += b`              |
+|               |                 | add11   | 11     | `*a += *b`             |
+| [`sub`](#sub) | Sub             | sub10   | 12     | `*a -= b`              |
+|               |                 | sub11   | 13     | `*a -= *b`             |
+| [`mul`](#mul) | Multiply        | mul10   | 14     | `*a *= b`              |
+|               |                 | mul11   | 15     | `*a *= *b`             |
+| [`jz`](#jz)   | Jump if zero    | jz10    | 16     | `if (*a == 0) *0 = b`  |
+|               |                 | jz11    | 17     | `if (*a == 0) *0 = *b` |
+| [`jnz`](#jnz) | Jump if nonzero | jnz10   | 18     | `if (*a != 0) *0 = b`  |
+|               |                 | jnz11   | 19     | `if (*a != 0) *0 = *b` |
 
-TODO: Descriptions of each instruction.
+## Descriptions
 
+### Not
+
+Bitwise unary NOT on the bit sat the target address, with one level of
+indirection.
+
+### Sys
+
+Performs a syscall, sending the value of the given address to the system and
+replacing the value with the result of the syscall. Note that this is at most a
+pseudo-syscall as it doesn't actually resemble a typical hardware syscall that
+closely.
+
+### Mov
+
+Moves a value into an address, supporting one or two levels of indirection on
+the output operand, and zero, one, or two levels of indirection on the other
+operand.
+
+### And
+
+Bitwise binary AND on the bits of the two operands, with one level of
+indirection on the output and zero or one levels of indirection on the other
+operand.
+
+### Not
+
+Bitwise binary NOT on the bits of the two operands, with one level of
+indirection on the output and zero or one levels of indirection on the other
+operand.
+
+### Add
+
+Unsigned wrapping addition of the two operands, writing into the left operand.
+Supports one level of indirection on the left operand, and zero or one levels of
+indirection on the right operand.
+
+### Sub
+
+Unsigned wrapping subtraction of the two operands, writing into the left
+operand. Supports one level of indirection on the left operand, and zero or one
+levels of indirection on the right operand. Strictly equivalent to
+`a - b = a + 1 + ~b`.
+
+### Mul
+
+Unsigned wrapping multiplication of the two operands, writing into the left
+operand. Supports one level of indirection on the left operand, and zero or one
+levels of indirection on the right operand.
+
+### Jz
+
+Conditional jump to the right operand if the left operand is zero. Supports one
+level of indirection on the left operand, and zero or one levels of indirection
+on the right operand.
+
+### Jnz
+
+Conditional jump to the right operand if the left operand is any number other
+than zero. Supports one level of indirection on the left operand, and zero or
+one levels of indirection on the right operand.
+
+## "Micro-instructions"
 TODO: Define each instruction in terms of the core instructions.
