@@ -3,10 +3,10 @@ const lex = @import("../lex.zig");
 const Token = @import("tokenizer.zig").Token;
 const Ranged = lex.Ranged;
 const Range = lex.Range;
+const Err = @import("../err.zig").Err;
 
 const ast = @import("Parser.zig").ast;
 const failure = @import("failure.zig");
-const Err = failure.ErrorSet;
 
 /// Represents an index into the local expr array.
 pub const Index = struct {

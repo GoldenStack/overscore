@@ -1,14 +1,16 @@
 const std = @import("std");
 
-const tokenizer = @import("tokenizer.zig");
-const Token = tokenizer.Token;
-const Range = tokenizer.Range;
+const lex = @import("../lex.zig");
+const Token = @import("tokenizer.zig").Token;
+const Ranged = lex.Ranged;
+const Range = lex.Range;
+const Err = @import("../err.zig").Err;
 
+const tokenizer = @import("tokenizer.zig");
 const Ir = @import("Ir.zig");
 const Index = Ir.Index;
 const IndexOf = Ir.IndexOf;
 const failure = @import("failure.zig");
-const Err = failure.ErrorSet;
 const LazyDecl = Ir.ir.LazyDecl;
 
 // Type inference

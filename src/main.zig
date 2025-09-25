@@ -16,7 +16,7 @@ pub fn main() !void {
     defer arena.deinit();
     const allocator = arena.allocator();
 
-    // try testCompile(allocator);
+    try testCompile(allocator);
 
     try testAssembly(allocator);
 }

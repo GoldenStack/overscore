@@ -4,7 +4,7 @@ const Ranged = lex.Ranged;
 const tokenizer = @import("tokenizer.zig");
 const Token = tokenizer.Token;
 const failure = @import("failure.zig");
-const Err = failure.ErrorSet;
+const Err = @import("../err.zig").Err;
 
 /// The abstract syntax tree.
 pub const ast = struct {
