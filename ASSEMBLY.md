@@ -14,7 +14,7 @@ will cause an assembler error.
 
 Here's an example program. The next few sections will help with understanding
 it.
-```
+```c
 word Main
 
 label Main:

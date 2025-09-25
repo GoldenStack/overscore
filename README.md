@@ -36,7 +36,7 @@ higher level features.
 
 Here's an example program. Documentation for the assembly can be found in
 [ASSEMBLY.md](ASSEMBLY.md).
-```
+```c
 word Main
 
 label Main:
