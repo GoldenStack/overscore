@@ -25,7 +25,7 @@ vision for this project, though.
 # CPU
 
 The CPU is a simple 32-bit CPU with 8 bit minimum addressable size and a small
-instruction set, with 8 core instructions and 19 instructions in total.
+instruction set, with 8 core instructions and 22 instructions in total.
 
 Extensive documentation for the CPU exists in [CPU.md](CPU.md).
 
