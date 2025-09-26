@@ -161,8 +161,6 @@ fn readInstruction(self: *@This(), index: *usize) Error!Instruction {
 pub fn prepareInstruction(self: *@This()) Error!?Instruction {
     const addr = try self.getWordAt(0);
 
-    // std.debug.print("addr: {}\n", .{addr});
-
     // Cannot read instructions outside of memory
     if (addr >= Memory) return error.AddressOutOfBounds;
 
@@ -172,8 +170,6 @@ pub fn prepareInstruction(self: *@This()) Error!?Instruction {
     var index: usize = addr;
     const instruction = try self.readInstruction(&index);
     try self.setWordAt(0, @truncate(index));
-
-    // std.debug.print("{}\n", .{instruction});
 
     return instruction;
 }
