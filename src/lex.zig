@@ -7,7 +7,7 @@ pub const Location = struct {
     row: usize,
     col: usize,
 
-    pub fn format(self: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+    pub fn format(self: @This(), writer: anytype) !void {
         try writer.print("line {} column {}", .{ self.row, self.col });
     }
 };
@@ -21,7 +21,7 @@ pub const Range = struct {
         return src[self.start.pos..self.end.pos];
     }
 
-    pub fn format(self: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
+    pub fn format(self: @This(), writer: anytype) !void {
         try writer.print("from {} to {}", .{ self.start, self.end });
     }
 };
@@ -110,8 +110,8 @@ pub fn Ranged(T: type) type {
             };
         }
 
-        pub fn format(self: @This(), comptime _: []const u8, _: std.fmt.FormatOptions, writer: anytype) !void {
-            try writer.print("{}", .{self.value});
+        pub fn format(self: @This(), writer: anytype) !void {
+            try writer.print("{f}", .{self.value});
         }
     };
 }

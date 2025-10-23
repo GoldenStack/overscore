@@ -130,7 +130,7 @@ pub fn init(allocator: std.mem.Allocator, src: [:0]const u8) @This() {
     };
 }
 
-pub fn at(self: *@This(), comptime field: std.meta.FieldEnum(Value), index: Index) *std.meta.FieldType(Value, field) {
+pub fn at(self: *@This(), comptime field: std.meta.FieldEnum(Value), index: Index) *@FieldType(Value, @tagName(field)) {
     return &self.values.items(field)[index.index];
 }
 

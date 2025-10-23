@@ -50,18 +50,18 @@ fn linePrefix(loc: lex.Location, line_print_len: usize, display_type: enum { lin
             const number_len = std.math.log10_int(loc.row);
             const spaces = @max(1, line_print_len - number_len);
 
-            try writer.writeByteNTimes(' ', spaces);
+            try writer.splatByteAll(' ', spaces);
             try writer.print("{} | ", .{loc.row});
         },
         .blank => {
-            try writer.writeByteNTimes(' ', 1 + line_print_len + 1);
+            try writer.splatByteAll(' ', 1 + line_print_len + 1);
             try writer.writeAll("| ");
         },
         .continued => {
             const number_of_periods = @min(3, line_print_len);
 
-            try writer.writeByteNTimes(' ', 1 + line_print_len - number_of_periods);
-            try writer.writeByteNTimes('.', number_of_periods);
+            try writer.splatByteAll(' ', 1 + line_print_len - number_of_periods);
+            try writer.splatByteAll('.', number_of_periods);
             try writer.writeAll(" | ");
         },
     }
@@ -82,11 +82,11 @@ pub fn pointTo(src: []const u8, range: lex.Range, writer: anytype) !void {
 
         try linePrefix(range.start, line_print_len, .blank, writer);
 
-        try writer.writeByteNTimes(' ', range.start.col - 1);
+        try writer.splatByteAll(' ', range.start.col - 1);
 
         // Handle zero-long token (EOF). This is only necessary in this branch.
         const point_len = @max(1, range.end.col - range.start.col);
-        try writer.writeByteNTimes('^', point_len);
+        try writer.splatByteAll('^', point_len);
         try writer.writeAll("\n");
     } else {
         const first_line = lineAround(src, range.start);
@@ -96,9 +96,9 @@ pub fn pointTo(src: []const u8, range: lex.Range, writer: anytype) !void {
         try writer.writeAll("\n");
 
         try linePrefix(range.start, line_print_len, if (lines_diff > 1) .continued else .blank, writer);
-        try writer.writeByteNTimes(' ', range.start.col - 1);
+        try writer.splatByteAll(' ', range.start.col - 1);
         try writer.writeAll("^");
-        try writer.writeByteNTimes('~', (first_line.len -| 1) - (range.start.col - 1));
+        try writer.splatByteAll('~', (first_line.len -| 1) - (range.start.col - 1));
         try writer.writeAll("\n");
 
         try linePrefix(range.end, line_print_len, .line, writer);
@@ -106,7 +106,7 @@ pub fn pointTo(src: []const u8, range: lex.Range, writer: anytype) !void {
         try writer.writeAll("\n");
 
         try linePrefix(range.end, line_print_len, .blank, writer);
-        try writer.writeByteNTimes('~', range.end.col - 1 -| 1);
+        try writer.splatByteAll('~', range.end.col - 1 -| 1);
         try writer.writeAll("^\n");
     }
 }

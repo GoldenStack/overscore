@@ -43,12 +43,7 @@ pub const Token = enum {
         .{ "or", .@"or" },
     });
 
-    pub fn format(
-        self: @This(),
-        comptime _: []const u8,
-        _: std.fmt.FormatOptions,
-        writer: anytype,
-    ) !void {
+    pub fn format(self: @This(), writer: anytype) !void {
         try writer.writeAll(@tagName(self));
     }
 };

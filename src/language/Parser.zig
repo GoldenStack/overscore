@@ -263,7 +263,7 @@ fn readSingleHighPriorityInfix(comptime op: enum { sum, product, container }) fn
 
                 // If the previous operation has the same type as the new one, copy the list
                 if (std.mem.eql(u8, field.name, @tagName(left.value))) {
-                    break :items try @field(left.value, field.name).clone();
+                    break :items try @field(left.value, field.name).clone(self.allocator);
                 } else return self.fail(.{
                     .mixed_precedence = .{ // If not, mixed precendece error!
                         .expr = left.range,
@@ -273,12 +273,12 @@ fn readSingleHighPriorityInfix(comptime op: enum { sum, product, container }) fn
             } else {
                 // If there are no infix expressions on the existing expression,
                 // create a new list.
-                var exprs = std.ArrayList(Ranged(ast.Expr)).init(self.allocator);
-                try exprs.append(left);
+                var exprs = std.ArrayList(Ranged(ast.Expr)).empty;
+                try exprs.append(self.allocator, left);
                 break :items exprs;
             };
 
-            try exprs.append(try self.readLowPriorityExpression());
+            try exprs.append(self.allocator, try self.readLowPriorityExpression());
             return @unionInit(ast.Expr, @tagName(op), exprs);
         }
     }.read;
@@ -337,8 +337,8 @@ fn readBaseNamedExpression(self: *@This()) Err!ast.Expr {
 
     // Make sure publicity and mutability aren't specified.
     // TODO: This error doesn't have to fail the parser.
-    if (maybe_public) |public| std.debug.panic("{}\n", .{public}); // TODO return error
-    if (maybe_variable) |variable| std.debug.panic("{}\n", .{variable}); // TODO return error
+    if (maybe_public) |public| std.debug.panic("{f}\n", .{public}); // TODO return error
+    if (maybe_variable) |variable| std.debug.panic("{f}\n", .{variable}); // TODO return error
 
     // If there's a type, it's a declaration.
     if (maybe_type) |@"type"| return .{ .decl = .{

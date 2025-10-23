@@ -125,9 +125,9 @@ pub fn init(allocator: std.mem.Allocator, tokens: tokenizer.Tokenizer) @This() {
 // Assembles a string of Overscore assembly language into a binary file for
 // input into the CPU.
 pub fn assemble(self: *@This(), writer: anytype) Err!void {
-    var lines = std.ArrayList(Line).init(self.allocator);
+    var lines = std.ArrayList(Line).empty;
     var labels = std.StringHashMap(Cpu.Addr).init(self.allocator);
-    defer lines.deinit();
+    defer lines.deinit(self.allocator);
     defer labels.deinit();
 
     // Read all the lines
@@ -181,7 +181,7 @@ pub fn readLines(self: *@This(), lines: *std.ArrayList(Line), labels: *std.Strin
         // Add the size of the line
         total_size += line.size();
 
-        try lines.append(line);
+        try lines.append(self.allocator, line);
     }
 }
 
@@ -208,9 +208,9 @@ pub fn readLine(self: *@This()) Err!Line {
         .word => .{ .word = try self.readValue() },
 
         .bytes => {
-            var bytes = std.ArrayList(Cpu.Unit).init(self.allocator);
+            var bytes = std.ArrayList(Cpu.Unit).empty;
             while (self.tokens.peek().value == .number) {
-                try bytes.append(try self.readNumber(Cpu.Unit));
+                try bytes.append(self.allocator, try self.readNumber(Cpu.Unit));
             }
 
             break :line .{ .bytes = bytes.items };

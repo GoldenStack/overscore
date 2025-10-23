@@ -121,18 +121,18 @@ pub const Error = union(enum) {
 
                 switch (expected.len) {
                     0 => @panic("expected at least one argument to expect"),
-                    1 => try writer.print("{}", .{expected[0]}),
-                    2 => try writer.print("{} or {}", .{ expected[0], expected[1] }),
+                    1 => try writer.print("{f}", .{expected[0]}),
+                    2 => try writer.print("{f} or {f}", .{ expected[0], expected[1] }),
                     else => {
                         try writer.writeAll("one of ");
                         for (0.., expected) |index, tag| {
                             if (index != 0) try writer.writeAll(", ");
-                            try writer.print("{}", .{tag});
+                            try writer.print("{f}", .{tag});
                         }
                     },
                 }
 
-                try writer.print(", but found {}\n" ++ err.Unbold, .{exp.found.value});
+                try writer.print(", but found {f}\n" ++ err.Unbold, .{exp.found.value});
                 try err.pointTo(src, exp.found.range, writer);
             },
             .number_too_large => |number| {
