@@ -20,6 +20,7 @@ var config = struct {
     assemble: struct { file: []const u8 } = .{
         .file = undefined,
     },
+    debug: bool = false,
 }{};
 
 pub fn main() !void {
@@ -30,7 +31,14 @@ pub fn main() !void {
         .description = cli.Description{
             .one_line = "assembles file(s) into an output binary",
         },
-        .options = try r.allocOptions(&.{}),
+        .options = try r.allocOptions(&.{
+            .{
+                .long_name = "debug",
+                .help = "enable debug prints",
+                .required = false,
+                .value_ref = r.mkRef(&config.debug),
+            },
+        }),
         .target = cli.CommandTarget{
             .action = cli.CommandAction{
                 .positional_args = cli.PositionalArgs{
@@ -52,7 +60,14 @@ pub fn main() !void {
         .description = cli.Description{
             .one_line = "emulates the given file from stdin",
         },
-        .options = try r.allocOptions(&.{}),
+        .options = try r.allocOptions(&.{
+            .{
+                .long_name = "debug",
+                .help = "enable debug prints",
+                .required = false,
+                .value_ref = r.mkRef(&config.debug),
+            },
+        }),
         .target = cli.CommandTarget{
             .action = cli.CommandAction{
                 .positional_args = cli.PositionalArgs{
@@ -101,6 +116,10 @@ fn assemble() !void {
 
     const source_slice = sink.buffer[0..sink.end-1:0];
 
+    if (config.debug) {
+        std.debug.print("{} bytes of source assembly loaded\n", .{source_slice.len});
+    }
+
     // Load the assembly and convert it to a slice
     const tokens = AssemblyTokenizer.init(source_slice);
     var assembler = Assembler.init(allocator, tokens);
@@ -111,6 +130,10 @@ fn assemble() !void {
     defer binary.deinit(allocator);
 
     try stdout.writeAll(binary.items);
+
+    if (config.debug) {
+        std.debug.print("{} bytes of binary output\n", .{binary.items.len});
+    }
 }
 
 fn run() !void {
@@ -144,7 +167,9 @@ fn run() !void {
         try cpu.follow(instr);
     }
 
-    try stdout.print("instruction count: {d}\n", .{counter});
+    if (config.debug) {
+        std.debug.print("{} instructions emulated\n", .{counter});
+    }
 }
 
 
