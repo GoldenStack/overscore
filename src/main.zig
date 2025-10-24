@@ -10,19 +10,143 @@ const interpreter = @import("language/interpreter.zig");
 const file = "example2.os";
 const src = @embedFile(file);
 
+const cli = @import("cli");
+
 var stdout_raw = std.fs.File.stdout().writer(&.{});
 const stdout = &stdout_raw.interface;
 
+// Define a configuration structure with default values.
+var config = struct {
+    assemble: struct { file: []const u8 } = .{
+        .file = undefined,
+    },
+}{};
+
 pub fn main() !void {
-    // Create memory and stdout
+    var r = try cli.AppRunner.init(std.heap.page_allocator);
+
+    const assembleCommand = cli.Command{
+        .name = "assemble",
+        .description = cli.Description{
+            .one_line = "assembles file(s) into an output binary",
+        },
+        .options = try r.allocOptions(&.{}),
+        .target = cli.CommandTarget{
+            .action = cli.CommandAction{
+                .positional_args = cli.PositionalArgs{
+                    .required = &.{
+                        .{
+                            .name = "file",
+                            .help = "the file to assemble",
+                            .value_ref = r.mkRef(&config.assemble.file),
+                        }
+                    },
+                },
+                .exec = assemble,
+            },
+        },
+    };
+
+    const emulateCommand = cli.Command{
+        .name = "emulate",
+        .description = cli.Description{
+            .one_line = "emulates the given file from stdin",
+        },
+        .options = try r.allocOptions(&.{}),
+        .target = cli.CommandTarget{
+            .action = cli.CommandAction{
+                .positional_args = cli.PositionalArgs{
+                    // .required = &.{
+                    //     .{
+                    //         .name = "file",
+                    //         .help = "the file to assemble",
+                    //         .value_ref = r.mkRef(&config.assemble.file),
+                    //     }
+                    // },
+                },
+                .exec = run,
+            },
+        },
+    };
+
+
+    const app = cli.App{
+        .command = cli.Command{
+            .name = "overscore",
+            .options = try r.allocOptions(&.{}),
+            .target = cli.CommandTarget{
+                .subcommands = try r.allocCommands(&.{ assembleCommand, emulateCommand, }),
+            },
+        },
+    };
+    return r.run(&app);
+}
+
+fn assemble() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
+
     const allocator = arena.allocator();
 
-    try testCompile(allocator);
+    // Get a source
+    const source_file = try std.fs.cwd().openFile(config.assemble.file, .{});
+    var source = source_file.reader(&.{});
 
-    try testAssembly(allocator);
+    // Get a sink
+    var sink_bytes = std.io.Writer.Allocating.init(allocator);
+    const sink = &sink_bytes.writer;
+
+    _ = try std.io.Reader.streamRemaining(&source.interface, sink);
+    _ = try sink.writeByte(0);
+
+    const source_slice = sink.buffer[0..sink.end-1:0];
+
+    // Load the assembly and convert it to a slice
+    const tokens = AssemblyTokenizer.init(source_slice);
+    var assembler = Assembler.init(allocator, tokens);
+
+    // Assemble the assembly into binary
+    var binary = std.ArrayList(Cpu.Unit).empty;
+    assembler.assemble(binary.writer(allocator)) catch |err| return handle_error(err, &assembler);
+    defer binary.deinit(allocator);
+
+    try stdout.writeAll(binary.items);
 }
+
+fn run() !void {
+
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+
+    const allocator = arena.allocator();
+
+    // Get a source
+    var source = std.fs.File.stdin().reader(&.{});
+
+    // Get a sink
+    var sink_bytes = std.io.Writer.Allocating.init(allocator);
+    const sink = &sink_bytes.writer;
+
+    _ = try std.io.Reader.streamRemaining(&source.interface, sink);
+
+    const binary = sink.buffer[0..sink.end];
+
+    // Create a CPU and load the binary into memory
+    var cpu = Cpu.init(sys);
+    @memcpy(cpu.memory[0..binary.len], binary);
+
+    var counter: usize = 0;
+
+    // Keep running instructions while they can be read
+    while (try cpu.prepareInstruction()) |instr| {
+        // std.debug.print("{any}\n", .{instr});
+        counter += 1;
+        try cpu.follow(instr);
+    }
+
+    try stdout.print("instruction count: {d}\n", .{counter});
+}
+
 
 fn testCompile(allocator: std.mem.Allocator) !void {
     // Parse the tokens into an AST
@@ -56,37 +180,6 @@ fn testCompile(allocator: std.mem.Allocator) !void {
     // Print the output IR
     try ir.printExpr(main_value, stdout);
     try stdout.writeAll("\n");
-}
-
-fn testAssembly(allocator: std.mem.Allocator) !void {
-    // Load the assembly and convert it to a slice
-    const assembly = @embedFile("fibonacci.asm");
-    const asm_slice: [:0]const u8 = assembly[0..assembly.len];
-    const tokens = AssemblyTokenizer.init(asm_slice);
-    var assembler = Assembler.init(allocator, tokens);
-
-    // Assemble the assembly into binary
-    var binary = std.ArrayList(Cpu.Unit).empty;
-    assembler.assemble(binary.writer(allocator)) catch |err| return handle_error(err, &assembler);
-    defer binary.deinit(allocator);
-
-    // Display the assembled binary
-    // try stdout.print("Assembled binary: {any}\n", .{binary.items});
-
-    // Create a CPU and load the binary into memory
-    var cpu = Cpu.init(sys);
-    @memcpy(cpu.memory[0..binary.items.len], binary.items);
-
-    var counter: usize = 0;
-
-    // Keep running instructions while they can be read
-    while (try cpu.prepareInstruction()) |instr| {
-        // std.debug.print("{any}\n", .{instr});
-        counter += 1;
-        try cpu.follow(instr);
-    }
-
-    try stdout.print("instruction count: {d}\n", .{counter});
 }
 
 fn handle_error(err: error{ CodeError, OutOfMemory }, ctx: anytype) !void {
