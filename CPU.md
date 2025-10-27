@@ -119,7 +119,7 @@ two-operand (or binary) instructions.
 
 ### Not
 
-Bitwise unary NOT on the bit sat the target address, with one level of
+Bitwise unary NOT on the bits at the target address, with one level of
 indirection.
 
 ### Sys
