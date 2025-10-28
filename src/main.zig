@@ -15,7 +15,7 @@ const cli = @import("cli");
 var stdout_raw = std.fs.File.stdout().writer(&.{});
 const stdout = &stdout_raw.interface;
 
-// Define a configuration structure with default values.
+// The global configuration structure.
 var config = struct {
     assemble: struct { file: []const u8 } = .{
         .file = undefined,
@@ -70,15 +70,6 @@ pub fn main() !void {
         }),
         .target = cli.CommandTarget{
             .action = cli.CommandAction{
-                .positional_args = cli.PositionalArgs{
-                    // .required = &.{
-                    //     .{
-                    //         .name = "file",
-                    //         .help = "the file to assemble",
-                    //         .value_ref = r.mkRef(&config.assemble.file),
-                    //     }
-                    // },
-                },
                 .exec = run,
             },
         },
@@ -104,7 +95,13 @@ fn assemble() !void {
     const allocator = arena.allocator();
 
     // Get a source
-    const source_file = try std.fs.cwd().openFile(config.assemble.file, .{});
+    const source_file = std.fs.cwd().openFile(config.assemble.file, .{}) catch |err| {
+        switch (err) {
+            error.FileNotFound => try stdout.print("unknown file '{s}'\n", .{config.assemble.file}),
+            else => try stdout.print("could not access file '{s}': {any}\n", .{config.assemble.file, err}),
+        }
+        return;
+    };
     var source = source_file.reader(&.{});
 
     // Get a sink
@@ -137,7 +134,6 @@ fn assemble() !void {
 }
 
 fn run() !void {
-
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
 
