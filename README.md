@@ -23,6 +23,33 @@ do follow the Zig philosophy of having a single individual with a dedicated
 vision for this project, though, so some features exist for the sole reason that
 I have faith in them.
 
+# Usage
+
+Overscore now supports usage as a CLI app! To install, simply run the following:
+```bash
+# Clone the repository
+git clone https://github.com/GoldenStack/overscore.git
+cd overscore
+
+# Build the all-in-one binary (requires a Zig installation)
+# Optionally add --release=fast for a faster binary!
+zig build
+
+# Use the built binary - run the help command to see what you can do!
+./zig-out/bin/overscore help
+```
+
+## Examples
+
+Here are some examples, assuming you're in the project root and that the output
+binary is in path as `overscore`:
+
+```bash
+overscore assemble src/fibonacci.asm | overscore emulate
+
+overscore interpret src/example2.os
+```
+
 # CPU
 
 The CPU is a simple 32-bit CPU with 8 bit minimum addressable size and a small
