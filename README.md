@@ -4,23 +4,24 @@ Overscore is a from-scratch CPU emulator, instruction set, assembler, and
 high-level programming language. It's an entirely separate computer ecosystem,
 starting from the ground up.
 
-A little more detail for the CPU, emulator, assembler, and language:
-- The CPU is a simple 32-bit CPU with 8 bit minimum addressable size and a small instruction set designed from scratch, but with several variants per instruction.
-- The emulator emulates the behaviour of instructions from the instruction set. It handles 400 million instructions per second on my machine.
-- The assembler converts readable assembly directly into bytes and machine code, with a few higher level constructs.
-- The language is a tokenizer, parser, interpreter, and compiler, all in one. It's the most complex part of this project by far.
+A little more detail on the CPU architecture, emulator, assembler, and language:
+- The CPU is a simple 32-bit CPU with 8 bit minimum addressable size and a small instruction set, designed from scratch but based on x86, RISC-V, and ForwardCom.
+- The emulator simulates the behaviour of instructions from the instruction set. It handles 400 million instructions per second (MIPS) on my machine.
+- The assembler converts readable assembly (Intel syntax) directly into machine code, with a few high-level constructs.
+- The language is a relatively low-level language with inspiration from low-level languages like Zig, historical languages like BLISS, and functional languages.
 
-Overscore serves as a modern look into the hardware and software ecosystem if it
-were designed by a college freshman in 2025 (because it was). It's both an
-experiment with what improvements can be made by designing everything from
-scratch with a philosophy of simplicity in mind, as well as a learning project.
+Overscore serves as a somewhat modern but primarily opinionated look into the
+hardware and software ecosystem. It's both an experiment with what improvements
+(in my view) can be made by designing everything (yes, *everything*) from
+scratch with a philosophy of simplicity in mind. It's also a learning project.
 
 This is primarily a solo project, but if there are any questions (like "How do I
 run this myself?"), suggestions, or just general thoughts (maybe even some ideas
 for CPUs, instruction sets, or programming languages that you've had on your own
 that you want to share!), feel free to open an issue or contact me otherwise! I
 do follow the Zig philosophy of having a single individual with a dedicated
-vision for this project, though.
+vision for this project, though, so some features exist for the sole reason that
+I have faith in them.
 
 # CPU
 
@@ -43,7 +44,7 @@ label Main:
     mov [#100x] #AAx
     mov [#104x] [#100x]
     not [#104x]
-    and [#100x] [#104]
+    and [#100x] [#104x]
     end
 ```
 
