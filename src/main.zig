@@ -7,9 +7,6 @@ const Parser = @import("language/Parser.zig");
 const Ir = @import("language/Ir.zig");
 const interpreter = @import("language/interpreter.zig");
 
-const file = "example2.os";
-const src = @embedFile(file);
-
 const cli = @import("cli");
 
 var stdout_raw = std.fs.File.stdout().writer(&.{});
@@ -17,9 +14,7 @@ const stdout = &stdout_raw.interface;
 
 // The global configuration structure.
 var config = struct {
-    assemble: struct { file: []const u8 } = .{
-        .file = undefined,
-    },
+    file: []const u8 = undefined,
     debug: bool = false,
 }{};
 
@@ -46,7 +41,7 @@ pub fn main() !void {
                         .{
                             .name = "file",
                             .help = "the file to assemble",
-                            .value_ref = r.mkRef(&config.assemble.file),
+                            .value_ref = r.mkRef(&config.file),
                         }
                     },
                 },
@@ -70,18 +65,50 @@ pub fn main() !void {
         }),
         .target = cli.CommandTarget{
             .action = cli.CommandAction{
-                .exec = run,
+                .exec = emulate,
             },
         },
     };
 
+    const interpretCommand = cli.Command{
+        .name = "interpret",
+        .description = cli.Description{
+            .one_line = "interprets the given source file",
+        },
+        .options = try r.allocOptions(&.{
+            .{
+                .long_name = "debug",
+                .help = "enable debug prints",
+                .required = false,
+                .value_ref = r.mkRef(&config.debug),
+            },
+        }),
+        .target = cli.CommandTarget{
+            .action = cli.CommandAction{
+                .positional_args = cli.PositionalArgs{
+                    .required = &.{
+                        .{
+                            .name = "file",
+                            .help = "the file to interpret",
+                            .value_ref = r.mkRef(&config.file),
+                        }
+                    },
+                },
+                .exec = interpret,
+            },
+        },
+    };
 
     const app = cli.App{
         .command = cli.Command{
             .name = "overscore",
             .options = try r.allocOptions(&.{}),
             .target = cli.CommandTarget{
-                .subcommands = try r.allocCommands(&.{ assembleCommand, emulateCommand, }),
+                .subcommands = try r.allocCommands(&.{
+                    assembleCommand,
+                    emulateCommand,
+                    interpretCommand,
+                }),
             },
         },
     };
@@ -91,39 +118,21 @@ pub fn main() !void {
 fn assemble() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
-
     const allocator = arena.allocator();
 
-    // Get a source
-    const source_file = std.fs.cwd().openFile(config.assemble.file, .{}) catch |err| {
-        switch (err) {
-            error.FileNotFound => try stdout.print("unknown file '{s}'\n", .{config.assemble.file}),
-            else => try stdout.print("could not access file '{s}': {any}\n", .{config.assemble.file, err}),
-        }
-        return;
-    };
-    var source = source_file.reader(&.{});
-
-    // Get a sink
-    var sink_bytes = std.io.Writer.Allocating.init(allocator);
-    const sink = &sink_bytes.writer;
-
-    _ = try std.io.Reader.streamRemaining(&source.interface, sink);
-    _ = try sink.writeByte(0);
-
-    const source_slice = sink.buffer[0..sink.end-1:0];
+    const src = readFile(allocator, config.file) catch |err| return try readFileError(err, config.file);
 
     if (config.debug) {
-        std.debug.print("{} bytes of source assembly loaded\n", .{source_slice.len});
+        std.debug.print("{} bytes of source assembly loaded\n", .{src.len});
     }
 
     // Load the assembly and convert it to a slice
-    const tokens = AssemblyTokenizer.init(source_slice);
+    const tokens = AssemblyTokenizer.init(src);
     var assembler = Assembler.init(allocator, tokens);
 
     // Assemble the assembly into binary
     var binary = std.ArrayList(Cpu.Unit).empty;
-    assembler.assemble(binary.writer(allocator)) catch |err| return handle_error(err, &assembler);
+    assembler.assemble(binary.writer(allocator)) catch |err| return handleCodeError(err, config.file, &assembler);
     defer binary.deinit(allocator);
 
     try stdout.writeAll(binary.items);
@@ -133,10 +142,9 @@ fn assemble() !void {
     }
 }
 
-fn run() !void {
+fn emulate() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
-
     const allocator = arena.allocator();
 
     // Get a source
@@ -168,47 +176,93 @@ fn run() !void {
     }
 }
 
+fn interpret() !void {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
 
-fn testCompile(allocator: std.mem.Allocator) !void {
+    const src = readFile(allocator, config.file) catch |err| return try readFileError(err, config.file);
+
     // Parse the tokens into an AST
     const tokens = LanguageTokenizer.init(src);
     var parser = Parser.init(allocator, tokens);
-    const container = parser.readRoot() catch |err| return handle_error(err, parser);
+    const container = parser.readRoot() catch |err| return handleCodeError(err, config.file, &parser);
 
     // Print the AST
-    try Parser.ast.printExpr(src, container.value, stdout);
-    try stdout.writeAll("\n");
+    if (config.debug) {
+        try stdout.writeAll("AST:\n");
+        try Parser.ast.printExpr(src, container.value, stdout);
+        try stdout.writeAll("\n\n");
+    }
 
     // Parse the tokens into IR
     var ir = Ir.init(allocator, src);
-    const container_index = ir.convertExpr(container) catch |err| return handle_error(err, &ir);
+    const container_index = ir.convertExpr(container) catch |err| return handleCodeError(err, config.file, &ir);
 
     // Print the IR
-    try ir.printExpr(container_index, stdout);
-    try stdout.writeAll("\n");
+    if (config.debug) {
+        try stdout.writeAll("IR:\n");
+        try ir.printExpr(container_index, stdout);
+        try stdout.writeAll("\n\n");
+    }
 
     // Evaluate the 'main' variable in the IR
     const main_index = ir.at(.expr, container_index).container.defs.get("main") orelse @panic("No main expression found!");
 
-    // Type check main and print
-    const main_type = interpreter.typeOf(&ir, main_index.index) catch |err| return handle_error(err, ir);
-    try ir.printExpr(main_type, stdout);
-    try stdout.writeAll("\n");
+    // Type check main
+    const main_type = interpreter.typeOf(&ir, main_index.index) catch |err| return handleCodeError(err, config.file, &ir);
+
+    // Print type of main
+    if (config.debug) {
+        try stdout.writeAll("Main type:\n");
+        try ir.printExpr(main_type, stdout);
+        try stdout.writeAll("\n\n");
+    }
 
     // Evaluate main. Note that this should not be done if compiling; this is the intrepretation process.
-    const main_value = interpreter.eval(&ir, ir.atOf(.def, main_index).value) catch |err| return handle_error(err, &ir);
+    const main_value = interpreter.eval(&ir, ir.atOf(.def, main_index).value) catch |err| return handleCodeError(err, config.file, &ir);
 
     // Print the output IR
     try ir.printExpr(main_value, stdout);
     try stdout.writeAll("\n");
 }
 
-fn handle_error(err: error{ CodeError, OutOfMemory }, ctx: anytype) !void {
+fn readFile(allocator: std.mem.Allocator, file: []const u8) ![:0]u8 {
+    // Open the source file
+    const source_file = try std.fs.cwd().openFile(file, .{});
+    var source = source_file.reader(&.{});
+
+    // Get a sink
+    var sink_bytes = std.io.Writer.Allocating.init(allocator);
+    const sink = &sink_bytes.writer;
+
+    // Write everything, including a sentinel
+    _ = try std.io.Reader.streamRemaining(&source.interface, sink);
+    _ = try sink.writeByte(0);
+
+    // Return the slice
+    return sink.buffer[0..sink.end-1:0];
+}
+
+fn readFileError(err: anyerror, file: []const u8) !void {
+    switch (err) {
+        error.FileNotFound => try stdout.print("unknown file '{s}'\n", .{file}),
+        else => try stdout.print("could not access file '{s}': {any}\n", .{file, err}),
+    }
+
+    if (config.debug) return err
+    else return;
+}
+
+fn handleCodeError(err: anyerror, file: []const u8, ctx: anytype) !void {
     if (err == error.CodeError) {
         try ctx.error_context.?.display(file, ctx.src, stdout);
-        return err;
-    } else return err;
+        if (!config.debug) return;
+    }
+
+    return err;
 }
+
 
 fn sys(in: Cpu.Word) Cpu.Word {
     var bytes = [_]u8{0} ** 4;
