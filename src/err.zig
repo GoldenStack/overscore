@@ -98,7 +98,7 @@ pub fn pointTo(src: []const u8, range: lex.Range, writer: anytype) !void {
         try linePrefix(range.start, line_print_len, if (lines_diff > 1) .continued else .blank, writer);
         try writer.splatByteAll(' ', range.start.col - 1);
         try writer.writeAll("^");
-        try writer.splatByteAll('~', (first_line.len -| 1) - (range.start.col - 1));
+        try writer.splatByteAll('~', (first_line.len -| 1) -| (range.start.col - 1));
         try writer.writeAll("\n");
 
         try linePrefix(range.end, line_print_len, .line, writer);
