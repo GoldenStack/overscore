@@ -89,7 +89,9 @@ Makes the minimum addressable size of the CPU equal to one (1) bit.
   - Potentially, an `overscore unity` command would manage the unity build for you, which includes remapping error names to the correct file.
   - Or, a multi-file format that contains file names and other metadata. Either custom or a `.zip`.
 - Support relative addressing for PIE via compiler directives (e.g. `@rjump Foo` instead of `mov [0] Foo`)
+  - Requires not modifying the instruction pointer after a jump as it is done now
 - Allow specifying the address of certain assembly, emitting a compile error if any of it overlaps.
+  - E.g. "sections X and Y overlap on memory ranges A to B"
 - Fix error messages including preceding whitespace, e.g. for `mov [[[Stack]]] Main.AfterCall`.
 - Disassembler and debugger.
 - Compress instruction sizes
