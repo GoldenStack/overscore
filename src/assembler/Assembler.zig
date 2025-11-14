@@ -7,7 +7,7 @@ const failure = @import("failure.zig");
 const Ranged = lex.Ranged;
 const Token = tokenizer.Token;
 const Err = err.Err;
-const flat = @import("../instruction.zig").flat;
+const instr = @import("../instruction.zig");
 
 pub const WordValue = union(enum) {
     literal: Cpu.Word,
@@ -65,7 +65,7 @@ const Instruction = union(enum) {
         };
     }
 
-    pub fn opcode(self: @This()) flat.Opcode {
+    pub fn opcode(self: @This()) instr.binary.Opcode {
         // Incredibly janky lol. We get the opcode name and then comptime string
         // append the levels of indirection, but because the `inline else`
         // runtime-to-comptime trick doesn't work on tuples, we just handle
@@ -73,11 +73,11 @@ const Instruction = union(enum) {
         return switch (self) {
             inline else => |op, tag| switch (op.len) {
                 1 => switch (op[0].value.indirection) {
-                    inline else => |indir1| @field(flat.Opcode, @tagName(tag) ++ @tagName(indir1)),
+                    inline else => |indir1| @field(instr.binary.Opcode, @tagName(tag) ++ @tagName(indir1)),
                 },
                 2 => switch (op[0].value.indirection) {
                     inline else => |indir1| switch (op[1].value.indirection) {
-                        inline else => |indir2| @field(flat.Opcode, @tagName(tag) ++ @tagName(indir1) ++ @tagName(indir2)),
+                        inline else => |indir2| @field(instr.binary.Opcode, @tagName(tag) ++ @tagName(indir1) ++ @tagName(indir2)),
                     },
                 },
                 else => unreachable,
@@ -149,7 +149,7 @@ fn writeLine(self: *@This(), line: Line, labels: *const std.StringHashMap(Cpu.Ad
 }
 
 fn writeInstruction(self: *@This(), instruction: Instruction, labels: *const std.StringHashMap(Cpu.Addr), writer: anytype) !void {
-    try writer.writeInt(std.meta.Tag(flat.Opcode), @intFromEnum(instruction.opcode()), .little);
+    try writer.writeInt(std.meta.Tag(instr.binary.Opcode), @intFromEnum(instruction.opcode()), .little);
 
     switch (instruction) {
         inline else => |op| inline for (std.meta.fields(@TypeOf(op))) |field| {

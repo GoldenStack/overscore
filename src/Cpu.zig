@@ -1,5 +1,5 @@
 const std = @import("std");
-const flat = @import("instruction.zig").flat;
+const instr = @import("instruction.zig");
 
 /// The minimum addressable size of this CPU, in bits.
 ///
@@ -73,7 +73,7 @@ inline fn setWordAt(self: *@This(), addr: Addr, word: Word) Error!void {
 
 /// Reads an instruction from the CPU, advancing the instruction pointer as
 /// necessary.
-pub fn prepareInstruction(self: *@This()) Error!?flat.Instruction {
+pub fn prepareInstruction(self: *@This()) Error!?instr.binary.Instruction {
     const addr = try self.getWordAt(0);
 
     // Cannot read instructions outside of memory
@@ -83,13 +83,13 @@ pub fn prepareInstruction(self: *@This()) Error!?flat.Instruction {
     if (self.memory[addr] == 0xff) return null;
 
     var index: usize = addr;
-    const instruction = try flat.Instruction.read(&self.memory, &index);
+    const instruction = try instr.binary.Instruction.read(&self.memory, &index);
     try self.setWordAt(0, @truncate(index));
 
     return instruction;
 }
 
-fn followUnaryInstruction(self: *@This(), unary: flat.UnaryInstruction) Error!void {
+fn followUnaryInstruction(self: *@This(), unary: instr.binary.UnaryInstruction) Error!void {
     const op1 = unary.op1;
 
     const slice = try self.wordSliceAt(op1);
@@ -101,7 +101,7 @@ fn followUnaryInstruction(self: *@This(), unary: flat.UnaryInstruction) Error!vo
     }
 }
 
-fn followBinaryInstruction(self: *@This(), binary: flat.BinaryInstruction) Error!void {
+fn followBinaryInstruction(self: *@This(), binary: instr.binary.BinaryInstruction) Error!void {
     const op1 = binary.op1;
     const op2 = binary.op2;
 
@@ -134,7 +134,7 @@ fn followBinaryInstruction(self: *@This(), binary: flat.BinaryInstruction) Error
 }
 
 /// Follows the provided CPU instruction.
-pub fn follow(self: *@This(), instruction: flat.Instruction) Error!void {
+pub fn follow(self: *@This(), instruction: instr.binary.Instruction) Error!void {
     try switch (instruction) {
         .unary => |unary| self.followUnaryInstruction(unary),
         .binary => |binary| self.followBinaryInstruction(binary),

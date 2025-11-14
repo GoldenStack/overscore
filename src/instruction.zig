@@ -7,8 +7,8 @@ const Unit = Cpu.Unit;
 const Addr = Cpu.Addr;
 const Word = Cpu.Word;
 
-/// Flat instructions, stored in the format that the CPU can understand.
-pub const flat = struct {
+/// Binary instructions, stored in the format that the CPU can understand.
+pub const binary = struct {
 
     /// A flat CPU instruction.
     pub const Instruction = union(enum) {
