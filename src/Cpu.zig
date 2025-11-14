@@ -1,4 +1,5 @@
 const std = @import("std");
+const flat = @import("instruction.zig").flat;
 
 /// The minimum addressable size of this CPU, in bits.
 ///
@@ -44,52 +45,6 @@ pub const Error = error{
     UnknownOpcode,
 };
 
-/// A CPU instruction.
-pub const Instruction = union(enum) {
-    unary: UnaryInstruction,
-    binary: BinaryInstruction,
-};
-
-/// Raw opcode bytes.
-pub const Opcode = enum(Unit) {
-    not1 = 0,
-    sys1,
-
-    mov10 = 128,
-    mov11,
-    mov12,
-    mov20,
-    mov21,
-    mov22,
-
-    and10,
-    and11,
-    or10,
-    or11,
-    add10,
-    add11,
-    sub10,
-    sub11,
-    mul10,
-    mul11,
-
-    jz10,
-    jz11,
-    jnz10,
-    jnz11,
-};
-
-pub const UnaryInstruction = struct {
-    opcode: Opcode,
-    op1: Addr,
-};
-
-pub const BinaryInstruction = struct {
-    opcode: Opcode,
-    op1: Addr,
-    op2: Addr,
-};
-
 memory: [Memory]Unit,
 sys: *const fn (Word) Word,
 
@@ -116,49 +71,9 @@ inline fn setWordAt(self: *@This(), addr: Addr, word: Word) Error!void {
     std.mem.writeInt(Word, try self.wordSliceAt(addr), word, .little);
 }
 
-fn readUnaryInstruction(self: *@This(), index: *usize) Error!UnaryInstruction {
-    const opcode = self.memory[index.*];
-
-    if (opcode > @intFromEnum(Opcode.sys1)) return error.UnknownOpcode;
-
-    const op1 = try self.getWordAt(@truncate(index.* + 1));
-
-    index.* += 5;
-
-    return .{
-        .opcode = @enumFromInt(opcode),
-        .op1 = op1,
-    };
-}
-
-fn readBinaryInstruction(self: *@This(), index: *usize) Error!BinaryInstruction {
-    const opcode = self.memory[index.*];
-
-    if (opcode > @intFromEnum(Opcode.jnz11)) return error.UnknownOpcode;
-
-    const op1 = try self.getWordAt(@truncate(index.* + 1));
-    const op2 = try self.getWordAt(@truncate(index.* + 5));
-
-    index.* += 9;
-
-    return .{
-        .opcode = @enumFromInt(opcode),
-        .op1 = op1,
-        .op2 = op2,
-    };
-}
-
-fn readInstruction(self: *@This(), index: *usize) Error!Instruction {
-    if (self.memory[index.*] & 0b10000000 == 0) {
-        return .{ .unary = try self.readUnaryInstruction(index) };
-    } else {
-        return .{ .binary = try self.readBinaryInstruction(index) };
-    }
-}
-
 /// Reads an instruction from the CPU, advancing the instruction pointer as
 /// necessary.
-pub fn prepareInstruction(self: *@This()) Error!?Instruction {
+pub fn prepareInstruction(self: *@This()) Error!?flat.Instruction {
     const addr = try self.getWordAt(0);
 
     // Cannot read instructions outside of memory
@@ -168,13 +83,13 @@ pub fn prepareInstruction(self: *@This()) Error!?Instruction {
     if (self.memory[addr] == 0xff) return null;
 
     var index: usize = addr;
-    const instruction = try self.readInstruction(&index);
+    const instruction = try flat.Instruction.read(&self.memory, &index);
     try self.setWordAt(0, @truncate(index));
 
     return instruction;
 }
 
-fn followUnaryInstruction(self: *@This(), unary: UnaryInstruction) Error!void {
+fn followUnaryInstruction(self: *@This(), unary: flat.UnaryInstruction) Error!void {
     const op1 = unary.op1;
 
     const slice = try self.wordSliceAt(op1);
@@ -186,7 +101,7 @@ fn followUnaryInstruction(self: *@This(), unary: UnaryInstruction) Error!void {
     }
 }
 
-fn followBinaryInstruction(self: *@This(), binary: BinaryInstruction) Error!void {
+fn followBinaryInstruction(self: *@This(), binary: flat.BinaryInstruction) Error!void {
     const op1 = binary.op1;
     const op2 = binary.op2;
 
@@ -219,7 +134,7 @@ fn followBinaryInstruction(self: *@This(), binary: BinaryInstruction) Error!void
 }
 
 /// Follows the provided CPU instruction.
-pub fn follow(self: *@This(), instruction: Instruction) Error!void {
+pub fn follow(self: *@This(), instruction: flat.Instruction) Error!void {
     try switch (instruction) {
         .unary => |unary| self.followUnaryInstruction(unary),
         .binary => |binary| self.followBinaryInstruction(binary),
