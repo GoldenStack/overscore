@@ -162,17 +162,9 @@ fn emulate() !void {
     var cpu = Cpu.init(sys);
     @memcpy(cpu.memory[0..binary.len], binary);
 
-    var counter: usize = 0;
-
     // Keep running instructions while they can be read
     while (try cpu.prepareInstruction()) |instr| {
-        // std.debug.print("{any}\n", .{instr});
-        counter += 1;
         try cpu.follow(instr);
-    }
-
-    if (config.debug) {
-        std.debug.print("{} instructions emulated\n", .{counter});
     }
 }
 
