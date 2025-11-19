@@ -1,5 +1,4 @@
 const std = @import("std");
-const instr = @import("instruction.zig");
 
 /// The minimum addressable size of this CPU, in bits.
 ///
@@ -45,6 +44,100 @@ pub const Error = error{
     UnknownOpcode,
 };
 
+/// A flat CPU instruction.
+pub const Instruction = union(enum) {
+    unary: Unary,
+    binary: Binary,
+
+    /// The data for a unary instruction: an opcode and an address.
+    pub const Unary = struct {
+        opcode: Opcode,
+        op1: Addr,
+
+        /// Reads a unary instruction from a memory array and an index.
+        pub fn read(memory: *const [Memory]Unit, index: *usize) !Unary {
+            if (index.* > memory.len - 5) return error.InstructionOutOfBounds;
+
+            const opcode = memory[index.*];
+            if (opcode > @intFromEnum(Opcode.sys1)) return error.UnknownOpcode;
+
+            const op1 = std.mem.readInt(Word, memory[index.*+1..][0..UnitsPerWord], .little);
+
+            index.* += 5;
+
+            return .{
+                .opcode = @enumFromInt(opcode),
+                .op1 = op1,
+            };
+        }
+    };
+
+    /// The data for a binary instruction: an opcode and two addresses.
+    pub const Binary = struct {
+        opcode: Opcode,
+        op1: Addr,
+        op2: Addr,
+
+        /// Reads a binary instruction from a memory array and an index.
+        pub fn read(memory: *const [Memory]Unit, index: *usize) !Binary {
+            if (index.* > memory.len - 9) return error.InstructionOutOfBounds;
+
+            const opcode = memory[index.*];
+            if (opcode > @intFromEnum(Opcode.jnz11)) return error.UnknownOpcode;
+
+            const op1 = std.mem.readInt(Word, memory[index.*+1..][0..UnitsPerWord], .little);
+            const op2 = std.mem.readInt(Word, memory[index.*+5..][0..UnitsPerWord], .little);
+
+            index.* += 9;
+
+            return .{
+                .opcode = @enumFromInt(opcode),
+                .op1 = op1,
+                .op2 = op2,
+            };
+        }
+    };
+
+    /// Reads an instruction from a memory array and an index.
+    pub fn read(memory: *const [Memory]Unit, index: *usize) !Instruction {
+        if (memory[index.*] & 0b10000000 == 0) {
+            return .{ .unary = try Unary.read(memory, index) };
+        } else {
+            return .{ .binary = try Binary.read(memory, index) };
+        }
+    }
+};
+
+/// Flattened opcodes for each instruction, stored in the way the CPU can
+/// understand.
+pub const Opcode = enum(Unit) {
+    not1 = 0,
+    sys1,
+
+    mov10 = 128,
+    mov11,
+    mov12,
+    mov20,
+    mov21,
+    mov22,
+
+    and10,
+    and11,
+    or10,
+    or11,
+    add10,
+    add11,
+    sub10,
+    sub11,
+    mul10,
+    mul11,
+
+    jz10,
+    jz11,
+    jnz10,
+    jnz11,
+};
+
 memory: [Memory]Unit,
 sys: *const fn (Word) Word,
 
@@ -73,7 +166,7 @@ inline fn setWordAt(self: *@This(), addr: Addr, word: Word) Error!void {
 
 /// Reads an instruction from the CPU, advancing the instruction pointer as
 /// necessary.
-pub fn prepareInstruction(self: *@This()) Error!?instr.binary.Instruction {
+pub fn prepareInstruction(self: *@This()) Error!?Instruction {
     const addr = try self.getWordAt(0);
 
     // Cannot read instructions outside of memory
@@ -83,13 +176,13 @@ pub fn prepareInstruction(self: *@This()) Error!?instr.binary.Instruction {
     if (self.memory[addr] == 0xff) return null;
 
     var index: usize = addr;
-    const instruction = try instr.binary.Instruction.read(&self.memory, &index);
+    const instruction = try Instruction.read(&self.memory, &index);
     try self.setWordAt(0, @truncate(index));
 
     return instruction;
 }
 
-fn followUnaryInstruction(self: *@This(), unary: instr.binary.UnaryInstruction) Error!void {
+fn followUnaryInstruction(self: *@This(), unary: Instruction.Unary) Error!void {
     const op1 = unary.op1;
 
     const slice = try self.wordSliceAt(op1);
@@ -101,7 +194,7 @@ fn followUnaryInstruction(self: *@This(), unary: instr.binary.UnaryInstruction) 
     }
 }
 
-fn followBinaryInstruction(self: *@This(), binary: instr.binary.BinaryInstruction) Error!void {
+fn followBinaryInstruction(self: *@This(), binary: Instruction.Binary) Error!void {
     const op1 = binary.op1;
     const op2 = binary.op2;
 
@@ -134,7 +227,7 @@ fn followBinaryInstruction(self: *@This(), binary: instr.binary.BinaryInstructio
 }
 
 /// Follows the provided CPU instruction.
-pub fn follow(self: *@This(), instruction: instr.binary.Instruction) Error!void {
+pub fn follow(self: *@This(), instruction: Instruction) Error!void {
     try switch (instruction) {
         .unary => |unary| self.followUnaryInstruction(unary),
         .binary => |binary| self.followBinaryInstruction(binary),
