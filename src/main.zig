@@ -6,6 +6,7 @@ const AssemblyTokenizer = @import("assembler/tokenizer.zig").Tokenizer;
 const Parser = @import("language/Parser.zig");
 const Ir = @import("language/Ir.zig");
 const interpreter = @import("language/interpreter.zig");
+const Debugger = @import("debugger/Debugger.zig");
 
 const cli = @import("cli");
 
@@ -37,13 +38,11 @@ pub fn main() !void {
         .target = cli.CommandTarget{
             .action = cli.CommandAction{
                 .positional_args = cli.PositionalArgs{
-                    .required = &.{
-                        .{
-                            .name = "file",
-                            .help = "the file to assemble",
-                            .value_ref = r.mkRef(&config.file),
-                        }
-                    },
+                    .required = &.{.{
+                        .name = "file",
+                        .help = "the file to assemble",
+                        .value_ref = r.mkRef(&config.file),
+                    }},
                 },
                 .exec = assemble,
             },
@@ -86,15 +85,32 @@ pub fn main() !void {
         .target = cli.CommandTarget{
             .action = cli.CommandAction{
                 .positional_args = cli.PositionalArgs{
-                    .required = &.{
-                        .{
-                            .name = "file",
-                            .help = "the file to interpret",
-                            .value_ref = r.mkRef(&config.file),
-                        }
-                    },
+                    .required = &.{.{
+                        .name = "file",
+                        .help = "the file to interpret",
+                        .value_ref = r.mkRef(&config.file),
+                    }},
                 },
                 .exec = interpret,
+            },
+        },
+    };
+
+    const debugCommand = cli.Command{
+        .name = "debug",
+        .description = cli.Description{
+            .one_line = "debugs a given binary",
+        },
+        .target = cli.CommandTarget{
+            .action = cli.CommandAction{
+                .positional_args = cli.PositionalArgs{
+                    .required = &.{.{
+                        .name = "file",
+                        .help = "the file to debug",
+                        .value_ref = r.mkRef(&config.file),
+                    }},
+                },
+                .exec = debug,
             },
         },
     };
@@ -108,6 +124,7 @@ pub fn main() !void {
                     assembleCommand,
                     emulateCommand,
                     interpretCommand,
+                    debugCommand,
                 }),
             },
         },
@@ -219,6 +236,41 @@ fn interpret() !void {
     try stdout.writeAll("\n");
 }
 
+fn debug() !void {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var buf: [1024]u8 = undefined;
+    var stdin_raw = std.fs.File.stdin().reader(&buf);
+    var stdin = &stdin_raw.interface;
+
+    const src = readFile(allocator, config.file) catch |err| return try readFileError(err, config.file);
+
+    var cpu = Cpu.init(sys);
+    @memcpy(cpu.memory[0..src.len], src);
+
+    var debugger = Debugger.init(&cpu);
+
+    try stdout.print("(odb) loaded {} bytes\n", .{src.len});
+
+    while (true) {
+        try stdout.print("(odb) ", .{});
+
+        const line = stdin.takeDelimiter('\n') catch |err| blk: switch (err) {
+            error.StreamTooLong => {
+                _ = try stdin.discardDelimiterInclusive('\n');
+                break :blk stdin.buffer;
+            },
+            else => return err,
+        } orelse &.{};
+
+        if (line.len == 0) continue;
+
+        try debugger.handle(line, stdout) orelse break;
+    }
+}
+
 fn readFile(allocator: std.mem.Allocator, file: []const u8) ![:0]u8 {
     // Open the source file
     const source_file = try std.fs.cwd().openFile(file, .{});
@@ -233,17 +285,16 @@ fn readFile(allocator: std.mem.Allocator, file: []const u8) ![:0]u8 {
     _ = try sink.writeByte(0);
 
     // Return the slice
-    return sink.buffer[0..sink.end-1:0];
+    return sink.buffer[0 .. sink.end - 1 :0];
 }
 
 fn readFileError(err: anyerror, file: []const u8) !void {
     switch (err) {
         error.FileNotFound => try stdout.print("unknown file '{s}'\n", .{file}),
-        else => try stdout.print("could not access file '{s}': {any}\n", .{file, err}),
+        else => try stdout.print("could not access file '{s}': {any}\n", .{ file, err }),
     }
 
-    if (config.debug) return err
-    else return;
+    if (config.debug) return err else return;
 }
 
 fn handleCodeError(err: anyerror, file: []const u8, ctx: anytype) !void {
@@ -254,7 +305,6 @@ fn handleCodeError(err: anyerror, file: []const u8, ctx: anytype) !void {
 
     return err;
 }
-
 
 fn sys(in: Cpu.Word) Cpu.Word {
     var bytes = [_]u8{0} ** 4;
