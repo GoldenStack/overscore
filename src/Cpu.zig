@@ -61,7 +61,7 @@ pub const Instruction = union(enum) {
             const opcode = memory[index.*];
             if (opcode > @intFromEnum(Opcode.sys1)) return error.UnknownOpcode;
 
-            const op1 = std.mem.readInt(Word, memory[index.*+1..][0..UnitsPerWord], .little);
+            const op1 = std.mem.readInt(Word, memory[index.* + 1 ..][0..UnitsPerWord], .little);
 
             index.* += 5;
 
@@ -85,8 +85,8 @@ pub const Instruction = union(enum) {
             const opcode = memory[index.*];
             if (opcode > @intFromEnum(Opcode.jnz11)) return error.UnknownOpcode;
 
-            const op1 = std.mem.readInt(Word, memory[index.*+1..][0..UnitsPerWord], .little);
-            const op2 = std.mem.readInt(Word, memory[index.*+5..][0..UnitsPerWord], .little);
+            const op1 = std.mem.readInt(Word, memory[index.* + 1 ..][0..UnitsPerWord], .little);
+            const op2 = std.mem.readInt(Word, memory[index.* + 5 ..][0..UnitsPerWord], .little);
 
             index.* += 9;
 
@@ -182,7 +182,7 @@ pub fn prepareInstruction(self: *@This()) Error!?Instruction {
     return instruction;
 }
 
-fn followUnaryInstruction(self: *@This(), unary: Instruction.Unary) Error!void {
+inline fn followUnaryInstruction(self: *@This(), unary: Instruction.Unary) Error!void {
     const op1 = unary.op1;
 
     const slice = try self.wordSliceAt(op1);
@@ -194,7 +194,7 @@ fn followUnaryInstruction(self: *@This(), unary: Instruction.Unary) Error!void {
     }
 }
 
-fn followBinaryInstruction(self: *@This(), binary: Instruction.Binary) Error!void {
+inline fn followBinaryInstruction(self: *@This(), binary: Instruction.Binary) Error!void {
     const op1 = binary.op1;
     const op2 = binary.op2;
 
@@ -227,7 +227,7 @@ fn followBinaryInstruction(self: *@This(), binary: Instruction.Binary) Error!voi
 }
 
 /// Follows the provided CPU instruction.
-pub fn follow(self: *@This(), instruction: Instruction) Error!void {
+pub inline fn follow(self: *@This(), instruction: Instruction) Error!void {
     try switch (instruction) {
         .unary => |unary| self.followUnaryInstruction(unary),
         .binary => |binary| self.followBinaryInstruction(binary),
