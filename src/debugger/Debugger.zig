@@ -40,7 +40,7 @@ pub fn handle(self: *@This(), line: []const u8, out: *std.io.Writer) !?void {
                 try self.cpu.follow(instr);
                 self.ic += 1;
             } else {
-                try out.writeAll("(odb) reached ending instruction, stopped execution\n");
+                try out.writeAll("(odb) reached ending marker, stopped execution\n");
             }
         },
         .count => {
