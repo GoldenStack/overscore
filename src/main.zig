@@ -3,6 +3,7 @@ const Cpu = @import("Cpu.zig");
 const Assembler = @import("assembler/Assembler.zig");
 const LanguageTokenizer = @import("language/tokenizer.zig").Tokenizer;
 const AssemblyTokenizer = @import("assembler/tokenizer.zig").Tokenizer;
+const CTokenizer = @import("c/tokenizer.zig").Tokenizer;
 const Parser = @import("language/Parser.zig");
 const Ir = @import("language/Ir.zig");
 const interpreter = @import("language/interpreter.zig");
@@ -115,6 +116,25 @@ pub fn main() !void {
         },
     };
 
+    const cCommand = cli.Command{
+        .name = "c",
+        .description = cli.Description{
+            .one_line = "compile a c file",
+        },
+        .target = cli.CommandTarget{
+            .action = cli.CommandAction{
+                .positional_args = cli.PositionalArgs{
+                    .required = &.{.{
+                        .name = "file",
+                        .help = "the c file to compile",
+                        .value_ref = r.mkRef(&config.file),
+                    }},
+                },
+                .exec = c,
+            },
+        },
+    };
+
     const app = cli.App{
         .command = cli.Command{
             .name = "overscore",
@@ -125,6 +145,7 @@ pub fn main() !void {
                     emulateCommand,
                     interpretCommand,
                     debugCommand,
+                    cCommand,
                 }),
             },
         },
@@ -268,6 +289,24 @@ fn debug() !void {
         if (line.len == 0) continue;
 
         try debugger.handle(line, stdout) orelse break;
+    }
+}
+
+fn c() !void {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const src = readFile(allocator, config.file) catch |err| return try readFileError(err, config.file);
+
+    var tokenizer = CTokenizer.init(src);
+
+    while (true) {
+        const token = tokenizer.next();
+
+        if (token.value == .eof) break;
+
+        try stdout.print("{any}, {s}\n", .{ token, token.range.substr(src) });
     }
 }
 
