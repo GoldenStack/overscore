@@ -106,7 +106,7 @@ two-operand (or binary) instructions.
 |               |                 | or11    | 9      | `*a \|= *b`            |
 | [`add`](#add) | Add             | add10   | 10     | `*a += b`              |
 |               |                 | add11   | 11     | `*a += *b`             |
-| [`sub`](#sub) | Sub             | sub10   | 12     | `*a -= b`              |
+| [`sub`](#sub) | Subtract        | sub10   | 12     | `*a -= b`              |
 |               |                 | sub11   | 13     | `*a -= *b`             |
 | [`mul`](#mul) | Multiply        | mul10   | 14     | `*a *= b`              |
 |               |                 | mul11   | 15     | `*a *= *b`             |
