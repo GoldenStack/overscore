@@ -302,7 +302,7 @@ fn c() !void {
     var tokenizer = CTokenizer.init(src);
 
     while (true) {
-        const token = tokenizer.next();
+        const token = tokenizer.next() catch |err| return handleCodeError(err, config.file, tokenizer);
 
         if (token.value == .eof) break;
 

@@ -1,5 +1,6 @@
 const std = @import("std");
 const lex = @import("../lex.zig");
+const failure = @import("failure.zig");
 
 pub const Token = enum {
     // Keywords. Defined per ISO C89 6.1.1 Keywords
@@ -40,6 +41,8 @@ pub const Token = enum {
     identifier,
     integer_constant,
     floating_constant,
+    character_constant,
+    string_constant,
 
     // Meta-tokens
     eof,
@@ -91,6 +94,7 @@ pub const Tokenizer = struct {
     loc: lex.Location,
 
     next_token: ?lex.Ranged(Token) = null,
+    error_context: ?failure.Error = null,
 
     /// Returns a tokenizer for the given source string. The tokenizer does not
     /// verify the context for any given token; it simply assigns meaning to
@@ -143,11 +147,20 @@ pub const Tokenizer = struct {
         return char;
     }
 
-    fn nextTag(self: *@This()) Token {
-        return switch (self.nextChar()) {
+    fn nextTag(self: *@This()) failure.Err!Token {
+        const start = self.loc;
+
+        return tag: switch (self.nextChar()) {
             0 => .eof,
 
             '_', 'a'...'z', 'A'...'Z' => {
+                // Branch to character constant if an apostrophe is next
+                if (self.tryChar('\'')) {
+                    continue :tag '\'';
+                } else if (self.tryChar('"')) {
+                    continue :tag '"';
+                }
+
                 // Andrew Kelley is wrong and anonymous functions deserve to exist
                 self.skipWhile(struct {
                     fn skip(c: u8) bool {
@@ -167,14 +180,7 @@ pub const Tokenizer = struct {
                 if (self.tryChars(.{ 'x', 'X' })) { // Hex
                     self.skipWhile(std.ascii.isHex);
                 } else { // Octal
-                    self.skipWhile(struct {
-                        fn octal(ch: u8) bool {
-                            return switch (ch) {
-                                '0'...'7' => true,
-                                else => false,
-                            };
-                        }
-                    }.octal);
+                    self.skipWhile(isOctal);
                 }
 
                 // Either suffix order (ul | lu)
@@ -253,7 +259,109 @@ pub const Tokenizer = struct {
                 };
             },
 
+            '\'' => {
+                try self.readInBandEscapedCharacters(start, '\'');
+
+                if (self.tryChar('\'')) {
+                    return .character_constant;
+                } else {
+                    return failure.fail(self, .{ .unclosed_character_constant = .{
+                        .character_region = .{
+                            .start = start,
+                            .end = self.loc,
+                        },
+                        .last_char = .{
+                            .start = self.loc,
+                            .end = self.loc,
+                        },
+                    } });
+                }
+
+                return .character_constant;
+            },
+
+            '"' => {
+                return .string_constant;
+            },
+
             else => @panic("TODO"),
+        };
+    }
+
+    fn isOctal(c: u8) bool {
+        return switch (c) {
+            '0'...'7' => true,
+            else => false,
+        };
+    }
+
+    fn readInBandEscapedCharacters(self: *@This(), start: lex.Location, close: u8) failure.Err!void {
+        while (self.peekChar() != close) switch (self.peekChar()) {
+            '\\' => {
+                const escape_start = self.loc;
+                _ = self.nextChar();
+
+                switch (self.peekChar()) {
+                    // Simple escape sequence
+                    '\'', '"', '?', '\\', 'a', 'b', 'f', 'n', 'r', 't', 'v' => _ = self.nextChar(),
+                    // Octal escape sequence
+                    '0'...'7' => {
+                        // Octal escape sequences are 1-3 chars.
+                        _ = self.nextChar();
+
+                        // Handle the next two simply
+                        if (isOctal(self.peekChar())) {
+                            _ = self.nextChar();
+                            if (isOctal(self.peekChar())) {
+                                _ = self.nextChar();
+                            }
+                        }
+                    },
+                    // Hex escape sequence
+                    'x' => {
+                        _ = self.nextChar();
+
+                        if (!std.ascii.isHex(self.peekChar())) return failure.fail(self, .{ .incomplete_hex_escaped_character = .{
+                            .backslash = .{
+                                .start = escape_start,
+                                .end = self.loc,
+                            },
+                            .after_backslash = .{
+                                .start = self.loc,
+                                .end = self.loc,
+                            },
+                        } });
+
+                        self.skipWhile(std.ascii.isHex);
+                    },
+                    // Invalid escape sequence otherwise
+                    else => {
+                        const after_escape = self.loc;
+                        _ = self.nextChar();
+                        return failure.fail(self, .{ .invalid_escape_sequence = .{
+                            .escape_sequence = .{
+                                .start = escape_start,
+                                .end = self.loc,
+                            },
+                            .after_backslash = .{
+                                .start = after_escape,
+                                .end = self.loc,
+                            },
+                        } });
+                    },
+                }
+            },
+            '\n', 0 => return failure.fail(self, .{ .unclosed_character_constant = .{
+                .character_region = .{
+                    .start = start,
+                    .end = self.loc,
+                },
+                .last_char = .{
+                    .start = self.loc,
+                    .end = self.loc,
+                },
+            } }),
+            else => _ = self.nextChar(),
         };
     }
 
@@ -263,7 +371,7 @@ pub const Tokenizer = struct {
 
     /// Returns the next token from this iterator without advancing it. This is
     /// cached and thus does not have to be re-parsed.
-    pub fn peek(self: *@This()) lex.Ranged(Token) {
+    pub fn peek(self: *@This()) failure.Err!lex.Ranged(Token) {
         // Return the cached token if possible
         if (self.next_token) |token| return token;
 
@@ -272,7 +380,7 @@ pub const Tokenizer = struct {
         // would mean that there's always hidden and unnecessary backtracking,
         // which is not ideal.
         const start = self.location();
-        const token = self.next();
+        const token = try self.next();
 
         self.next_token = token;
         self.loc = start;
@@ -281,7 +389,7 @@ pub const Tokenizer = struct {
     }
 
     /// Reads the next token from this iterator.
-    pub fn next(self: *@This()) lex.Ranged(Token) {
+    pub fn next(self: *@This()) failure.Err!lex.Ranged(Token) {
         // Return the cached token if possible
         if (self.next_token) |token| {
             self.loc = token.range.end;
@@ -291,7 +399,7 @@ pub const Tokenizer = struct {
 
         // Otherwise, read through tokens until there's a non-comment.
         self.skipWhile(std.ascii.isWhitespace);
-        var token = lex.ranged(self, nextTag);
+        var token = try lex.ranged(self, nextTag);
 
         if (token.value == .identifier) if (Token.keywords.get(token.range.substr(self.src))) |new_token| {
             token.value = new_token;
