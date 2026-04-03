@@ -162,7 +162,7 @@ pub const Tokenizer = struct {
                 }
 
                 // Andrew Kelley is wrong and anonymous functions deserve to exist
-                self.skipWhile(struct {
+                _ = self.skipWhile(struct {
                     fn skip(c: u8) bool {
                         return switch (c) {
                             '_', 'a'...'z', '0'...'9', 'A'...'Z' => true,
@@ -178,9 +178,19 @@ pub const Tokenizer = struct {
                 // can skip out on a lot of the complex logic used in
                 // recognizing types.
                 if (self.tryChars(.{ 'x', 'X' })) { // Hex
-                    self.skipWhile(std.ascii.isHex);
+                    if (!std.ascii.isHex(self.peekChar())) return failure.fail(self, .{ .expected_hex_digits_after_hex_prefix = .{
+                        .hex_prefix = .{
+                            .start = start,
+                            .end = self.loc,
+                        },
+                        .after_prefix = .{
+                            .start = self.loc,
+                            .end = self.loc,
+                        },
+                    } });
+                    _ = self.skipWhile(std.ascii.isHex);
                 } else { // Octal
-                    self.skipWhile(isOctal);
+                    _ = self.skipWhile(isOctal);
                 }
 
                 // Either suffix order (ul | lu)
@@ -196,11 +206,16 @@ pub const Tokenizer = struct {
             '.' => {
                 // Parse a floating constant. Once again, since we know it's a
                 // float, we can just parse it simply.
-                self.skipWhile(std.ascii.isDigit);
+                if (!self.skipWhile(std.ascii.isDigit)) return failure.fail(self, .{ .expected_either_whole_part_or_fractional_part = .{
+                    .floating_constant = .{
+                        .start = start,
+                        .end = self.loc,
+                    },
+                } });
 
                 if (self.tryChars(.{ 'e', 'E' })) {
                     _ = self.tryChars(.{ '+', '-' });
-                    self.skipWhile(std.ascii.isDigit);
+                    _ = self.skipWhile(std.ascii.isDigit);
                 }
 
                 _ = self.tryChars(.{ 'f', 'l', 'F', 'L' });
@@ -224,19 +239,19 @@ pub const Tokenizer = struct {
 
                 var numtype: enum { unknown, int, float } = .unknown;
 
-                self.skipWhile(std.ascii.isDigit);
+                _ = self.skipWhile(std.ascii.isDigit);
 
                 // At this point, the only way this number can be signaled as
                 // an integer is to have an integer suffix.
 
                 if (numtype != .int and self.tryChar('.')) {
-                    self.skipWhile(std.ascii.isDigit);
+                    _ = self.skipWhile(std.ascii.isDigit);
                     numtype = .float;
                 }
 
                 if (numtype != .int and self.tryChars(.{ 'e', 'E' })) {
                     _ = self.tryChars(.{ '+', '-' });
-                    self.skipWhile(std.ascii.isDigit);
+                    _ = self.skipWhile(std.ascii.isDigit);
                     numtype = .float;
                 }
 
@@ -332,7 +347,7 @@ pub const Tokenizer = struct {
                             },
                         } });
 
-                        self.skipWhile(std.ascii.isHex);
+                        _ = self.skipWhile(std.ascii.isHex);
                     },
                     // Invalid escape sequence otherwise
                     else => {
@@ -365,8 +380,10 @@ pub const Tokenizer = struct {
         };
     }
 
-    fn skipWhile(self: *@This(), function: fn (u8) bool) void {
+    fn skipWhile(self: *@This(), function: fn (u8) bool) bool {
+        const pos = self.loc.pos;
         while (function(self.peekChar())) _ = self.nextChar();
+        return pos != self.loc.pos;
     }
 
     /// Returns the next token from this iterator without advancing it. This is
@@ -398,7 +415,7 @@ pub const Tokenizer = struct {
         }
 
         // Otherwise, read through tokens until there's a non-comment.
-        self.skipWhile(std.ascii.isWhitespace);
+        _ = self.skipWhile(std.ascii.isWhitespace);
         var token = try lex.ranged(self, nextTag);
 
         if (token.value == .identifier) if (Token.keywords.get(token.range.substr(self.src))) |new_token| {

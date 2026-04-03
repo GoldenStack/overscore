@@ -13,6 +13,15 @@ pub fn fail(self: anytype, @"error": Error) Err {
 }
 
 pub const Error = union(enum) {
+    expected_hex_digits_after_hex_prefix: struct {
+        hex_prefix: Range,
+        after_prefix: Range,
+    },
+
+    expected_either_whole_part_or_fractional_part: struct {
+        floating_constant: Range,
+    },
+
     unclosed_character_constant: struct {
         character_region: Range,
         last_char: Range,
@@ -30,6 +39,21 @@ pub const Error = union(enum) {
 
     pub fn display(self: @This(), filename: []const u8, src: []const u8, writer: anytype) !void {
         switch (self) {
+            .expected_hex_digits_after_hex_prefix => |e| {
+                try err.prefix(filename, e.hex_prefix, .err, writer);
+                try writer.writeAll("expected hexadecimal digits after hexadecimal number prefix\n" ++ err.Unbold);
+                try err.pointTo(src, e.hex_prefix, writer);
+
+                try err.prefix(filename, e.after_prefix, .note, writer);
+                try writer.writeAll("try adding hex digits here\n" ++ err.Unbold);
+                try err.pointTo(src, e.after_prefix, writer);
+            },
+
+            .expected_either_whole_part_or_fractional_part => |e| {
+                try err.prefix(filename, e.floating_constant, .err, writer);
+                try writer.writeAll("expected either a whole part (e.g. 1.) or a fractional part (e.g. .1) on floating point constant\n" ++ err.Unbold);
+                try err.pointTo(src, e.floating_constant, writer);
+            },
             .unclosed_character_constant => |e| {
                 try err.prefix(filename, e.character_region, .err, writer);
                 try writer.writeAll("unclosed character constant\n" ++ err.Unbold);
