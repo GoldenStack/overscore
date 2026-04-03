@@ -10,6 +10,7 @@ const interpreter = @import("language/interpreter.zig");
 const Debugger = @import("debugger/Debugger.zig");
 
 const cli = @import("cli");
+const translation = @import("c/translation.zig");
 
 var stdout_raw = std.fs.File.stdout().writer(&.{});
 const stdout = &stdout_raw.interface;
@@ -299,15 +300,17 @@ fn c() !void {
 
     const src = readFile(allocator, config.file) catch |err| return try readFileError(err, config.file);
 
-    var tokenizer = CTokenizer.init(src);
+    var phases = translation.Phase1.init(src);
 
     while (true) {
-        const token = tokenizer.next() catch |err| return handleCodeError(err, config.file, tokenizer);
+        const char = phases.next();
 
-        if (token.value == .eof) break;
+        if (char == 0) break;
 
-        try stdout.print("{any}, {s}\n", .{ token, token.range.substr(src) });
+        try stdout.print("{c}", .{char});
     }
+
+    try stdout.writeAll("\n");
 }
 
 fn readFile(allocator: std.mem.Allocator, file: []const u8) ![:0]u8 {
