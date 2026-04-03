@@ -12,6 +12,7 @@ const failure = @import("failure.zig");
 pub const PreprocessingToken = enum {
     builtin_header_name,
     custom_header_name,
+    identifier,
     eof,
 };
 
@@ -30,6 +31,12 @@ pub fn fail(self: anytype, @"error": failure.Error) failure.Err {
 
 pub fn lastError(self: anytype) ?failure.Error {
     return bottomPhase(self).error_context;
+}
+
+pub fn skipWhile(self: anytype, function: anytype) bool {
+    const pos = loc(self).pos;
+    while (function(self.peek())) _ = self.next();
+    return pos != loc(self).pos;
 }
 
 /// Implements phase 1, where source characters are mapped.
@@ -143,6 +150,7 @@ pub const Phase2 = struct {
     /// Pops the next character from this phase.
     pub fn next(self: *@This()) u8 {
         const char = self.previous_phase.next();
+        self.next_char = null;
 
         // Test for removed newline
         return if (char == '\\' and self.consume('\n')) self.next() else char;
@@ -161,7 +169,7 @@ pub const Phase2 = struct {
 /// replaced.
 pub const Phase3 = struct {
     previous_phase: Phase2,
-    next_token: ?u8 = null,
+    next_token: ?PreprocessingToken = null,
 
     /// Initializes a new phase 3 parser.
     pub fn init(src: [:0]const u8) @This() {
@@ -188,6 +196,19 @@ pub const Phase3 = struct {
         const start = loc(self);
 
         return switch (self.previous_phase.next()) {
+            '_', 'a'...'z', 'A'...'Z' => {
+                // Andrew Kelley is wrong and anonymous functions deserve to exist
+                _ = skipWhile(&self.previous_phase, struct {
+                    fn skip(c: u8) bool {
+                        return switch (c) {
+                            '_', 'a'...'z', '0'...'9', 'A'...'Z' => true,
+                            else => false,
+                        };
+                    }
+                }.skip);
+                return .identifier;
+            },
+
             '<' => {
                 if (self.previous_phase.consume('>')) return fail(self, .{ .empty_builtin_header_name = .{
                     .header_region = start.to(loc(self)),
