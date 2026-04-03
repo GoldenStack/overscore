@@ -27,6 +27,11 @@ pub const Error = union(enum) {
         last_char: Range,
     },
 
+    unclosed_string_constant: struct {
+        string_region: Range,
+        last_char: Range,
+    },
+
     incomplete_hex_escaped_character: struct {
         backslash: Range,
         after_backslash: Range,
@@ -54,10 +59,21 @@ pub const Error = union(enum) {
                 try writer.writeAll("expected either a whole part (e.g. 1.) or a fractional part (e.g. .1) on floating point constant\n" ++ err.Unbold);
                 try err.pointTo(src, e.floating_constant, writer);
             },
+
             .unclosed_character_constant => |e| {
                 try err.prefix(filename, e.character_region, .err, writer);
                 try writer.writeAll("unclosed character constant\n" ++ err.Unbold);
                 try err.pointTo(src, e.character_region, writer);
+
+                try err.prefix(filename, e.last_char, .note, writer);
+                try writer.writeAll("try adding an apostrophe here or at an earlier position\n" ++ err.Unbold);
+                try err.pointTo(src, e.last_char, writer);
+            },
+
+            .unclosed_string_constant => |e| {
+                try err.prefix(filename, e.string_region, .err, writer);
+                try writer.writeAll("unclosed string constant\n" ++ err.Unbold);
+                try err.pointTo(src, e.string_region, writer);
 
                 try err.prefix(filename, e.last_char, .note, writer);
                 try writer.writeAll("try adding an apostrophe here or at an earlier position\n" ++ err.Unbold);

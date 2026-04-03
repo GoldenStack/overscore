@@ -275,7 +275,7 @@ pub const Tokenizer = struct {
             },
 
             '\'' => {
-                try self.readInBandEscapedCharacters(start, '\'');
+                try self.readInBandEscapedCharacters('\'');
 
                 if (self.tryChar('\'')) {
                     return .character_constant;
@@ -296,6 +296,23 @@ pub const Tokenizer = struct {
             },
 
             '"' => {
+                try self.readInBandEscapedCharacters('"');
+
+                if (self.tryChar('"')) {
+                    return .string_constant;
+                } else {
+                    return failure.fail(self, .{ .unclosed_string_constant = .{
+                        .string_region = .{
+                            .start = start,
+                            .end = self.loc,
+                        },
+                        .last_char = .{
+                            .start = self.loc,
+                            .end = self.loc,
+                        },
+                    } });
+                }
+
                 return .string_constant;
             },
 
@@ -310,7 +327,7 @@ pub const Tokenizer = struct {
         };
     }
 
-    fn readInBandEscapedCharacters(self: *@This(), start: lex.Location, close: u8) failure.Err!void {
+    fn readInBandEscapedCharacters(self: *@This(), close: u8) failure.Err!void {
         while (self.peekChar() != close) switch (self.peekChar()) {
             '\\' => {
                 const escape_start = self.loc;
@@ -366,16 +383,7 @@ pub const Tokenizer = struct {
                     },
                 }
             },
-            '\n', 0 => return failure.fail(self, .{ .unclosed_character_constant = .{
-                .character_region = .{
-                    .start = start,
-                    .end = self.loc,
-                },
-                .last_char = .{
-                    .start = self.loc,
-                    .end = self.loc,
-                },
-            } }),
+            '\n', 0 => return,
             else => _ = self.nextChar(),
         };
     }
