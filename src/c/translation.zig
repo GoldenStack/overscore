@@ -8,6 +8,13 @@ const std = @import("std");
 const lex = @import("../lex.zig");
 const failure = @import("failure.zig");
 
+/// The preprocessing token type.
+pub const PreprocessingToken = enum {
+    builtin_header_name,
+    custom_header_name,
+    eof,
+};
+
 /// Implements phase 1, where source characters are mapped.
 /// This is also the only translation phase to store the source code string.
 ///
@@ -23,23 +30,34 @@ const failure = @import("failure.zig");
 ///   ??- to ~
 pub const Phase1 = struct {
     src: [:0]const u8,
-    loc: lex.Location,
+    loc: lex.Location = .{
+        .pos = 0,
+        .row = 1,
+        .col = 1,
+    },
+    error_context: ?failure.Error = null,
 
     /// Initializes a new phase 1 parser at the start of the source string.
     pub fn init(src: [:0]const u8) @This() {
         return .{
             .src = src,
-            .loc = .{
-                .pos = 0,
-                .row = 0,
-                .col = 0,
-            },
         };
     }
 
     /// Returns the location of this phase.
     pub fn location(self: *const @This()) lex.Location {
         return self.loc;
+    }
+
+    // Fails and returns.
+    pub fn fail(self: *@This(), @"error": failure.Error) failure.Err {
+        self.error_context = @"error";
+        return error.CodeError;
+    }
+
+    // Returns the last error.
+    pub fn lastError(self: *const @This()) ?failure.Error {
+        return self.error_context;
     }
 
     /// Peeks at the next character in the source string.
@@ -67,7 +85,6 @@ pub const Phase1 = struct {
 
         // Two question marks in a row - try for a trigraph.
         if (char == '?' and self.peek() == '?') {
-
             // Breaks our rule of 1-character lookahead, but this is fine.
             const trigraph: ?u8 = switch (self.src[self.loc.pos + 1]) {
                 '=' => '#',
@@ -100,13 +117,12 @@ pub const Phase1 = struct {
 /// newline.
 pub const Phase2 = struct {
     phase1: Phase1,
-    next_char: ?u8,
+    next_char: ?u8 = null,
 
     /// Initializes a new phase 2 parser.
     pub fn init(src: [:0]const u8) @This() {
         return .{
             .phase1 = Phase1.init(src),
-            .next_char = null,
         };
     }
 
@@ -115,8 +131,18 @@ pub const Phase2 = struct {
         return self.phase1.location();
     }
 
-    /// Peeks at the next character in the source string.
-    pub fn peek(self: *const @This()) u8 {
+    // Fails and returns.
+    pub fn fail(self: *@This(), @"error": failure.Error) failure.Err {
+        return self.phase1.fail(@"error");
+    }
+
+    // Returns the last error.
+    pub fn lastError(self: *const @This()) ?failure.Error {
+        return self.phase1.lastError();
+    }
+
+    /// Peeks at the next character from this phase.
+    pub fn peek(self: *@This()) u8 {
         if (self.next_char) |char| return char;
 
         const start = self.location();
@@ -128,15 +154,129 @@ pub const Phase2 = struct {
         return char;
     }
 
-    /// Pops the next character in the source string.
-    /// No-op if already at the end of the string.
+    /// Pops the next character from this phase.
     pub fn next(self: *@This()) u8 {
         const char = self.phase1.next();
 
         // Test for removed newline
-        if (char == '\\' and self.phase1.peek() == '\n') {
-            _ = self.phase1.next();
-            return self.next();
-        } else return char;
+        return if (char == '\\' and self.consume('\n')) self.next() else char;
+    }
+
+    /// Consumes the expected character if found. Otherwise, returns false.
+    pub fn consume(self: *@This(), c: u8) bool {
+        if (self.peek() == c) {
+            _ = self.next();
+            return true;
+        } else return false;
     }
 };
+
+/// Implements phase 3, where preprocessing tokenization occurs and comments are
+/// replaced.
+pub const Phase3 = struct {
+    phase2: Phase2,
+    next_token: ?u8 = null,
+
+    /// Initializes a new phase 3 parser.
+    pub fn init(src: [:0]const u8) @This() {
+        return .{
+            .phase2 = Phase2.init(src),
+        };
+    }
+
+    /// Returns the location of this phase.
+    pub fn location(self: *const @This()) lex.Location {
+        return self.phase2.location();
+    }
+
+    // Fails and returns.
+    pub fn fail(self: *@This(), @"error": failure.Error) failure.Err {
+        return self.phase2.fail(@"error");
+    }
+
+    // Returns the last error.
+    pub fn lastError(self: *const @This()) ?failure.Error {
+        return self.phase2.lastError();
+    }
+
+    /// Peeks at the next token from this phase.
+    pub fn peek(self: *@This()) failure.Err!PreprocessingToken {
+        if (self.next_token) |token| return token;
+
+        const start = self.location();
+        const token = try self.next();
+
+        self.next_token = token;
+        self.phase2.loc = start;
+
+        return token;
+    }
+
+    /// Returns the next token from this phase.
+    pub fn next(self: *@This()) failure.Err!PreprocessingToken {
+        const start = self.location();
+
+        return switch (self.phase2.next()) {
+            '<' => {
+                if (self.phase2.consume('>')) return self.fail(.{ .empty_builtin_header_name = .{
+                    .header_region = .{
+                        .start = start,
+                        .end = self.location(),
+                    },
+                } });
+
+                while (true) switch (self.phase2.next()) {
+                    '>' => return .builtin_header_name,
+                    '\n', 0 => return self.fail(.{ .unclosed_builtin_header_name = .{
+                        .header_region = .{
+                            .start = start,
+                            .end = self.location(),
+                        },
+                        .after_header_region = .{
+                            .start = self.location(),
+                            .end = self.location(),
+                        },
+                    } }),
+                    else => continue,
+                };
+            },
+            '"' => {
+                if (self.phase2.consume('"')) return self.fail(.{ .empty_custom_header_name = .{
+                    .header_region = .{
+                        .start = start,
+                        .end = self.location(),
+                    },
+                } });
+
+                while (true) switch (self.phase2.next()) {
+                    '"' => return .custom_header_name,
+                    '\n', 0 => return self.fail(.{ .unclosed_custom_header_name = .{
+                        .header_region = .{
+                            .start = start,
+                            .end = self.location(),
+                        },
+                        .after_header_region = .{
+                            .start = self.location(),
+                            .end = self.location(),
+                        },
+                    } }),
+                    else => continue,
+                };
+            },
+            0 => .eof,
+            else => @panic("TODO"),
+        };
+    }
+};
+
+// preprocessing-token
+//     header-name
+//     identifier
+//     pp-numhei
+//     character-constant
+//     string-literal
+//     operato
+//     punctuator
+//     each non-white-space character that cannot be one of the above
+
+// TODO: Automatic location, err, etc.

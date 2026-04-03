@@ -13,6 +13,24 @@ pub fn fail(self: anytype, @"error": Error) Err {
 }
 
 pub const Error = union(enum) {
+    empty_builtin_header_name: struct {
+        header_region: Range,
+    },
+
+    unclosed_builtin_header_name: struct {
+        header_region: Range,
+        after_header_region: Range,
+    },
+
+    empty_custom_header_name: struct {
+        header_region: Range,
+    },
+
+    unclosed_custom_header_name: struct {
+        header_region: Range,
+        after_header_region: Range,
+    },
+
     expected_hex_digits_after_hex_prefix: struct {
         hex_prefix: Range,
         after_prefix: Range,
@@ -54,6 +72,38 @@ pub const Error = union(enum) {
 
     pub fn display(self: @This(), filename: []const u8, src: []const u8, writer: anytype) !void {
         switch (self) {
+            .empty_builtin_header_name => |e| {
+                try err.prefix(filename, e.header_region, .err, writer);
+                try writer.writeAll("empty builtin header name\n" ++ err.Unbold);
+                try err.pointTo(src, e.header_region, writer);
+            },
+
+            .unclosed_builtin_header_name => |e| {
+                try err.prefix(filename, e.header_region, .err, writer);
+                try writer.writeAll("unclosed builtin header name\n" ++ err.Unbold);
+                try err.pointTo(src, e.header_region, writer);
+
+                try err.prefix(filename, e.after_header_region, .note, writer);
+                try writer.writeAll("try adding a > here or at an earlier position\n" ++ err.Unbold);
+                try err.pointTo(src, e.after_header_region, writer);
+            },
+
+            .empty_custom_header_name => |e| {
+                try err.prefix(filename, e.header_region, .err, writer);
+                try writer.writeAll("empty custom header name\n" ++ err.Unbold);
+                try err.pointTo(src, e.header_region, writer);
+            },
+
+            .unclosed_custom_header_name => |e| {
+                try err.prefix(filename, e.header_region, .err, writer);
+                try writer.writeAll("unclosed custom header name\n" ++ err.Unbold);
+                try err.pointTo(src, e.header_region, writer);
+
+                try err.prefix(filename, e.after_header_region, .note, writer);
+                try writer.writeAll("try adding a > here or at an earlier position\n" ++ err.Unbold);
+                try err.pointTo(src, e.after_header_region, writer);
+            },
+
             .expected_hex_digits_after_hex_prefix => |e| {
                 try err.prefix(filename, e.hex_prefix, .err, writer);
                 try writer.writeAll("expected hexadecimal digits after hexadecimal number prefix\n" ++ err.Unbold);

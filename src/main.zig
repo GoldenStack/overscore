@@ -300,14 +300,18 @@ fn c() !void {
 
     const src = readFile(allocator, config.file) catch |err| return try readFileError(err, config.file);
 
-    var phases = translation.Phase1.init(src);
+    var phases = translation.Phase3.init(src);
 
     while (true) {
-        const char = phases.next();
+        const char = phases.next() catch |err| {
+            return if (err == error.CodeError) {
+                try phases.phase2.phase1.error_context.?.display(config.file, src, stdout);
+            } else err;
+        };
 
-        if (char == 0) break;
+        if (char == .eof) break;
 
-        try stdout.print("{c}", .{char});
+        try stdout.print("{any}\n", .{char});
     }
 
     try stdout.writeAll("\n");
