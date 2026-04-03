@@ -95,7 +95,7 @@ pub const Phase1 = struct {
     }
 };
 
-/// Implements phase 1, where newline behaviour is checked & enforced.
+/// Implements phase 2, where newline behaviour is checked & enforced.
 /// Specifically, escaped newlines are mapped out and the file must end with a
 /// newline.
 pub const Phase2 = struct {
