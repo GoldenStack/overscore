@@ -190,46 +190,28 @@ pub const Phase3 = struct {
         return switch (self.previous_phase.next()) {
             '<' => {
                 if (self.previous_phase.consume('>')) return fail(self, .{ .empty_builtin_header_name = .{
-                    .header_region = .{
-                        .start = start,
-                        .end = loc(self),
-                    },
+                    .header_region = start.to(loc(self)),
                 } });
 
                 while (true) switch (self.previous_phase.next()) {
                     '>' => return .builtin_header_name,
                     '\n', 0 => return fail(self, .{ .unclosed_builtin_header_name = .{
-                        .header_region = .{
-                            .start = start,
-                            .end = loc(self),
-                        },
-                        .after_header_region = .{
-                            .start = loc(self),
-                            .end = loc(self),
-                        },
+                        .header_region = start.to(loc(self)),
+                        .after_header_region = loc(self).to(loc(self)),
                     } }),
                     else => continue,
                 };
             },
             '"' => {
                 if (self.previous_phase.consume('"')) return fail(self, .{ .empty_custom_header_name = .{
-                    .header_region = .{
-                        .start = start,
-                        .end = loc(self),
-                    },
+                    .header_region = start.to(loc(self)),
                 } });
 
                 while (true) switch (self.previous_phase.next()) {
                     '"' => return .custom_header_name,
                     '\n', 0 => return fail(self, .{ .unclosed_custom_header_name = .{
-                        .header_region = .{
-                            .start = start,
-                            .end = loc(self),
-                        },
-                        .after_header_region = .{
-                            .start = loc(self),
-                            .end = loc(self),
-                        },
+                        .header_region = start.to(loc(self)),
+                        .after_header_region = loc(self).to(loc(self)),
                     } }),
                     else => continue,
                 };

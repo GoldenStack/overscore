@@ -7,6 +7,13 @@ pub const Location = struct {
     row: usize,
     col: usize,
 
+    pub fn to(self: @This(), other: Location) Range {
+        return .{
+            .start = self,
+            .end = other,
+        };
+    }
+
     pub fn format(self: @This(), writer: anytype) !void {
         try writer.print("line {} column {}", .{ self.row, self.col });
     }
