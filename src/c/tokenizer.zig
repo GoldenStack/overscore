@@ -47,6 +47,57 @@ pub const Token = enum {
     // Meta-tokens
     eof,
 
+    // Operators and punctuators
+    // `sizeof` is excluded since it's also a keyword
+    opening_square_bracket,
+    closing_square_bracket,
+    opening_parentheses,
+    closing_parentheses,
+    period,
+    arrow,
+    plus_plus,
+    minus_minus,
+    ampersand,
+    asterisk,
+    plus,
+    minus,
+    tilde,
+    bang,
+    forward_slash,
+    percent_sign,
+    less_than_less_than,
+    greater_than_greater_than,
+    less_than,
+    greater_than,
+    less_than_equals,
+    greater_than_equals,
+    equals_equals,
+    bang_equals,
+    caret,
+    pipe,
+    ampersand_ampersand,
+    pipe_pipe,
+    question_mark,
+    colon,
+    equals,
+    asterisk_equals,
+    forward_slash_equals,
+    percent_sign_equals,
+    plus_equals,
+    minus_equals,
+    less_than_less_than_equals,
+    greater_than_greater_than_equals,
+    ampersand_equals,
+    caret_equals,
+    pipe_equals,
+    comma,
+    octothorpe,
+    octothorpe_octothorpe,
+    opening_curly_bracket,
+    closing_curly_bracket,
+    semicolon,
+    period_period_period,
+
     /// Multi-character alphabetic tokens.
     pub const keywords = std.StaticStringMap(Token).initComptime(.{
         .{ "auto", .auto },
@@ -81,6 +132,7 @@ pub const Token = enum {
         .{ "void", .void },
         .{ "volatile", .@"volatile" },
         .{ "while", .@"while" },
+        .{ "sizeof", .sizeof },
     });
 
     pub fn format(self: @This(), writer: anytype) !void {
@@ -204,14 +256,27 @@ pub const Tokenizer = struct {
             },
 
             '.' => {
-                // Parse a floating constant. Once again, since we know it's a
-                // float, we can just parse it simply.
-                if (!self.skipWhile(std.ascii.isDigit)) return failure.fail(self, .{ .expected_either_whole_part_or_fractional_part = .{
-                    .floating_constant = .{
-                        .start = start,
-                        .end = self.loc,
-                    },
-                } });
+                const second_period = self.loc;
+                if (self.tryChar('.')) {
+                    if (self.tryChar('.')) {
+                        return .period_period_period;
+                    } else return failure.fail(self, .{ .period_period_is_invalid = .{
+                        .region = .{
+                            .start = start,
+                            .end = self.loc,
+                        },
+                        .last_period = .{
+                            .start = second_period,
+                            .end = self.loc,
+                        },
+                        .after_last_period = .{
+                            .start = self.loc,
+                            .end = self.loc,
+                        },
+                    } });
+                }
+
+                if (!self.skipWhile(std.ascii.isDigit)) return .period;
 
                 if (self.tryChars(.{ 'e', 'E' })) {
                     _ = self.tryChars(.{ '+', '-' });
@@ -322,6 +387,67 @@ pub const Tokenizer = struct {
 
                 return .string_constant;
             },
+
+            '<' => {
+                if (self.tryChar('<')) {
+                    if (self.tryChar('=')) {
+                        return .less_than_less_than_equals;
+                    } else {
+                        return .less_than_less_than;
+                    }
+                } else if (self.tryChar('=')) {
+                    return .less_than_equals;
+                } else return .less_than;
+            },
+
+            '>' => {
+                if (self.tryChar('>')) {
+                    if (self.tryChar('=')) {
+                        return .greater_than_greater_than_equals;
+                    } else {
+                        return .greater_than_greater_than;
+                    }
+                } else if (self.tryChar('=')) {
+                    return .greater_than_equals;
+                } else return .greater_than;
+            },
+
+            '-' => {
+                if (self.tryChar('>')) {
+                    return .arrow;
+                } else if (self.tryChar('-')) {
+                    return .minus_minus;
+                } else if (self.tryChar('=')) {
+                    return .minus_equals;
+                } else return .minus;
+            },
+
+            // X, XX, or X=
+            '&' => if (self.tryChar('=')) .ampersand_equals else if (self.tryChar('&')) .ampersand_ampersand else .ampersand,
+            '+' => if (self.tryChar('=')) .plus_equals else if (self.tryChar('+')) .plus_plus else .plus,
+            '|' => if (self.tryChar('=')) .pipe_equals else if (self.tryChar('|')) .pipe_pipe else .pipe,
+
+            // Typically X= (except for ##)
+            '#' => if (self.tryChar('#')) .octothorpe_octothorpe else .octothorpe,
+            '=' => if (self.tryChar('=')) .equals_equals else .equals,
+            '*' => if (self.tryChar('=')) .asterisk_equals else .asterisk,
+            '!' => if (self.tryChar('=')) .bang_equals else .bang,
+            '/' => if (self.tryChar('=')) .forward_slash_equals else .forward_slash,
+            '%' => if (self.tryChar('=')) .percent_sign_equals else .percent_sign,
+            '^' => if (self.tryChar('=')) .caret_equals else .caret,
+
+            // One unambiguous character
+            '[' => .opening_square_bracket,
+            ']' => .closing_square_bracket,
+            '(' => .opening_parentheses,
+            ')' => .closing_parentheses,
+            '{' => .opening_curly_bracket,
+            '}' => .closing_curly_bracket,
+            '~' => .tilde,
+            '?' => .question_mark,
+            ':' => .colon,
+            ';' => .semicolon,
+            ',' => .comma,
 
             else => @panic("TODO"),
         };

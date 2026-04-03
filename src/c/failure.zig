@@ -18,8 +18,10 @@ pub const Error = union(enum) {
         after_prefix: Range,
     },
 
-    expected_either_whole_part_or_fractional_part: struct {
-        floating_constant: Range,
+    period_period_is_invalid: struct {
+        region: Range,
+        last_period: Range,
+        after_last_period: Range,
     },
 
     unclosed_character_constant: struct {
@@ -58,10 +60,18 @@ pub const Error = union(enum) {
                 try err.pointTo(src, e.after_prefix, writer);
             },
 
-            .expected_either_whole_part_or_fractional_part => |e| {
-                try err.prefix(filename, e.floating_constant, .err, writer);
-                try writer.writeAll("expected either a whole part (e.g. 1.) or a fractional part (e.g. .1) on floating point constant\n" ++ err.Unbold);
-                try err.pointTo(src, e.floating_constant, writer);
+            .period_period_is_invalid => |e| {
+                try err.prefix(filename, e.region, .err, writer);
+                try writer.writeAll(".. is not a valid operator; did you mean . or ...?\n" ++ err.Unbold);
+                try err.pointTo(src, e.region, writer);
+
+                try err.prefix(filename, e.last_period, .note, writer);
+                try writer.writeAll("you could try either removing this period..\n" ++ err.Unbold);
+                try err.pointTo(src, e.last_period, writer);
+
+                try err.prefix(filename, e.after_last_period, .note, writer);
+                try writer.writeAll("..or adding a period here\n" ++ err.Unbold);
+                try err.pointTo(src, e.after_last_period, writer);
             },
 
             .unclosed_character_constant => |e| {
