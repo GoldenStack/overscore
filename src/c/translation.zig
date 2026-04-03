@@ -268,15 +268,3 @@ pub const Phase3 = struct {
         };
     }
 };
-
-// preprocessing-token
-//     header-name
-//     identifier
-//     pp-numhei
-//     character-constant
-//     string-literal
-//     operato
-//     punctuator
-//     each non-white-space character that cannot be one of the above
-
-// TODO: Automatic location, err, etc.
