@@ -305,7 +305,7 @@ fn c() !void {
     while (true) {
         const char = phases.next() catch |err| {
             return if (err == error.CodeError) {
-                try phases.phase2.phase1.error_context.?.display(config.file, src, stdout);
+                try translation.lastError(&phases).?.display(config.file, src, stdout);
             } else err;
         };
 
