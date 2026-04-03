@@ -194,7 +194,7 @@ pub const Tokenizer = struct {
             },
 
             '.' => {
-                // Parse a floating constantl. Once again, since we know it's a
+                // Parse a floating constant. Once again, since we know it's a
                 // float, we can just parse it simply.
                 self.skipWhile(std.ascii.isDigit);
 
