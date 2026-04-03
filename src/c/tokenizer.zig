@@ -452,7 +452,12 @@ pub const Tokenizer = struct {
             ';' => .semicolon,
             ',' => .comma,
 
-            else => @panic("TODO"),
+            else => failure.fail(self, .{ .unexpected_character = .{
+                .unexpected = .{
+                    .start = start,
+                    .end = self.loc,
+                },
+            } }),
         };
     }
 

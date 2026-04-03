@@ -48,6 +48,10 @@ pub const Error = union(enum) {
         after_backslash: Range,
     },
 
+    unexpected_character: struct {
+        unexpected: Range,
+    },
+
     pub fn display(self: @This(), filename: []const u8, src: []const u8, writer: anytype) !void {
         switch (self) {
             .expected_hex_digits_after_hex_prefix => |e| {
@@ -118,6 +122,12 @@ pub const Error = union(enum) {
                 try err.prefix(filename, e.after_backslash, .note, writer);
                 try writer.writeAll("try adding a simple escape sequence (e.g. \\n) or hex/octal escaped bytes\n" ++ err.Unbold);
                 try err.pointTo(src, e.after_backslash, writer);
+            },
+
+            .unexpected_character => |e| {
+                try err.prefix(filename, e.unexpected, .err, writer);
+                try writer.writeAll("unrecognized character\n" ++ err.Unbold);
+                try err.pointTo(src, e.unexpected, writer);
             },
         }
     }
