@@ -27,6 +27,10 @@ pub const Error = union(enum) {
         last_char: Range,
     },
 
+    empty_character_constant: struct {
+        character_region: Range,
+    },
+
     unclosed_string_constant: struct {
         string_region: Range,
         last_char: Range,
@@ -68,6 +72,12 @@ pub const Error = union(enum) {
                 try err.prefix(filename, e.last_char, .note, writer);
                 try writer.writeAll("try adding an apostrophe here or at an earlier position\n" ++ err.Unbold);
                 try err.pointTo(src, e.last_char, writer);
+            },
+
+            .empty_character_constant => |e| {
+                try err.prefix(filename, e.character_region, .err, writer);
+                try writer.writeAll("empty character constant\n" ++ err.Unbold);
+                try err.pointTo(src, e.character_region, writer);
             },
 
             .unclosed_string_constant => |e| {

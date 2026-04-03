@@ -275,6 +275,13 @@ pub const Tokenizer = struct {
             },
 
             '\'' => {
+                if (self.tryChar('\'')) return failure.fail(self, .{ .empty_character_constant = .{
+                    .character_region = .{
+                        .start = start,
+                        .end = self.loc,
+                    },
+                } });
+
                 try self.readInBandEscapedCharacters('\'');
 
                 if (self.tryChar('\'')) {
@@ -383,7 +390,7 @@ pub const Tokenizer = struct {
                     },
                 }
             },
-            '\n', 0 => return,
+            '\n', 0 => break,
             else => _ = self.nextChar(),
         };
     }
