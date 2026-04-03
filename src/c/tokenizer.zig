@@ -258,6 +258,9 @@ pub const Tokenizer = struct {
             '.' => {
                 const second_period = self.loc;
                 if (self.tryChar('.')) {
+                    // Error on two consecutive periods. This is primarily done
+                    // to maintain LL(1) status, but it also isn't particularly
+                    // an issue since two periods in a row should error anyway.
                     if (self.tryChar('.')) {
                         return .period_period_period;
                     } else return failure.fail(self, .{ .period_period_is_invalid = .{
