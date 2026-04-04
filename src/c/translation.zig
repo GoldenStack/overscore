@@ -18,6 +18,7 @@ pub const PreprocessingToken = enum {
     string_constant,
     operator_or_punctuator,
     other_symbol,
+    whitespace,
     eof,
 };
 
@@ -246,48 +247,21 @@ pub const Phase3 = struct {
         }
     }
 
-    // Returns the next token from this phase, including header-name.
-    pub fn nextInclude(self: *@This()) failure.Err!PreprocessingToken {
-        const start = loc(self);
-
-        if (self.previous_phase.consume('<')) {
-            if (self.previous_phase.consume('>')) return fail(self, .{ .empty_builtin_header_name = .{
-                .header_region = start.to(loc(self)),
-            } });
-
-            while (true) switch (self.previous_phase.next()) {
-                '>' => return .builtin_header_name,
-                '\n', 0 => return fail(self, .{ .unclosed_builtin_header_name = .{
-                    .header_region = start.to(loc(self)),
-                    .after_header_region = loc(self).to(loc(self)),
-                } }),
-                else => continue,
-            };
-        } else if (self.previous_phase.consume('"')) {
-            if (self.previous_phase.consume('"')) return fail(self, .{ .empty_custom_header_name = .{
-                .header_region = start.to(loc(self)),
-            } });
-
-            while (true) switch (self.previous_phase.next()) {
-                '"' => return .custom_header_name,
-                '\n', 0 => return fail(self, .{ .unclosed_custom_header_name = .{
-                    .header_region = start.to(loc(self)),
-                    .after_header_region = loc(self).to(loc(self)),
-                } }),
-                else => continue,
-            };
-        } else return self.next();
-    }
+    pub const Config = struct {
+        header_name: bool = false,
+        whitespace: bool = false,
+    };
 
     /// Returns the next token from this phase.
-    pub fn next(self: *@This()) failure.Err!PreprocessingToken {
-        _ = skipWhile(&self.previous_phase, std.ascii.isWhitespace);
-
+    pub fn next(self: *@This(), comptime config: Config) failure.Err!PreprocessingToken {
         const start = loc(self);
 
-        // Header names may only appear in #include.
-
         return tag: switch (self.previous_phase.next()) {
+            ' ', '\t'...'\r' => {
+                _ = skipWhile(&self.previous_phase, std.ascii.isWhitespace);
+                return if (config.whitespace) .whitespace else self.next(config);
+            },
+
             '_', 'a'...'z', 'A'...'Z' => {
                 // Andrew Kelley is wrong and anonymous functions deserve to exist
                 _ = skipWhile(&self.previous_phase, struct {
@@ -335,6 +309,21 @@ pub const Phase3 = struct {
             },
 
             '"' => {
+                if (config.header_name) {
+                    if (self.previous_phase.consume('"')) return fail(self, .{ .empty_custom_header_name = .{
+                        .header_region = start.to(loc(self)),
+                    } });
+
+                    while (true) switch (self.previous_phase.next()) {
+                        '"' => return .custom_header_name,
+                        '\n', 0 => return fail(self, .{ .unclosed_custom_header_name = .{
+                            .header_region = start.to(loc(self)),
+                            .after_header_region = loc(self).to(loc(self)),
+                        } }),
+                        else => continue,
+                    };
+                }
+
                 while (!self.previous_phase.consume('"')) switch (self.previous_phase.peek()) {
                     '\\' => try self.parseEscapeSequence(),
                     '\n', 0 => return fail(self, .{ .unclosed_string_constant = .{
@@ -346,6 +335,21 @@ pub const Phase3 = struct {
             },
 
             '<' => {
+                if (config.header_name) {
+                    if (self.previous_phase.consume('>')) return fail(self, .{ .empty_builtin_header_name = .{
+                        .header_region = start.to(loc(self)),
+                    } });
+
+                    while (true) switch (self.previous_phase.next()) {
+                        '>' => return .builtin_header_name,
+                        '\n', 0 => return fail(self, .{ .unclosed_builtin_header_name = .{
+                            .header_region = start.to(loc(self)),
+                            .after_header_region = loc(self).to(loc(self)),
+                        } }),
+                        else => continue,
+                    };
+                }
+
                 _ = self.previous_phase.consume('<');
                 _ = self.previous_phase.consume('=');
                 return .operator_or_punctuator;
