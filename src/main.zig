@@ -303,7 +303,9 @@ fn c() !void {
     var phases = translation.Phase3.init(src);
 
     while (true) {
-        const char = phases.next() catch |err| {
+        _ = translation.skipWhile(&phases.previous_phase, std.ascii.isWhitespace);
+        const start = translation.loc(&phases);
+        const char = phases.nextInclude() catch |err| {
             return if (err == error.CodeError) {
                 try translation.lastError(&phases).?.display(config.file, src, stdout);
             } else err;
@@ -311,7 +313,7 @@ fn c() !void {
 
         if (char == .eof) break;
 
-        try stdout.print("{any}\n", .{char});
+        try stdout.print("{any} {s}\n", .{ char, start.to(translation.loc(&phases)).substr(src) });
     }
 
     try stdout.writeAll("\n");

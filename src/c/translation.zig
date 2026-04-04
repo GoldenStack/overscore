@@ -13,6 +13,11 @@ pub const PreprocessingToken = enum {
     builtin_header_name,
     custom_header_name,
     identifier,
+    number,
+    character_constant,
+    string_constant,
+    operator_or_punctuator,
+    other_symbol,
     eof,
 };
 
@@ -163,6 +168,13 @@ pub const Phase2 = struct {
             return true;
         } else return false;
     }
+
+    /// Consumes any of the provided characters if found; false if not.
+    pub fn consumeMany(self: *@This(), cs: anytype) bool {
+        inline for (cs) |c| {
+            if (self.consume(c)) return true;
+        } else return false;
+    }
 };
 
 /// Implements phase 3, where preprocessing tokenization occurs and comments are
@@ -191,11 +203,91 @@ pub const Phase3 = struct {
         return token;
     }
 
-    /// Returns the next token from this phase.
-    pub fn next(self: *@This()) failure.Err!PreprocessingToken {
+    fn isOctal(c: u8) bool {
+        return switch (c) {
+            '0'...'7' => true,
+            else => false,
+        };
+    }
+
+    fn parseEscapeSequence(self: *@This()) failure.Err!void {
+        const before_escape = loc(self);
+        _ = self.previous_phase.consume('\\');
+        const after_escape = loc(self);
+
+        switch (self.previous_phase.next()) {
+            // Simple escape sequence
+            '\'', '"', '?', '\\', 'a', 'b', 'f', 'n', 'r', 't', 'v' => {},
+            // Octal escape sequence
+            '0'...'7' => {
+                // Octal escape sequences are 1-3 chars.
+                // Handle the next two simply.
+                if (isOctal(self.previous_phase.peek())) {
+                    _ = self.previous_phase.next();
+                    if (isOctal(self.previous_phase.peek())) {
+                        _ = self.previous_phase.next();
+                    }
+                }
+            },
+            // Hex escape sequence
+            'x' => {
+                const found_hex = skipWhile(&self.previous_phase, std.ascii.isHex);
+
+                if (!found_hex) return fail(self, .{ .incomplete_hex_escaped_character = .{
+                    .backslash = before_escape.to(loc(self)),
+                    .after_backslash = loc(self).to(loc(self)),
+                } });
+            },
+            // Invalid escape sequence otherwise
+            else => return fail(self, .{ .invalid_escape_sequence = .{
+                .escape_sequence = before_escape.to(loc(self)),
+                .after_backslash = after_escape.to(loc(self)),
+            } }),
+        }
+    }
+
+    // Returns the next token from this phase, including header-name.
+    pub fn nextInclude(self: *@This()) failure.Err!PreprocessingToken {
         const start = loc(self);
 
-        return switch (self.previous_phase.next()) {
+        if (self.previous_phase.consume('<')) {
+            if (self.previous_phase.consume('>')) return fail(self, .{ .empty_builtin_header_name = .{
+                .header_region = start.to(loc(self)),
+            } });
+
+            while (true) switch (self.previous_phase.next()) {
+                '>' => return .builtin_header_name,
+                '\n', 0 => return fail(self, .{ .unclosed_builtin_header_name = .{
+                    .header_region = start.to(loc(self)),
+                    .after_header_region = loc(self).to(loc(self)),
+                } }),
+                else => continue,
+            };
+        } else if (self.previous_phase.consume('"')) {
+            if (self.previous_phase.consume('"')) return fail(self, .{ .empty_custom_header_name = .{
+                .header_region = start.to(loc(self)),
+            } });
+
+            while (true) switch (self.previous_phase.next()) {
+                '"' => return .custom_header_name,
+                '\n', 0 => return fail(self, .{ .unclosed_custom_header_name = .{
+                    .header_region = start.to(loc(self)),
+                    .after_header_region = loc(self).to(loc(self)),
+                } }),
+                else => continue,
+            };
+        } else return self.next();
+    }
+
+    /// Returns the next token from this phase.
+    pub fn next(self: *@This()) failure.Err!PreprocessingToken {
+        _ = skipWhile(&self.previous_phase, std.ascii.isWhitespace);
+
+        const start = loc(self);
+
+        // Header names may only appear in #include.
+
+        return tag: switch (self.previous_phase.next()) {
             '_', 'a'...'z', 'A'...'Z' => {
                 // Andrew Kelley is wrong and anonymous functions deserve to exist
                 _ = skipWhile(&self.previous_phase, struct {
@@ -209,36 +301,94 @@ pub const Phase3 = struct {
                 return .identifier;
             },
 
-            '<' => {
-                if (self.previous_phase.consume('>')) return fail(self, .{ .empty_builtin_header_name = .{
-                    .header_region = start.to(loc(self)),
-                } });
+            '.' => {
+                if (std.ascii.isDigit(self.previous_phase.peek())) {
+                    continue :tag self.previous_phase.next();
+                } else return .operator_or_punctuator;
+            },
 
-                while (true) switch (self.previous_phase.next()) {
-                    '>' => return .builtin_header_name,
-                    '\n', 0 => return fail(self, .{ .unclosed_builtin_header_name = .{
-                        .header_region = start.to(loc(self)),
-                        .after_header_region = loc(self).to(loc(self)),
-                    } }),
-                    else => continue,
+            '0'...'9' => { // . moves here if a digit is next
+                while (true) switch (self.previous_phase.peek()) {
+                    '0'...'9', '_', 'a'...'z', 'A'...'Z', '.' => {
+                        const c = self.previous_phase.next();
+                        if (c == 'e' or c == 'E') {
+                            _ = self.previous_phase.consumeMany(.{ '+', '-' });
+                        }
+                    },
+                    else => return .number,
                 };
             },
+
+            '\'' => {
+                if (self.previous_phase.consume('\'')) return fail(self, .{ .empty_character_constant = .{
+                    .character_region = start.to(loc(self)),
+                } });
+
+                while (!self.previous_phase.consume('\'')) switch (self.previous_phase.peek()) {
+                    '\\' => try self.parseEscapeSequence(),
+                    '\n', 0 => return fail(self, .{ .unclosed_character_constant = .{
+                        .character_region = start.to(loc(self)),
+                        .last_char = loc(self).to(loc(self)),
+                    } }),
+                    else => _ = self.previous_phase.next(),
+                } else return .character_constant;
+            },
+
             '"' => {
-                if (self.previous_phase.consume('"')) return fail(self, .{ .empty_custom_header_name = .{
-                    .header_region = start.to(loc(self)),
-                } });
-
-                while (true) switch (self.previous_phase.next()) {
-                    '"' => return .custom_header_name,
-                    '\n', 0 => return fail(self, .{ .unclosed_custom_header_name = .{
-                        .header_region = start.to(loc(self)),
-                        .after_header_region = loc(self).to(loc(self)),
+                while (!self.previous_phase.consume('"')) switch (self.previous_phase.peek()) {
+                    '\\' => try self.parseEscapeSequence(),
+                    '\n', 0 => return fail(self, .{ .unclosed_string_constant = .{
+                        .string_region = start.to(loc(self)),
+                        .last_char = loc(self).to(loc(self)),
                     } }),
-                    else => continue,
-                };
+                    else => _ = self.previous_phase.next(),
+                } else return .string_constant;
             },
+
+            '<' => {
+                _ = self.previous_phase.consume('<');
+                _ = self.previous_phase.consume('=');
+                return .operator_or_punctuator;
+            },
+
+            '>' => {
+                _ = self.previous_phase.consume('>');
+                _ = self.previous_phase.consume('=');
+                return .operator_or_punctuator;
+            },
+
+            '-' => {
+                if (!self.previous_phase.consume('>')) {
+                    if (!self.previous_phase.consume('-')) {
+                        _ = self.previous_phase.consume('=');
+                    }
+                }
+
+                return .operator_or_punctuator;
+            },
+
+            '&', '+', '|' => |c| {
+                if (!self.previous_phase.consume('=')) {
+                    _ = self.previous_phase.consume(c);
+                }
+                return .operator_or_punctuator;
+            },
+
+            '#' => {
+                _ = self.previous_phase.consume('#');
+                return .operator_or_punctuator;
+            },
+
+            '=', '*', '!', '/', '%', '^' => {
+                _ = self.previous_phase.consume('=');
+                return .operator_or_punctuator;
+            },
+
+            // One unambiguous character
+            '[', ']', '(', ')', '{', '}', '~', '?', ':', ';', ',' => .operator_or_punctuator,
+
             0 => .eof,
-            else => @panic("TODO"),
+            else => .other_symbol,
         };
     }
 };
