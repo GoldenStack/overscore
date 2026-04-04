@@ -303,10 +303,7 @@ fn c() !void {
     var phases = translation.Phase3.init(src);
 
     while (true) {
-        const char = phases.next(.{
-            .whitespace = false,
-            .header_name = true,
-        }) catch |err| {
+        const char = phases.next(true) catch |err| {
             return if (err == error.CodeError) {
                 try translation.lastError(&phases).?.display(config.file, src, stdout);
             } else err;

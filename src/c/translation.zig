@@ -19,6 +19,7 @@ pub const PreprocessingToken = enum {
     operator_or_punctuator,
     other_symbol,
     whitespace,
+    comment,
     eof,
 };
 
@@ -247,19 +248,14 @@ pub const Phase3 = struct {
         }
     }
 
-    pub const Config = struct {
-        header_name: bool = false,
-        whitespace: bool = false,
-    };
-
     /// Returns the next token from this phase.
-    pub fn next(self: *@This(), comptime config: Config) failure.Err!PreprocessingToken {
+    pub fn next(self: *@This(), comptime header_name: bool) failure.Err!PreprocessingToken {
         const start = loc(self);
 
         return tag: switch (self.previous_phase.next()) {
             ' ', '\t'...'\r' => {
                 _ = skipWhile(&self.previous_phase, std.ascii.isWhitespace);
-                return if (config.whitespace) .whitespace else self.next(config);
+                return .whitespace;
             },
 
             '_', 'a'...'z', 'A'...'Z' => {
@@ -309,7 +305,7 @@ pub const Phase3 = struct {
             },
 
             '"' => {
-                if (config.header_name) {
+                if (header_name) {
                     if (self.previous_phase.consume('"')) return fail(self, .{ .empty_custom_header_name = .{
                         .header_region = start.to(loc(self)),
                     } });
@@ -335,7 +331,7 @@ pub const Phase3 = struct {
             },
 
             '<' => {
-                if (config.header_name) {
+                if (header_name) {
                     if (self.previous_phase.consume('>')) return fail(self, .{ .empty_builtin_header_name = .{
                         .header_region = start.to(loc(self)),
                     } });
@@ -384,6 +380,19 @@ pub const Phase3 = struct {
             },
 
             '=', '*', '!', '/', '%', '^' => {
+                if (self.previous_phase.consume('*')) {
+                    while (true) switch (self.previous_phase.next()) {
+                        '*' => if (self.previous_phase.consume('/')) return .comment,
+                        0 => return fail(self, .{
+                            .unclosed_comment = .{
+                                .comment_region = start.to(loc(self)),
+                                .end = loc(self).to(loc(self)),
+                            },
+                        }),
+                        else => continue,
+                    };
+                }
+
                 _ = self.previous_phase.consume('=');
                 return .operator_or_punctuator;
             },

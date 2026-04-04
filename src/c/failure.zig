@@ -70,6 +70,11 @@ pub const Error = union(enum) {
         unexpected: Range,
     },
 
+    unclosed_comment: struct {
+        comment_region: Range,
+        end: Range,
+    },
+
     pub fn display(self: @This(), filename: []const u8, src: []const u8, writer: anytype) !void {
         switch (self) {
             .empty_builtin_header_name => |e| {
@@ -178,6 +183,16 @@ pub const Error = union(enum) {
                 try err.prefix(filename, e.unexpected, .err, writer);
                 try writer.writeAll("unrecognized character\n" ++ err.Unbold);
                 try err.pointTo(src, e.unexpected, writer);
+            },
+
+            .unclosed_comment => |e| {
+                try err.prefix(filename, e.comment_region, .err, writer);
+                try writer.writeAll("unclosed comment\n" ++ err.Unbold);
+                try err.pointTo(src, e.comment_region, writer);
+
+                try err.prefix(filename, e.end, .note, writer);
+                try writer.writeAll("try adding */ here or earlier\n" ++ err.Unbold);
+                try err.pointTo(src, e.end, writer);
             },
         }
     }
