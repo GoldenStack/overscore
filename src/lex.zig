@@ -47,10 +47,7 @@ pub fn ranged(context: anytype, func: anytype) PseudoSequence(@typeInfo(@TypeOf(
     const value = if (@typeInfo(@TypeOf(raw_value)) == .error_union) try raw_value else raw_value;
 
     return .{
-        .range = .{
-            .start = start,
-            .end = context.location(),
-        },
+        .range = start.to(context.location()),
         .value = value,
     };
 }
