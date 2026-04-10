@@ -72,10 +72,7 @@ pub fn Ranged(T: type) type {
             const value = func(context);
 
             return .{
-                .range = .{
-                    .start = start,
-                    .end = context.location(),
-                },
+                .range = start.to(context.location()),
                 .value = value,
             };
         }
@@ -106,10 +103,7 @@ pub fn Ranged(T: type) type {
             const value = try func(context, self);
 
             return .{
-                .range = .{
-                    .start = self.range.start,
-                    .end = context.location(),
-                },
+                .range = self.range.start.to(context.location()),
                 .value = value,
             };
         }
