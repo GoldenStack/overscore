@@ -75,6 +75,10 @@ pub const Error = union(enum) {
         end: Range,
     },
 
+    invalid_preprocessing_directive: struct {
+        directive: Range,
+    },
+
     pub fn display(self: @This(), filename: []const u8, src: []const u8, writer: anytype) !void {
         switch (self) {
             .empty_builtin_header_name => |e| {
@@ -193,6 +197,11 @@ pub const Error = union(enum) {
                 try err.prefix(filename, e.end, .note, writer);
                 try writer.writeAll("try adding */ here or earlier\n" ++ err.Unbold);
                 try err.pointTo(src, e.end, writer);
+            },
+            .invalid_preprocessing_directive => |e| {
+                try err.prefix(filename, e.directive, .err, writer);
+                try writer.writeAll("invalid preprocessing directive\n" ++ err.Unbold);
+                try err.pointTo(src, e.directive, writer);
             },
         }
     }

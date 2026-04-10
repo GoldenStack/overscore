@@ -300,10 +300,10 @@ fn c() !void {
 
     const src = readFile(allocator, config.file) catch |err| return try readFileError(err, config.file);
 
-    var phases = translation.Phase3.init(src);
+    var phases = translation.Phase4.init(src);
 
     while (true) {
-        const char = phases.next(true) catch |err| {
+        const char = phases.next() catch |err| {
             return if (err == error.CodeError) {
                 try translation.lastError(&phases).?.display(config.file, src, stdout);
             } else err;

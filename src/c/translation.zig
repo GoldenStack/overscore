@@ -8,19 +8,58 @@ const std = @import("std");
 const lex = @import("../lex.zig");
 const failure = @import("failure.zig");
 
-/// The preprocessing token type.
-pub const PreprocessingToken = enum {
-    builtin_header_name,
-    custom_header_name,
-    identifier,
-    number,
-    character_constant,
-    string_constant,
-    operator_or_punctuator,
-    other_symbol,
-    whitespace,
-    comment,
-    eof,
+/// Preprocessing-related structures (tokens, AST);
+pub const Preprocessing = struct {
+    /// The preprocessing token type.
+    pub const Token = enum {
+        builtin_header_name,
+        custom_header_name,
+        identifier,
+        number,
+        character_constant,
+        string_constant,
+        operator_or_punctuator,
+        other_symbol,
+        whitespace,
+        /// Not an actual preprocessing token; this exists for parsing reasons.
+        octothorpe,
+        /// Not an actual preprocessing token; this exists for parsing reasons.
+        comment,
+        /// Not an actual preprocessing token; this exists for parsing reasons.
+        newline,
+        /// Not an actual preprocessing token; this exists for parsing reasons.
+        eof,
+    };
+
+    /// A flat line-based data structure for preprocessing. This omits any
+    /// structure for performance reasons.
+    pub const Line = union(enum) {
+        tokens: ?std.ArrayList(Token),
+        directive: union(enum) {
+            @"if": ConstantExpression,
+            elif: ConstantExpression,
+            @"else": void,
+            endif: void,
+            ifdef: Identifier,
+            ifndef: Identifier,
+            include: std.ArrayList(Token),
+            define: struct {
+                params: ??std.ArrayList(Identifier),
+                replacement_list: ?std.ArrayList(Token),
+            },
+            undef: Identifier,
+            line: std.ArrayList(Token),
+            @"error": ?std.ArrayList(Token),
+            pragma: ?std.ArrayList(Token),
+            empty,
+        },
+        eof,
+    };
+
+    /// TODO: Replace with some actual structure
+    pub const ConstantExpression = struct {};
+    /// TODO: Replace with some actual structure
+    pub const Identifier = struct {};
 };
 
 fn bottomPhase(self: anytype) *Phase1 {
@@ -29,6 +68,10 @@ fn bottomPhase(self: anytype) *Phase1 {
 
 pub fn loc(self: anytype) lex.Location {
     return bottomPhase(self).location;
+}
+
+pub fn resolve(self: anytype, range: lex.Range) []const u8 {
+    return range.substr(bottomPhase(self).src);
 }
 
 pub fn fail(self: anytype, @"error": failure.Error) failure.Err {
@@ -183,7 +226,7 @@ pub const Phase2 = struct {
 /// replaced.
 pub const Phase3 = struct {
     previous_phase: Phase2,
-    next_token: ?PreprocessingToken = null,
+    next_token: ?Preprocessing.Token = null,
 
     /// Initializes a new phase 3 parser.
     pub fn init(src: [:0]const u8) @This() {
@@ -193,7 +236,7 @@ pub const Phase3 = struct {
     }
 
     /// Peeks at the next token from this phase.
-    pub fn peek(self: *@This()) failure.Err!PreprocessingToken {
+    pub fn peek(self: *@This()) failure.Err!Preprocessing.Token {
         if (self.next_token) |token| return token;
 
         const start = loc(self);
@@ -249,11 +292,13 @@ pub const Phase3 = struct {
     }
 
     /// Returns the next token from this phase.
-    pub fn next(self: *@This(), comptime header_name: bool) failure.Err!PreprocessingToken {
+    pub fn next(self: *@This(), comptime header_name: bool) failure.Err!Preprocessing.Token {
         const start = loc(self);
 
         return tag: switch (self.previous_phase.next()) {
-            ' ', '\t'...'\r' => {
+            '\n' => .newline,
+
+            ' ', '\t', '\x0b', '\x0c', '\r' => {
                 _ = skipWhile(&self.previous_phase, std.ascii.isWhitespace);
                 return .whitespace;
             },
@@ -375,8 +420,11 @@ pub const Phase3 = struct {
             },
 
             '#' => {
-                _ = self.previous_phase.consume('#');
-                return .operator_or_punctuator;
+                if (self.previous_phase.consume('#')) {
+                    return .operator_or_punctuator;
+                } else {
+                    return .octothorpe;
+                }
             },
 
             '=', '*', '!', '/', '%', '^' => {
@@ -402,6 +450,67 @@ pub const Phase3 = struct {
 
             0 => .eof,
             else => .other_symbol,
+        };
+    }
+};
+
+/// Implements phase 4, where prerprocessing directives are executed.
+/// Instead of parsing and returning lines, this instead directly modifies the
+/// token stream.
+pub const Phase4 = struct {
+    previous_phase: Phase3,
+
+    /// Initializes a new phase 4 parser.
+    pub fn init(src: [:0]const u8) @This() {
+        return .{
+            .previous_phase = Phase3.init(src),
+        };
+    }
+
+    pub fn next(self: *@This()) failure.Err!Preprocessing.Token {
+        const start = loc(self);
+
+        const token: Preprocessing.Token = try self.previous_phase.next(false);
+
+        if (token != .octothorpe) return token;
+
+        const directive_start = loc(self);
+        const directive = try self.previous_phase.next(false);
+        const directive_end = loc(self);
+
+        const Directive = std.meta.Tag(@FieldType(Preprocessing.Line, "directive"));
+
+        const directives = std.StaticStringMap(Directive).initComptime(.{
+            .{ "if", .@"if" },
+            .{ "elif", .elif },
+            .{ "else", .@"else" },
+            .{ "endif", .endif },
+            .{ "ifdef", .ifdef },
+            .{ "ifndef", .ifndef },
+            .{ "include", .include },
+            .{ "define", .define },
+            .{ "undef", .undef },
+            .{ "line", .line },
+            .{ "error", .@"error" },
+            .{ "pragma", .pragma },
+        });
+
+        const region = resolve(self, directive_start.to(directive_end));
+
+        const directive_type: Directive = dir: switch (directive) {
+            .newline => .empty,
+
+            .identifier => directives.get(region) orelse continue :dir .eof,
+
+            else => return fail(self, .{ .invalid_preprocessing_directive = .{
+                .directive = start.to(directive_end),
+            } }),
+        };
+
+        return switch (directive_type) {
+            else => std.debug.panic("{any}", .{directive_type}),
+            // Treat null directive as a newline
+            .empty => .newline,
         };
     }
 };
