@@ -508,7 +508,18 @@ pub const Phase4 = struct {
         };
 
         return switch (directive_type) {
-            else => std.debug.panic("{any}", .{directive_type}),
+            .@"if" => @panic("TODO: Handle if"),
+            .elif => @panic("TODO: Handle elif"),
+            .@"else" => @panic("TODO: Handle else"),
+            .endif => @panic("TODO: Handle endif"),
+            .ifdef => @panic("TODO: Handle ifdef"),
+            .ifndef => @panic("TODO: Handle ifndef"),
+            .include => @panic("TODO: Handle include"),
+            .define => @panic("TODO: Handle define"),
+            .undef => @panic("TODO: Handle undef"),
+            .line => @panic("TODO: Handle line"),
+            .@"error" => @panic("TODO: Handle error"),
+            .pragma => @panic("TODO: Handle pragma"),
             // Treat null directive as a newline
             .empty => .newline,
         };
