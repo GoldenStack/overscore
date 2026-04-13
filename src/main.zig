@@ -12,8 +12,7 @@ const Debugger = @import("debugger/Debugger.zig");
 const cli = @import("cli");
 const translation = @import("c/translation.zig");
 
-var stdout_raw = std.fs.File.stdout().writer(&.{});
-const stdout = &stdout_raw.interface;
+var stdout: *std.io.Writer = undefined;
 
 // The global configuration structure.
 var config = struct {
@@ -22,6 +21,9 @@ var config = struct {
 }{};
 
 pub fn main() !void {
+    var stdout_raw = std.fs.File.stdout().writer(&.{});
+    stdout = &stdout_raw.interface;
+
     var r = try cli.AppRunner.init(std.heap.page_allocator);
 
     const assembleCommand = cli.Command{
