@@ -281,15 +281,17 @@ fn debug() !void {
     while (true) {
         try stdout.print("(odb) ", .{});
 
-        const line = stdin.takeDelimiter('\n') catch |err| blk: switch (err) {
+        var line = stdin.takeDelimiter('\n') catch |err| blk: switch (err) {
             error.StreamTooLong => {
                 _ = try stdin.discardDelimiterInclusive('\n');
+
                 break :blk stdin.buffer;
             },
             else => return err,
         } orelse &.{};
 
         if (line.len == 0) continue;
+        if (line[line.len - 1] == '\r') line = line[0 .. line.len - 1];
 
         try debugger.handle(line, stdout) orelse break;
     }
