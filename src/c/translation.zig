@@ -202,8 +202,10 @@ pub const Phase2 = struct {
         const char = self.previous_phase.next();
         self.next_char = null;
 
-        // Test for removed newline
-        return if (char == '\\' and self.consume('\n')) self.next() else char;
+        if (char == '\\' and self.previous_phase.peek() == '\n') {
+            _ = self.previous_phase.next();
+            return self.next();
+        } else return char;
     }
 
     /// Consumes the expected character if found. Otherwise, returns false.
