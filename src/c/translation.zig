@@ -257,6 +257,18 @@ pub const Phase3 = struct {
         };
     }
 
+    fn readUntilNewlineOrEOF(self: *@This()) lex.Location {
+        while (true) switch (self.previous_phase.peek()) {
+            '\n', '0' => {
+                const end = loc(self);
+                if (!self.previous_phase.consumeMany(.{ '\n', '0' })) unreachable;
+
+                return end;
+            },
+            else => _ = self.previous_phase.next(),
+        };
+    }
+
     fn parseEscapeSequence(self: *@This()) failure.Err!void {
         const before_escape = loc(self);
         _ = self.previous_phase.consume('\\');
@@ -488,7 +500,7 @@ pub const Phase3 = struct {
 
         _ = directive_end;
 
-        switch (directive) {
+        return switch (directive) {
             .@"if" => @panic("TODO: Handle if"),
             .elif => @panic("TODO: Handle elif"),
             .@"else" => @panic("TODO: Handle else"),
@@ -499,27 +511,20 @@ pub const Phase3 = struct {
             .define => @panic("TODO: Handle define"),
             .undef => @panic("TODO: Handle undef"),
             .line => @panic("TODO: Handle line"),
-            .@"error" => @panic("TODO: Handle error"),
-            .pragma => {
-                while (true) switch (self.previous_phase.peek()) {
-                    '\n', '0' => {
-                        const end = loc(self);
-                        if (!self.previous_phase.consumeMany(.{ '\n', '0' })) unreachable;
 
-                        return fail(self, .{ .pragmas_are_unhandled = .{
-                            .pragma = start.to(end),
-                        } });
-                    },
-                    else => _ = self.previous_phase.next(),
-                };
-                while (!self.previous_phase.consumeMany(.{ '\n', 0 })) {
-                    _ = self.previous_phase.next();
-                }
-            },
+            // Error on the error directive
+            .@"error" => fail(self, .{ .error_directive = .{
+                .message = start.to(self.readUntilNewlineOrEOF()),
+            } }),
+
+            // Error when pragmas are set
+            .pragma => fail(self, .{ .pragmas_are_unhandled = .{
+                .pragma = start.to(self.readUntilNewlineOrEOF()),
+            } }),
 
             // If empty, do nothing
             .empty => {},
-        }
+        };
     }
 
     /// An option for the comptime algorithm to pick - contains an enum variant

@@ -79,6 +79,14 @@ pub const Error = union(enum) {
         directive: Range,
     },
 
+    pragmas_are_unhandled: struct {
+        pragma: Range,
+    },
+
+    error_directive: struct {
+        message: Range,
+    },
+
     pub fn display(self: @This(), filename: []const u8, src: []const u8, writer: anytype) !void {
         switch (self) {
             .empty_builtin_header_name => |e| {
@@ -198,10 +206,23 @@ pub const Error = union(enum) {
                 try writer.writeAll("try adding */ here or earlier\n" ++ err.Unbold);
                 try err.pointTo(src, e.end, writer);
             },
+
             .invalid_preprocessing_directive => |e| {
                 try err.prefix(filename, e.directive, .err, writer);
                 try writer.writeAll("invalid preprocessing directive\n" ++ err.Unbold);
                 try err.pointTo(src, e.directive, writer);
+            },
+
+            .pragmas_are_unhandled => |e| {
+                try err.prefix(filename, e.pragma, .err, writer);
+                try writer.writeAll("pragmas are unhandled, so this is a no-op\n" ++ err.Unbold);
+                try err.pointTo(src, e.pragma, writer);
+            },
+
+            .error_directive => |e| {
+                try err.prefix(filename, e.message, .err, writer);
+                try writer.writeAll("error raised by error directive\n" ++ err.Unbold);
+                try err.pointTo(src, e.message, writer);
             },
         }
     }
