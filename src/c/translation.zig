@@ -454,6 +454,107 @@ pub const Phase3 = struct {
             else => .other_symbol,
         };
     }
+
+    /// An option for the comptime algorithm to pick - contains an enum variant
+    /// and the remaining string of the variant.
+    fn Option(Variant: type) type {
+        return struct {
+            variant: Variant,
+            value: []const u8,
+        };
+    }
+
+    /// A character entry, containing a key and the list of variants that map to
+    /// it.
+    fn Entry(Variant: type) type {
+        return struct { u8, []const Option(Variant) };
+    }
+
+    /// Initializes a list of variants for the given options, all containing
+    /// empty values.
+    fn initVariants(comptime Variant: type, comptime options: []const Option(Variant)) []Entry(Variant) {
+        comptime var prefixes: []const u8 = &.{};
+
+        for (options) |option| {
+            for (prefixes) |prefix| {
+                if (prefix == option.value[0]) break;
+            } else prefixes = prefixes ++ .{option.value[0]};
+        }
+
+        comptime var map: [prefixes.len]Entry(Variant) = undefined;
+
+        for (0.., prefixes) |index, prefix| {
+            map[index] = .{
+                prefix, &.{},
+            };
+        }
+
+        return &map;
+    }
+
+    /// Assembles, from a list of options, a map from each character to the list
+    /// of options with the (stripped) character that prefixes it.
+    fn stripPrefixMap(comptime Variant: type, comptime options: []const Option(Variant)) []const Entry(Variant) {
+        comptime var map: []Entry(Variant) = initVariants(Variant, options);
+
+        for (options) |option| {
+            const head = option.value[0];
+
+            const tail: Option(Variant) = .{
+                .variant = option.variant,
+                .value = option.value[1..],
+            };
+
+            for (0.., map) |index, item| {
+                if (item[0] == head) {
+                    map[index][1] = item[1] ++ .{tail};
+                    break;
+                }
+            } else unreachable;
+        }
+
+        return map;
+    }
+
+    /// Requires one of the list of variants from the given array of variants.
+    fn requireStrings(self: *@This(), comptime Variant: type, comptime options: []const Option(Variant)) ?Variant {
+        // Handle and return zero-length strings, signaling a terminal
+        // This should be checked first to ensure minimal recursion.
+        inline for (options) |option| {
+            if (comptime option.value.len == 0) return option.variant;
+        }
+
+        // Next, assemble the (comptime) map of the next strings to check.
+        // This must be done in batches instead of iteratively because we need
+        // to branch as minimally as possible for correctness reasons.
+        const map = comptime stripPrefixMap(Variant, options);
+
+        inline for (map) |entry| {
+            const key, const values = entry;
+
+            if (self.previous_phase.consume(key)) {
+                return self.requireStrings(Variant, values);
+            }
+        }
+
+        // If nothing could be fully matched and nothing could be partially
+        // matched, we just fail.
+        return null;
+    }
+
+    /// Given a list of enum variants, requires that one of them is next.
+    pub fn requireEnum(self: *@This(), comptime Variant: type, comptime options: []const Variant) ?Variant {
+        comptime var options_flat: []const Option(Variant) = &.{};
+
+        comptime for (options) |option| {
+            options_flat = options_flat ++ .{Option(Variant){
+                .variant = option,
+                .value = @tagName(option),
+            }};
+        };
+
+        return self.requireStrings(Variant, options_flat);
+    }
 };
 
 /// Implements phase 4, where prerprocessing directives are executed.
@@ -476,40 +577,38 @@ pub const Phase4 = struct {
 
         if (token != .octothorpe) return token;
 
-        const directive_start = loc(self);
-        const directive = try self.previous_phase.next(false);
-        const directive_end = loc(self);
-
         const Directive = std.meta.Tag(@FieldType(Preprocessing.Line, "directive"));
 
-        const directives = std.StaticStringMap(Directive).initComptime(.{
-            .{ "if", .@"if" },
-            .{ "elif", .elif },
-            .{ "else", .@"else" },
-            .{ "endif", .endif },
-            .{ "ifdef", .ifdef },
-            .{ "ifndef", .ifndef },
-            .{ "include", .include },
-            .{ "define", .define },
-            .{ "undef", .undef },
-            .{ "line", .line },
-            .{ "error", .@"error" },
-            .{ "pragma", .pragma },
-        });
+        const directive_start = loc(self);
 
-        const region = resolve(self, directive_start.to(directive_end));
+        const directive: Directive = if (self.previous_phase.previous_phase.consume('\n')) blk: {
+            break :blk .empty;
+        } else blk: {
+            const options: []const Directive = &.{
+                .@"if",
+                .elif,
+                .@"else",
+                .endif,
+                .ifdef,
+                .ifndef,
+                .include,
+                .define,
+                .undef,
+                .line,
+                .@"error",
+                .pragma,
+            };
 
-        const directive_type: Directive = dir: switch (directive) {
-            .newline => .empty,
-
-            .identifier => directives.get(region) orelse continue :dir .eof,
-
-            else => return fail(self, .{ .invalid_preprocessing_directive = .{
-                .directive = start.to(directive_end),
-            } }),
+            break :blk self.previous_phase.requireEnum(Directive, options) orelse unreachable;
         };
 
-        return switch (directive_type) {
+        const directive_end = loc(self);
+
+        _ = start;
+        _ = directive_start;
+        _ = directive_end;
+
+        return switch (directive) {
             .@"if" => @panic("TODO: Handle if"),
             .elif => @panic("TODO: Handle elif"),
             .@"else" => @panic("TODO: Handle else"),
@@ -522,8 +621,7 @@ pub const Phase4 = struct {
             .line => @panic("TODO: Handle line"),
             .@"error" => @panic("TODO: Handle error"),
             .pragma => @panic("TODO: Handle pragma"),
-            // Treat null directive as a newline
-            .empty => .newline,
+            .empty => @panic("TODO: Handle empty"),
         };
     }
 };
