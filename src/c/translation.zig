@@ -529,10 +529,12 @@ pub const Phase3 = struct {
         // to branch as minimally as possible for correctness reasons.
         const map = comptime stripPrefixMap(Variant, options);
 
+        const c = self.previous_phase.next();
+
         inline for (map) |entry| {
             const key, const values = entry;
 
-            if (self.previous_phase.consume(key)) {
+            if (c == key) {
                 return self.requireStrings(Variant, values);
             }
         }
@@ -599,13 +601,14 @@ pub const Phase4 = struct {
                 .pragma,
             };
 
-            break :blk self.previous_phase.requireEnum(Directive, options) orelse unreachable;
+            break :blk self.previous_phase.requireEnum(Directive, options) orelse return fail(self, .{ .invalid_preprocessing_directive = .{
+                .directive = directive_start.to(loc(self)),
+            } });
         };
 
         const directive_end = loc(self);
 
         _ = start;
-        _ = directive_start;
         _ = directive_end;
 
         return switch (directive) {
@@ -621,7 +624,7 @@ pub const Phase4 = struct {
             .line => @panic("TODO: Handle line"),
             .@"error" => @panic("TODO: Handle error"),
             .pragma => @panic("TODO: Handle pragma"),
-            .empty => @panic("TODO: Handle empty"),
+            .empty => .newline,
         };
     }
 };
