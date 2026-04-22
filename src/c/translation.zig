@@ -224,8 +224,8 @@ pub const Phase2 = struct {
     }
 };
 
-/// Implements phase 3, where preprocessing tokenization occurs and comments are
-/// replaced.
+/// Implements phases 3 and 4, where preprocessing tokenization occurs (phase 3)
+/// and where preprocessing directives are expanded (phase 4).
 pub const Phase3 = struct {
     previous_phase: Phase2,
     next_token: ?Preprocessing.Token = null,
@@ -242,10 +242,10 @@ pub const Phase3 = struct {
         if (self.next_token) |token| return token;
 
         const start = loc(self);
-        const token = try self.next();
+        const token = try self.next(false);
 
         self.next_token = token;
-        self.previous_phase.loc = start;
+        self.previous_phase.previous_phase.location = start;
 
         return token;
     }
@@ -425,7 +425,8 @@ pub const Phase3 = struct {
                 if (self.previous_phase.consume('#')) {
                     return .operator_or_punctuator;
                 } else {
-                    return .octothorpe;
+                    try self.readDirective(start);
+                    return self.next(header_name);
                 }
             },
 
@@ -453,6 +454,72 @@ pub const Phase3 = struct {
             0 => .eof,
             else => .other_symbol,
         };
+    }
+
+    fn readDirective(self: *@This(), start: lex.Location) !void {
+        const Directive = std.meta.Tag(@FieldType(Preprocessing.Line, "directive"));
+
+        const directive_start = loc(self);
+
+        const directive: Directive = if (self.previous_phase.consume('\n')) blk: {
+            break :blk .empty;
+        } else blk: {
+            const options: []const Directive = &.{
+                .@"if",
+                .elif,
+                .@"else",
+                .endif,
+                .ifdef,
+                .ifndef,
+                .include,
+                .define,
+                .undef,
+                .line,
+                .@"error",
+                .pragma,
+            };
+
+            break :blk self.requireEnum(Directive, options) orelse return fail(self, .{ .invalid_preprocessing_directive = .{
+                .directive = directive_start.to(loc(self)),
+            } });
+        };
+
+        const directive_end = loc(self);
+
+        _ = directive_end;
+
+        switch (directive) {
+            .@"if" => @panic("TODO: Handle if"),
+            .elif => @panic("TODO: Handle elif"),
+            .@"else" => @panic("TODO: Handle else"),
+            .endif => @panic("TODO: Handle endif"),
+            .ifdef => @panic("TODO: Handle ifdef"),
+            .ifndef => @panic("TODO: Handle ifndef"),
+            .include => @panic("TODO: Handle include"),
+            .define => @panic("TODO: Handle define"),
+            .undef => @panic("TODO: Handle undef"),
+            .line => @panic("TODO: Handle line"),
+            .@"error" => @panic("TODO: Handle error"),
+            .pragma => {
+                while (true) switch (self.previous_phase.peek()) {
+                    '\n', '0' => {
+                        const end = loc(self);
+                        if (!self.previous_phase.consumeMany(.{ '\n', '0' })) unreachable;
+
+                        return fail(self, .{ .pragmas_are_unhandled = .{
+                            .pragma = start.to(end),
+                        } });
+                    },
+                    else => _ = self.previous_phase.next(),
+                };
+                while (!self.previous_phase.consumeMany(.{ '\n', 0 })) {
+                    _ = self.previous_phase.next();
+                }
+            },
+
+            // If empty, do nothing
+            .empty => {},
+        }
     }
 
     /// An option for the comptime algorithm to pick - contains an enum variant
@@ -556,75 +623,5 @@ pub const Phase3 = struct {
         };
 
         return self.requireStrings(Variant, options_flat);
-    }
-};
-
-/// Implements phase 4, where prerprocessing directives are executed.
-/// Instead of parsing and returning lines, this instead directly modifies the
-/// token stream.
-pub const Phase4 = struct {
-    previous_phase: Phase3,
-
-    /// Initializes a new phase 4 parser.
-    pub fn init(src: [:0]const u8) @This() {
-        return .{
-            .previous_phase = Phase3.init(src),
-        };
-    }
-
-    pub fn next(self: *@This()) failure.Err!Preprocessing.Token {
-        const start = loc(self);
-
-        const token: Preprocessing.Token = try self.previous_phase.next(false);
-
-        if (token != .octothorpe) return token;
-
-        const Directive = std.meta.Tag(@FieldType(Preprocessing.Line, "directive"));
-
-        const directive_start = loc(self);
-
-        const directive: Directive = if (self.previous_phase.previous_phase.consume('\n')) blk: {
-            break :blk .empty;
-        } else blk: {
-            const options: []const Directive = &.{
-                .@"if",
-                .elif,
-                .@"else",
-                .endif,
-                .ifdef,
-                .ifndef,
-                .include,
-                .define,
-                .undef,
-                .line,
-                .@"error",
-                .pragma,
-            };
-
-            break :blk self.previous_phase.requireEnum(Directive, options) orelse return fail(self, .{ .invalid_preprocessing_directive = .{
-                .directive = directive_start.to(loc(self)),
-            } });
-        };
-
-        const directive_end = loc(self);
-
-        _ = start;
-        _ = directive_end;
-
-        return switch (directive) {
-            .@"if" => @panic("TODO: Handle if"),
-            .elif => @panic("TODO: Handle elif"),
-            .@"else" => @panic("TODO: Handle else"),
-            .endif => @panic("TODO: Handle endif"),
-            .ifdef => @panic("TODO: Handle ifdef"),
-            .ifndef => @panic("TODO: Handle ifndef"),
-            .include => @panic("TODO: Handle include"),
-            .define => @panic("TODO: Handle define"),
-            .undef => @panic("TODO: Handle undef"),
-            .line => @panic("TODO: Handle line"),
-            .@"error" => @panic("TODO: Handle error"),
-            .pragma => @panic("TODO: Handle pragma"),
-            .empty => .newline,
-        };
     }
 };
