@@ -24,8 +24,6 @@ pub const Preprocessing = struct {
         /// Not an actual preprocessing token; this exists for parsing reasons.
         octothorpe,
         /// Not an actual preprocessing token; this exists for parsing reasons.
-        comment,
-        /// Not an actual preprocessing token; this exists for parsing reasons.
         newline,
         /// Not an actual preprocessing token; this exists for parsing reasons.
         eof,
@@ -442,10 +440,10 @@ pub const Phase3 = struct {
                 }
             },
 
-            '=', '*', '!', '/', '%', '^' => {
-                if (self.previous_phase.consume('*')) {
+            '=', '*', '!', '/', '%', '^' => |c| {
+                if (c == '/' and self.previous_phase.consume('*')) {
                     while (true) switch (self.previous_phase.next()) {
-                        '*' => if (self.previous_phase.consume('/')) return .comment,
+                        '*' => if (self.previous_phase.consume('/')) return .whitespace,
                         0 => return fail(self, .{
                             .unclosed_comment = .{
                                 .comment_region = start.to(loc(self)),
