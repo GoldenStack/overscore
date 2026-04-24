@@ -140,9 +140,9 @@ pub const Phase1 = struct {
         }
 
         // Two question marks in a row - try for a trigraph.
-        if (char == '?' and self.peek() == '?') {
+        if (char == '?' and self.peek() == '?') trigraph: {
             // Breaks our rule of 1-character lookahead, but this is fine.
-            const trigraph: ?u8 = switch (self.src[self.location.pos + 1]) {
+            const trigraph: u8 = switch (self.src[self.location.pos + 1]) {
                 '=' => '#',
                 '(' => '[',
                 '/' => '\\',
@@ -152,16 +152,14 @@ pub const Phase1 = struct {
                 '!' => '|',
                 '>' => '}',
                 '-' => '~',
-                else => null,
+                else => break :trigraph,
             };
 
-            if (trigraph) |new_char| {
-                // We could use [self.next()] for this, but we know it will
-                // never trigger any logic except for increasing the position,
-                // so it may as well be done here.
-                self.location.pos += 2;
-                return new_char;
-            }
+            // We could use [self.next()] for this, but we know it will
+            // never trigger any logic except for increasing the position,
+            // so it may as well be done here.
+            self.location.pos += 2;
+            return trigraph;
         }
 
         return char;
