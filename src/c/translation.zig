@@ -625,18 +625,6 @@ pub const Phase3 = struct {
 
         _ = directive_end;
 
-        // the difference is that if we skip whitespace then it's kinda cooked
-        // because when we can return the next character it technically means we
-        // get another character of lookahead, allowing us to read comments
-        // so i think comments should be removed when we're still at the
-        // character level
-
-        // the issue is that we can't really do anything at token-level or it
-        // requires re-parsing, so we kind of have to promote _everything_ to
-        // character-level parsing... this would be rather annoying...
-
-        // there should be something to return a token w/ a capture function...
-
         return switch (directive) {
             .@"if" => @panic("TODO: Handle if"),
             .elif => @panic("TODO: Handle elif"),
