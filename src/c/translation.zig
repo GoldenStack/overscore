@@ -286,8 +286,7 @@ pub const Phase2 = struct {
     }
 };
 
-/// Implements phases 3 and 4, where preprocessing tokenization occurs (phase 3)
-/// and where preprocessing directives are expanded (phase 4).
+/// Implements phase 3, where preprocessing tokenization occurs.
 pub const Phase3 = struct {
     previous_phase: Phase2,
     next_token: ?Preprocessing.Token = null,
@@ -569,10 +568,7 @@ pub const Phase3 = struct {
             '%' => if (self.previous_phase.consume('=', false)) .op_percent_eq else .op_percent,
             '^' => if (self.previous_phase.consume('=', false)) .op_caret_eq else .op_caret,
 
-            '#' => if (self.previous_phase.consume('#', false)) .op_octothorpe_octothorpe else {
-                try self.readDirective(start);
-                return self.next(header_name);
-            },
+            '#' => if (self.previous_phase.consume('#', false)) .op_octothorpe_octothorpe else .op_octothorpe,
 
             '[' => .op_opening_square_bracket,
             ']' => .op_closing_square_bracket,
@@ -591,167 +587,5 @@ pub const Phase3 = struct {
                 .unexpected = start.to(loc(self)),
             } }),
         };
-    }
-
-    fn readDirective(self: *@This(), start: lex.Location) !void {
-        const Directive = std.meta.Tag(@FieldType(Preprocessing.Line, "directive"));
-
-        const directive_start = loc(self);
-
-        const directive: Directive = if (self.previous_phase.consume('\n', false)) blk: {
-            break :blk .empty;
-        } else blk: {
-            const options: []const Directive = &.{
-                .@"if",
-                .elif,
-                .@"else",
-                .endif,
-                .ifdef,
-                .ifndef,
-                .include,
-                .define,
-                .undef,
-                .line,
-                .@"error",
-                .pragma,
-            };
-
-            break :blk self.requireEnum(Directive, options) orelse return fail(self, .{ .invalid_preprocessing_directive = .{
-                .directive = directive_start.to(loc(self)),
-            } });
-        };
-
-        const directive_end = loc(self);
-
-        _ = directive_end;
-
-        return switch (directive) {
-            .@"if" => @panic("TODO: Handle if"),
-            .elif => @panic("TODO: Handle elif"),
-            .@"else" => @panic("TODO: Handle else"),
-            .endif => @panic("TODO: Handle endif"),
-            .ifdef => @panic("TODO: Handle ifdef"),
-            .ifndef => @panic("TODO: Handle ifndef"),
-            .include => @panic("TODO: Handle include"),
-            .define => @panic("TODO: Handle define"),
-            .undef => @panic("TODO: Handle undef"),
-            .line => @panic("TODO: Handle line"),
-
-            // Error on the error directive
-            .@"error" => fail(self, .{ .error_directive = .{
-                .message = start.to(self.readUntilNewlineOrEOF()),
-            } }),
-
-            // Error when pragmas are set
-            .pragma => fail(self, .{ .pragmas_are_unhandled = .{
-                .pragma = start.to(self.readUntilNewlineOrEOF()),
-            } }),
-
-            // If empty, do nothing
-            .empty => {},
-        };
-    }
-
-    /// An option for the comptime algorithm to pick - contains an enum variant
-    /// and the remaining string of the variant.
-    fn Option(Variant: type) type {
-        return struct {
-            variant: Variant,
-            value: []const u8,
-        };
-    }
-
-    /// A character entry, containing a key and the list of variants that map to
-    /// it.
-    fn Entry(Variant: type) type {
-        return struct { u8, []const Option(Variant) };
-    }
-
-    /// Initializes a list of variants for the given options, all containing
-    /// empty values.
-    fn initVariants(comptime Variant: type, comptime options: []const Option(Variant)) []Entry(Variant) {
-        comptime var prefixes: []const u8 = &.{};
-
-        for (options) |option| {
-            for (prefixes) |prefix| {
-                if (prefix == option.value[0]) break;
-            } else prefixes = prefixes ++ .{option.value[0]};
-        }
-
-        comptime var map: [prefixes.len]Entry(Variant) = undefined;
-
-        for (0.., prefixes) |index, prefix| {
-            map[index] = .{
-                prefix, &.{},
-            };
-        }
-
-        return &map;
-    }
-
-    /// Assembles, from a list of options, a map from each character to the list
-    /// of options with the (stripped) character that prefixes it.
-    fn stripPrefixMap(comptime Variant: type, comptime options: []const Option(Variant)) []const Entry(Variant) {
-        comptime var map: []Entry(Variant) = initVariants(Variant, options);
-
-        for (options) |option| {
-            const head = option.value[0];
-
-            const tail: Option(Variant) = .{
-                .variant = option.variant,
-                .value = option.value[1..],
-            };
-
-            for (0.., map) |index, item| {
-                if (item[0] == head) {
-                    map[index][1] = item[1] ++ .{tail};
-                    break;
-                }
-            } else unreachable;
-        }
-
-        return map;
-    }
-
-    /// Requires one of the list of variants from the given array of variants.
-    fn requireStrings(self: *@This(), comptime Variant: type, comptime options: []const Option(Variant)) ?Variant {
-        // Handle and return zero-length strings, signaling a terminal
-        // This should be checked first to ensure minimal recursion.
-        inline for (options) |option| {
-            if (comptime option.value.len == 0) return option.variant;
-        }
-
-        // Next, assemble the (comptime) map of the next strings to check.
-        // This must be done in batches instead of iteratively because we need
-        // to branch as minimally as possible for correctness reasons.
-        const map = comptime stripPrefixMap(Variant, options);
-
-        const c = self.previous_phase.next(false);
-
-        inline for (map) |entry| {
-            const key, const values = entry;
-
-            if (c == key) {
-                return self.requireStrings(Variant, values);
-            }
-        }
-
-        // If nothing could be fully matched and nothing could be partially
-        // matched, we just fail.
-        return null;
-    }
-
-    /// Given a list of enum variants, requires that one of them is next.
-    pub fn requireEnum(self: *@This(), comptime Variant: type, comptime options: []const Variant) ?Variant {
-        comptime var options_flat: []const Option(Variant) = &.{};
-
-        comptime for (options) |option| {
-            options_flat = options_flat ++ .{Option(Variant){
-                .variant = option,
-                .value = @tagName(option),
-            }};
-        };
-
-        return self.requireStrings(Variant, options_flat);
     }
 };
