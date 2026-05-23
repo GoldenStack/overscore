@@ -393,7 +393,7 @@ pub const Phase3 = struct {
 
             '_', 'a'...'z', 'A'...'Z' => {
                 while (true) switch (self.previous_phase.peek()) {
-                    '_', 'a'...'z', '0'...'9', 'A'...'Z' => _ = try self.next(true),
+                    '_', 'a'...'z', '0'...'9', 'A'...'Z' => _ = self.previous_phase.next(true),
                     else => return .identifier,
                 };
             },
