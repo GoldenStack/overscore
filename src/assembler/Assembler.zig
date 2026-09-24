@@ -65,7 +65,7 @@ const Instruction = union(enum) {
     }
 
     pub fn opcode(self: @This()) Cpu.Opcode {
-        // Incredibly janky lol. We get the opcode name and then comptime string
+        // Incredibly janky. We get the opcode name and then comptime string
         // append the levels of indirection, but because the `inline else`
         // runtime-to-comptime trick doesn't work on tuples, we just handle
         // binary and unary manually.
