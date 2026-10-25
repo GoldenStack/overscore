@@ -452,6 +452,7 @@ pub const Tokenizer = struct {
             ';' => .semicolon,
             ',' => .comma,
 
+            // TODO: "each non-white-space character that cannot be one of the above" is technically valid.
             else => failure.fail(self, .{ .unexpected_character = .{
                 .unexpected = .{
                     .start = start,
