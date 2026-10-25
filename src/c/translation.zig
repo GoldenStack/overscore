@@ -247,6 +247,7 @@ pub const Phase2 = struct {
         const char = self.previous_phase.next();
         self.next_char = null;
 
+        // TODO: Enforce newline at the end of each file unless it is empty.
         if (char == '\\' and self.previous_phase.peek() == '\n') {
             _ = self.previous_phase.next();
             return self.next(save_in_buffer);
