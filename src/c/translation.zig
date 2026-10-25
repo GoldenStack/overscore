@@ -73,6 +73,8 @@ pub const Preprocessing = struct {
         op_colon,
         op_semicolon,
         op_comma,
+
+        misc,
     };
 
     /// A flat line-based data structure for preprocessing. This omits any
@@ -584,8 +586,10 @@ pub const Phase3 = struct {
             ',' => .op_comma,
 
             0 => .eof,
-            // TODO: "each non-white-space character that cannot be one of the above" is technically valid.
-            else => fail(self, .{ .unexpected_character = .{
+
+            else => |c| if (std.ascii.isAscii(c)) {
+                return .misc;
+            } else return fail(self, .{ .unexpected_character = .{
                 .unexpected = start.to(loc(self)),
             } }),
         };
