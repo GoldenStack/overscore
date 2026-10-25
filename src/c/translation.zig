@@ -584,6 +584,7 @@ pub const Phase3 = struct {
             ',' => .op_comma,
 
             0 => .eof,
+            // TODO: "each non-white-space character that cannot be one of the above" is technically valid.
             else => fail(self, .{ .unexpected_character = .{
                 .unexpected = start.to(loc(self)),
             } }),
